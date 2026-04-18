@@ -1,0 +1,19 @@
+{
+  "name": "mu-coding",
+  "version": "0.1.0",
+  "description": "Minimal terminal AI assistant for local models",
+  "type": "module",
+  "bin": {
+    "mu": "./bin/mu.js"
+  },
+  "scripts": {
+    "dev": "bun --watch bin/mu.js",
+    "start": "bun bin/mu.js"
+  },
+  "dependencies": {
+    "ink": "^7.0.1",
+    "mu-agents": "workspace:*",
+    "mu-provider": "workspace:*",
+    "react": "^19.2.5"
+  }
+}
