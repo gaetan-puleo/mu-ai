@@ -2,8 +2,11 @@ import { Box, type DOMElement as InkDOMElement } from 'ink';
 import type { StatusSegment } from 'mu-agents';
 import { useEffect, useState } from 'react';
 import { useChatContext } from '../../context/chat';
+import type { InkUIService, ToastRequest } from '../../services/uiService';
 import { MessageView, StatusBar } from '../chatLayout';
 import { InputBox } from '../inputBox';
+import { DialogLayer } from '../ui/dialogLayer';
+import { ToastContainer, useToast } from '../ui/toast';
 import { Pickers } from './Pickers';
 
 interface LayoutProps {
@@ -19,9 +22,24 @@ interface LayoutProps {
   onScrollDown: () => void;
 }
 
-export function ChatPanelBody(props: LayoutProps) {
+const TOAST_LEVEL_COLORS: Record<string, string> = {
+  info: 'cyan',
+  success: 'green',
+  warning: 'yellow',
+  error: 'red',
+};
+
+export function ChatPanelBody(props: LayoutProps & { uiService?: InkUIService }) {
   const { session, models, abort, registry } = useChatContext();
   const [pluginStatus, setPluginStatus] = useState<StatusSegment[]>([]);
+  const { toasts, show, dismiss } = useToast();
+
+  useEffect(() => {
+    if (!props.uiService) return;
+    props.uiService.onToast((toast: ToastRequest) => {
+      show(toast.message, TOAST_LEVEL_COLORS[toast.level] ?? 'white');
+    });
+  }, [props.uiService, show]);
 
   useEffect(() => {
     const refresh = () => setPluginStatus(registry.getStatusSegments());
@@ -62,6 +80,8 @@ export function ChatPanelBody(props: LayoutProps) {
         pluginStatus={pluginStatus}
       />
       <Pickers />
+      {props.uiService && <DialogLayer service={props.uiService} />}
+      <ToastContainer toasts={toasts} onDismiss={dismiss} />
     </Box>
   );
 }

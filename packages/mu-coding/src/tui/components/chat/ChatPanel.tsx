@@ -5,6 +5,7 @@ import { useRef } from 'react';
 import { ChatContext } from '../../context/chat';
 import { useScroll } from '../../hooks/useScroll';
 import { useMeasure, useTerminalSize } from '../../hooks/useTerminal';
+import type { InkUIService } from '../../services/uiService';
 import { useChat } from '../../useChat';
 import { ChatPanelBody } from './ChatPanelBody';
 
@@ -12,10 +13,12 @@ export function ChatPanel({
   config,
   initialMessages,
   registry,
+  uiService,
 }: {
   config: ProviderConfig;
   initialMessages?: ChatMessage[];
   registry: PluginRegistry;
+  uiService?: InkUIService;
 }) {
   const ctx = useChat(config, registry, initialMessages);
   const { width, height } = useTerminalSize();
@@ -49,6 +52,7 @@ export function ChatPanel({
         isActive={!anyModalOpen}
         onScrollUp={onScrollUp}
         onScrollDown={onScrollDown}
+        uiService={uiService}
       />
     </ChatContext.Provider>
   );

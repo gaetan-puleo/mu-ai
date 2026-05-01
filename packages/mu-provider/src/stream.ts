@@ -132,7 +132,7 @@ export async function* streamChat(
     throw new Error(`API error ${res.status}: ${errorText.slice(0, 500)}`);
   }
 
-  const reader = res.body!.getReader();
+  const reader = res.body?.getReader();
   let usage: Usage | undefined;
   const toolCalls: Record<number, { id: string; name: string; arguments: string }> = {};
 

@@ -1,4 +1,5 @@
 import { type Key, useInput, useStdin } from 'ink';
+import type { SlashCommand as PluginSlashCommand } from 'mu-agents';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { matchCommands, type SlashCommand } from '../commands';
 
@@ -30,6 +31,7 @@ interface UseInputHandlerOptions {
   history: string[];
   actions: InputActions;
   onSubmit: (text: string) => void;
+  pluginCommands?: PluginSlashCommand[];
 }
 
 // Build a stable key identifier from an Ink key event
@@ -199,14 +201,25 @@ function handleInsert(input: string, c: BindingCtx) {
   }
 }
 
+function executeCommand(cmd: SlashCommand, args: string, actions: InputActions): void {
+  if (cmd.execute) {
+    cmd.execute(args);
+  } else if (cmd.action) {
+    const actionKey = COMMAND_ACTIONS[cmd.action];
+    if (actionKey) {
+      (actions[actionKey] as (() => void) | undefined)?.();
+    }
+  }
+}
+
 export function useInputHandler(options: UseInputHandlerOptions): InputState {
-  const { isActive, streaming, history, actions, onSubmit } = options;
+  const { isActive, streaming, history, actions, onSubmit, pluginCommands } = options;
   const [value, setValue] = useState('');
   const [cmdIndex, setCmdIndex] = useState(0);
   const nav = useHistoryNavigation(value, history);
   const backspaceHandledRef = useRawBackspace(isActive, setValue);
 
-  const commands = useMemo(() => matchCommands(value.trim()), [value]);
+  const commands = useMemo(() => matchCommands(value.trim(), pluginCommands), [value, pluginCommands]);
   const isCommandMode = commands.length > 0 && value.trim().startsWith('/');
 
   const submit = useCallback(() => {
@@ -216,11 +229,9 @@ export function useInputHandler(options: UseInputHandlerOptions): InputState {
     if (isCommandMode) {
       const cmd = commands[cmdIndex];
       if (cmd) {
+        const args = value.trim().slice(cmd.name.length).trim();
         setValue('');
-        const actionKey = COMMAND_ACTIONS[cmd.action];
-        if (actionKey) {
-          (actions[actionKey] as (() => void) | undefined)?.();
-        }
+        executeCommand(cmd, args, actions);
       }
       return;
     }

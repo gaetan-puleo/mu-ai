@@ -103,7 +103,7 @@ export function InputBox({
   model = '',
   history = [],
 }: InputBoxProps) {
-  const { session, toggles, attachment, models, abort } = useChatContext();
+  const { session, toggles, attachment, models, abort, registry } = useChatContext();
 
   const actions: InputActions = {
     onCtrlC: abort.onCtrlC,
@@ -124,6 +124,7 @@ export function InputBox({
     history,
     actions,
     onSubmit,
+    pluginCommands: registry.getCommands(),
   });
 
   return (

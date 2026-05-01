@@ -12,12 +12,14 @@ function printHelp(): never {
   console.log(`mu — minimal terminal AI assistant
 
 Usage:
-  mu                  Start interactive chat
-  mu -p "prompt"      Single-shot prompt, then exit
-  mu -m model -p "p"  Single-shot with specific model
-  mu -m model         Interactive with specific model
-  mu -c               Continue most recent session
-  mu --session <path> Resume a specific session file
+  mu                        Start interactive chat
+  mu -p "prompt"            Single-shot prompt, then exit
+  mu -m model -p "p"        Single-shot with specific model
+  mu -m model               Interactive with specific model
+  mu -c                     Continue most recent session
+  mu --session <path>       Resume a specific session file
+  mu install npm:<package>  Install a plugin from npm
+  mu uninstall npm:<pkg>    Remove an installed plugin
 
 Config (XDG):
   ~/.config/mu/config.json  — configuration (baseUrl, model, streamTimeoutMs)
