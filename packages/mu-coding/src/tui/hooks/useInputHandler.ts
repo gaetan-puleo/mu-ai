@@ -12,6 +12,7 @@ export interface InputActions {
   onCycleModel?: () => void;
   onTogglePicker?: () => void;
   onToggleSessionPicker?: () => void;
+
   onEsc?: () => void;
   onScrollUp?: () => void;
   onScrollDown?: () => void;
