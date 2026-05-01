@@ -50,7 +50,10 @@ export function useAbort(
     }
     if (onCtrlC()) {
       exit();
-      setTimeout(() => process.exit(0), 100);
+      setTimeout(() => {
+        process.stdout.write('\x1b[<u');
+        process.exit(0);
+      }, 100);
     }
   }, [streaming, onCtrlC, exit, controllerRef]);
 
