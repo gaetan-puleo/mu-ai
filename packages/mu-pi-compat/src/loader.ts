@@ -1,20 +1,19 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import type { PluginContext } from 'mu-agents';
+import type { PluginContext, UIService } from 'mu-agents';
+import { getDataDir } from 'mu-coding/paths';
 import { PiShim } from './shim';
-import type { PiCompatConfig, PiExtensionFactory, UIService } from './types';
+import type { PiCompatConfig, PiExtensionFactory } from './types';
 
-/**
- * XDG data directory for mu — npm packages installed via `mu install` live here.
- */
-function getDataDir(): string {
-  return process.env.XDG_DATA_HOME ? join(process.env.XDG_DATA_HOME, 'mu') : join(homedir(), '.local', 'share', 'mu');
-}
+export type ShutdownFn = (code?: number) => Promise<void> | void;
 
 /**
  * Load a single Pi extension from a file path or npm: specifier.
  * Bun handles TypeScript imports natively — no jiti needed.
+ *
+ * The XDG data directory (where `mu install npm:<pkg>` puts plugins) is shared
+ * with mu-coding via the `mu-coding/paths` subpath so the two packages can
+ * never disagree about resolution.
  */
 function formatError(entry: string, err: unknown): string {
   const parts: string[] = [`Extension "${entry}" failed to load`];
@@ -89,6 +88,7 @@ async function loadModuleAsExtension(
   label: string,
   ctx: PluginContext,
   ui: UIService,
+  shutdown?: ShutdownFn,
 ): Promise<PiShim> {
   const factory: PiExtensionFactory = (mod.default ?? mod) as PiExtensionFactory;
 
@@ -97,7 +97,7 @@ async function loadModuleAsExtension(
     throw new Error(`"${label}" does not export a default function. Exports: [${exportKeys}]`);
   }
 
-  const shim = new PiShim(ctx, ui);
+  const shim = new PiShim(ctx, ui, shutdown);
   try {
     await factory(shim);
   } catch (err) {
@@ -106,13 +106,18 @@ async function loadModuleAsExtension(
   return shim;
 }
 
-export async function loadExtension(entry: string, ctx: PluginContext, ui: UIService): Promise<PiShim[]> {
+export async function loadExtension(
+  entry: string,
+  ctx: PluginContext,
+  ui: UIService,
+  shutdown?: ShutdownFn,
+): Promise<PiShim[]> {
   if (entry.startsWith('npm:')) {
     const paths = resolveNpmExtensionPaths(entry);
     const shims: PiShim[] = [];
     for (const extPath of paths) {
       const mod = await importModule(extPath, entry);
-      const shim = await loadModuleAsExtension(mod, entry, ctx, ui);
+      const shim = await loadModuleAsExtension(mod, entry, ctx, ui, shutdown);
       shims.push(shim);
     }
     return shims;
@@ -123,7 +128,7 @@ export async function loadExtension(entry: string, ctx: PluginContext, ui: UISer
     throw new Error(`Extension file not found: ${resolved}`);
   }
   const mod = await importModule(resolved, entry);
-  const shim = await loadModuleAsExtension(mod, entry, ctx, ui);
+  const shim = await loadModuleAsExtension(mod, entry, ctx, ui, shutdown);
   return [shim];
 }
 
@@ -134,7 +139,7 @@ export async function loadExtension(entry: string, ctx: PluginContext, ui: UISer
  * - Direct file paths (.ts files)
  * - Directories (looks for index.ts or *.ts files)
  */
-export function resolveExtensionEntries(config: PiCompatConfig): string[] {
+export function resolveExtensionEntries(config: PiCompatConfig, ui?: UIService): string[] {
   const entries: string[] = [];
 
   if (!config.extensions?.length) return entries;
@@ -149,7 +154,7 @@ export function resolveExtensionEntries(config: PiCompatConfig): string[] {
     const resolved = resolve(entry.replace(/^~/, process.env.HOME ?? ''));
 
     if (!existsSync(resolved)) {
-      console.warn(`[mu-pi-compat] Extension path not found: ${entry}`);
+      ui?.notify(`Extension path not found: ${entry}`, 'warning');
       continue;
     }
 
@@ -179,13 +184,18 @@ export function resolveExtensionEntries(config: PiCompatConfig): string[] {
 /**
  * Load all Pi extensions from resolved entries (file paths and npm: specifiers).
  */
-export async function loadAllExtensions(config: PiCompatConfig, ctx: PluginContext, ui: UIService): Promise<PiShim[]> {
-  const entries = resolveExtensionEntries(config);
+export async function loadAllExtensions(
+  config: PiCompatConfig,
+  ctx: PluginContext,
+  ui: UIService,
+  shutdown?: ShutdownFn,
+): Promise<PiShim[]> {
+  const entries = resolveExtensionEntries(config, ui);
   const shims: PiShim[] = [];
 
   for (const entry of entries) {
     try {
-      const loaded = await loadExtension(entry, ctx, ui);
+      const loaded = await loadExtension(entry, ctx, ui, shutdown);
       shims.push(...loaded);
     } catch (err) {
       ui.notify(formatError(entry, err), 'error');

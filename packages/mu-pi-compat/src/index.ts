@@ -1,8 +1,15 @@
-import type { Plugin, PluginContext, PluginTool, SlashCommand, StatusSegment } from 'mu-agents';
+import {
+  ConsoleUIService,
+  type Plugin,
+  type PluginContext,
+  type PluginTool,
+  type SlashCommand,
+  type UIService,
+} from 'mu-agents';
 import { createCompatHooks } from './hooks';
 import { loadAllExtensions } from './loader';
 import type { PiShim } from './shim';
-import { ConsoleUIService, type PiCompatConfig, type UIService } from './types';
+import type { PiCompatConfig } from './types';
 
 export type { PiCompatConfig, UIService } from './types';
 export { ConsoleUIService } from './types';
@@ -24,7 +31,6 @@ export { ConsoleUIService } from './types';
 export default function createPiCompatPlugin(config?: PiCompatConfig): Plugin {
   let extensions: PiShim[] = [];
   const cfg = config ?? {};
-  const ui: UIService = cfg.ui ?? new ConsoleUIService();
 
   const state = { turnIndex: 0, isFirstTurnOfAgent: true };
   const hooks = createCompatHooks(() => extensions, state);
@@ -58,12 +64,14 @@ export default function createPiCompatPlugin(config?: PiCompatConfig): Plugin {
         .join('\n\n');
     },
 
-    statusLine(): StatusSegment[] {
-      return extensions.flatMap((ext) => ext.statusSegments);
-    },
-
     async activate(ctx: PluginContext) {
-      extensions = await loadAllExtensions(cfg, ctx, ui);
+      // Host-context fallbacks let the Pi-compat plugin work either as a
+      // direct registration (host injects ui/shutdown via PluginContext) or
+      // as a configured plugin (host injects via PiCompatConfig).
+      const ui: UIService = cfg.ui ?? ctx.ui ?? new ConsoleUIService();
+      const shutdown = cfg.shutdown ?? ctx.shutdown;
+
+      extensions = await loadAllExtensions(cfg, ctx, ui, shutdown);
 
       if (extensions.length > 0) {
         for (const ext of extensions) {

@@ -1,45 +1,9 @@
 import type { TSchema } from '@sinclair/typebox';
+import type { UIService } from 'mu-agents';
 
-/**
- * UIService interface — implemented by mu-coding's InkUIService.
- * Passed to the compat plugin via config at registration time.
- */
-export interface UIService {
-  notify: (message: string, level?: 'info' | 'success' | 'warning' | 'error') => void;
-  confirm: (title: string, message: string) => Promise<boolean>;
-  select: (title: string, options: string[]) => Promise<string | null>;
-  input: (title: string, placeholder?: string) => Promise<string | null>;
-  setStatus: (key: string, text: string) => void;
-  clearStatus: (key: string) => void;
-}
-
-/**
- * Fallback UIService for non-interactive (single-shot) mode.
- */
-export class ConsoleUIService implements UIService {
-  notify(message: string, level?: string): void {
-    const prefix = level === 'error' ? '[ERROR]' : level === 'warning' ? '[WARN]' : '[INFO]';
-    console.error(`${prefix} ${message}`);
-  }
-  async confirm(_title: string, message: string): Promise<boolean> {
-    console.error(`[CONFIRM] ${message} (auto-accepting in non-interactive mode)`);
-    return true;
-  }
-  async select(_title: string, options: string[]): Promise<string | null> {
-    console.error('[SELECT] Auto-selecting first option in non-interactive mode');
-    return options[0] ?? null;
-  }
-  async input(_title: string, _placeholder?: string): Promise<string | null> {
-    console.error('[INPUT] Cannot prompt in non-interactive mode');
-    return null;
-  }
-  setStatus(_key: string, _text: string): void {
-    /* no-op in console mode */
-  }
-  clearStatus(_key: string): void {
-    /* no-op in console mode */
-  }
-}
+// Re-exported from mu-agents so existing consumers of `mu-pi-compat` can keep
+// importing `UIService` / `ConsoleUIService` from here.
+export { ConsoleUIService, type UIService } from 'mu-agents';
 
 // ─── Pi Extension API Types ────────────────────────────────────────────────────
 
@@ -296,4 +260,11 @@ export interface PiCompatConfig {
   extensions?: string[];
   /** UIService implementation (passed from mu-coding) */
   ui?: UIService;
+  /**
+   * Host-supplied graceful shutdown. When a Pi extension calls
+   * `ctx.shutdown()`, the compat layer routes through this so the host can
+   * deactivate plugins and restore terminal state. Falls back to
+   * `process.exit(0)` only when no host shutdown is configured.
+   */
+  shutdown?: (code?: number) => Promise<void> | void;
 }

@@ -1,4 +1,5 @@
 import { Box, Text } from 'ink';
+import { ToolHeader } from './ToolHeader';
 
 const PREVIEW_LINES = 30;
 
@@ -9,21 +10,22 @@ interface WriteOutputProps {
   expanded: boolean;
 }
 
-export function WriteOutput({ args, content, error, expanded }: WriteOutputProps) {
-  let path = '(unknown)';
+function parsePath(args: string): string {
   try {
     const parsed = JSON.parse(args);
-    path = parsed.path ?? '(unknown)';
+    return parsed.path ?? '(unknown)';
   } catch {
-    // ignore
+    return '(unknown)';
   }
+}
+
+export function WriteOutput({ args, content, error, expanded }: WriteOutputProps) {
+  const path = parsePath(args);
 
   if (error) {
     return (
       <Box flexDirection="column" flexShrink={0} marginBottom={1}>
-        <Text color="red" bold={true}>
-          ✗ write_file
-        </Text>
+        <ToolHeader name="write_file" error={true} />
         <Text dimColor={true} wrap="wrap">
           {content}
         </Text>
@@ -35,32 +37,20 @@ export function WriteOutput({ args, content, error, expanded }: WriteOutputProps
   const totalLines = lines.length;
   const preview = lines.slice(0, PREVIEW_LINES).join('\n');
   const hasMore = totalLines > PREVIEW_LINES;
+  const showFull = expanded || !hasMore;
 
   return (
     <Box flexDirection="column" flexShrink={0} marginBottom={1}>
-      <Text color="green" bold={true}>
-        ✓ write_file
-      </Text>
-      <Text dimColor={true}> {path}</Text>
+      <ToolHeader name="write_file" subtitle={path} />
       <Box flexDirection="column" flexShrink={0}>
         <Text dimColor={true}>
           {totalLines} line{totalLines !== 1 ? 's' : ''}
         </Text>
         <Box flexDirection="column" flexShrink={0}>
           <Text dimColor={true} wrap="wrap">
-            {expanded ? content : preview}
+            {showFull ? content : preview}
           </Text>
           {hasMore && !expanded && <Text dimColor={true}>… ({totalLines - PREVIEW_LINES} more lines)</Text>}
-          {!expanded && (
-            <Box>
-              <Text color="cyan"> [Enter] show more </Text>
-            </Box>
-          )}
-          {expanded && (
-            <Box>
-              <Text color="cyan"> [Enter] show less </Text>
-            </Box>
-          )}
         </Box>
       </Box>
     </Box>

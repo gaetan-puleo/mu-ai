@@ -61,6 +61,11 @@ export const readFileTool: PluginTool = {
       },
     },
   },
+  display: {
+    verb: 'reading',
+    kind: 'file-read',
+    fields: { path: 'path', start: 'start', end: 'end' },
+  },
   execute(args) {
     const paths = Array.isArray(args.path) ? (args.path as string[]) : [args.path as string];
     const start = args.start as number | undefined;

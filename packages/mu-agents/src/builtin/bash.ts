@@ -95,5 +95,10 @@ export const bashTool: PluginTool = {
       },
     },
   },
+  display: {
+    verb: 'running',
+    kind: 'shell',
+    fields: { command: 'command' },
+  },
   execute: executeBash,
 };

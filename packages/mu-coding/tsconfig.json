@@ -5,6 +5,6 @@
     "rootDir": "src"
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"],
-  "references": [{ "path": "../mu-provider" }, { "path": "../mu-agents" }, { "path": "../mu-repomap" }]
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/**/*.test.tsx"],
+  "references": [{ "path": "../mu-provider" }, { "path": "../mu-agents" }]
 }

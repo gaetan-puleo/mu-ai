@@ -1,43 +1,48 @@
 import { Box, Text } from 'ink';
+import { ToolHeader } from './ToolHeader';
 
 interface ReadOutputProps {
   args: string;
   error: boolean;
 }
 
-export function ReadOutput({ args, error }: ReadOutputProps) {
-  let paths: string[] = ['(unknown)'];
-  let startLine: number | undefined;
-  let endLine: number | undefined;
+interface ReadArgs {
+  paths: string[];
+  startLine?: number;
+  endLine?: number;
+}
 
+function parseReadArgs(args: string): ReadArgs {
   try {
     const parsed = JSON.parse(args);
     const p = parsed.path;
-    paths = Array.isArray(p) ? p : [p];
-    startLine = parsed.start;
-    endLine = parsed.end;
+    return {
+      paths: Array.isArray(p) ? p : [p ?? '(unknown)'],
+      startLine: typeof parsed.start === 'number' ? parsed.start : undefined,
+      endLine: typeof parsed.end === 'number' ? parsed.end : undefined,
+    };
   } catch {
-    // ignore
+    return { paths: ['(unknown)'] };
   }
+}
 
+export function ReadOutput({ args, error }: ReadOutputProps) {
+  const { paths, startLine, endLine } = parseReadArgs(args);
   const rangeLabel = startLine != null && endLine != null ? ` (lines ${startLine}-${endLine})` : '';
+  const subtitle = paths.length === 1 ? `${paths[0]}${rangeLabel}` : `${paths.length} files${rangeLabel}`;
 
   return (
     <Box flexDirection="column" flexShrink={0} marginBottom={1}>
-      <Text dimColor={true} wrap="wrap">
-        <Text color={error ? 'red' : 'green'} bold={true}>
-          {error ? '✗' : '✓'} read_file
-        </Text>{' '}
-        {paths.length > 1 ? `(${paths.length} files)` : ''}
-        {paths.length > 1 ? '\n' : ''}
-        {paths.map((p) => (
-          <Text key={p} dimColor={true} wrap="wrap">
-            {paths.length > 1 ? '  • ' : ''}
-            {p}
-          </Text>
-        ))}
-        {rangeLabel}
-      </Text>
+      <ToolHeader name="read_file" subtitle={subtitle} error={error} />
+      {paths.length > 1 && (
+        <Box flexDirection="column" flexShrink={0}>
+          {paths.map((p) => (
+            <Text key={p} dimColor={true} wrap="wrap">
+              {`  • ${p}`}
+            </Text>
+          ))}
+        </Box>
+      )}
     </Box>
   );
 }

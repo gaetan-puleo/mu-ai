@@ -8,14 +8,39 @@ import type {
   SlashCommand,
   StatusSegment,
 } from './plugin';
+import type { UIService } from './ui';
 
+type StatusListener = () => void;
+
+export interface PluginRegistryOptions {
+  cwd: string;
+  config: Record<string, unknown>;
+  /** Host-supplied UI service. Forwarded to every plugin via `PluginContext.ui`. */
+  ui?: UIService;
+  /** Host-supplied graceful shutdown. Forwarded via `PluginContext.shutdown`. */
+  shutdown?: (code?: number) => Promise<void> | void;
+}
+
+/**
+ * Owns plugin lifecycle, dispatch, and aggregated state.
+ *
+ * Plugin loading from a path is deliberately NOT a registry concern — host
+ * applications (mu-coding, mu-pi-compat) implement their own loaders and call
+ * `register()` directly. This keeps the registry focused on lifecycle/dispatch
+ * and free of file-system / module-resolution dependencies.
+ */
 export class PluginRegistry {
   private plugins: Map<string, Plugin> = new Map();
   private context: PluginContext;
+  private statusSegmentsByPlugin: Map<string, StatusSegment[]> = new Map();
+  private statusListeners: Set<StatusListener> = new Set();
 
-  constructor(context: PluginContext) {
+  constructor(options: PluginRegistryOptions) {
     this.context = {
-      ...context,
+      cwd: options.cwd,
+      config: options.config,
+      ui: options.ui,
+      shutdown: options.shutdown,
       getPlugin: <T extends Plugin>(name: string) => this.plugins.get(name) as T | undefined,
     };
   }
@@ -26,7 +51,13 @@ export class PluginRegistry {
     }
     this.plugins.set(plugin.name, plugin);
     if (plugin.activate) {
-      await plugin.activate(this.context);
+      // Per-plugin context with a setStatusLine bound to this plugin's name so
+      // segments from one plugin can never overwrite another's.
+      const pluginContext: PluginContext = {
+        ...this.context,
+        setStatusLine: (segments) => this.setStatusLine(plugin.name, segments),
+      };
+      await plugin.activate(pluginContext);
     }
   }
 
@@ -39,6 +70,9 @@ export class PluginRegistry {
       await plugin.deactivate();
     }
     this.plugins.delete(name);
+    if (this.statusSegmentsByPlugin.delete(name)) {
+      this.emitStatus();
+    }
   }
 
   getPlugin<T extends Plugin>(name: string): T | undefined {
@@ -61,6 +95,15 @@ export class PluginRegistry {
 
   getToolDefinitions(): ToolDefinition[] {
     return this.getTools().map((t) => t.definition);
+  }
+
+  /** Look up a tool by its function name, or `undefined` if no plugin registers one. */
+  getTool(name: string): PluginTool | undefined {
+    for (const plugin of this.plugins.values()) {
+      const tool = plugin.tools?.find((t) => t.definition.function.name === name);
+      if (tool) return tool;
+    }
+    return undefined;
   }
 
   async getSystemPrompts(): Promise<string[]> {
@@ -101,14 +144,27 @@ export class PluginRegistry {
     return commands;
   }
 
+  /** Aggregate of every plugin's most recently pushed status segments, in registration order. */
   getStatusSegments(): StatusSegment[] {
     const segments: StatusSegment[] = [];
     for (const plugin of this.plugins.values()) {
-      if (plugin.statusLine) {
-        segments.push(...plugin.statusLine());
+      const pluginSegments = this.statusSegmentsByPlugin.get(plugin.name);
+      if (pluginSegments?.length) {
+        segments.push(...pluginSegments);
       }
     }
     return segments;
+  }
+
+  /**
+   * Subscribe to status segment changes. Returns an unsubscribe fn. The listener
+   * fires whenever any plugin pushes (or clears) its segments.
+   */
+  onStatusChange(listener: StatusListener): () => void {
+    this.statusListeners.add(listener);
+    return () => {
+      this.statusListeners.delete(listener);
+    };
   }
 
   getAgentLoop(): AgentLoopStrategy | undefined {
@@ -120,33 +176,39 @@ export class PluginRegistry {
     return undefined;
   }
 
-  async loadPlugin(pathOrModule: string, pluginConfig?: Record<string, unknown>): Promise<void> {
-    try {
-      const mod = await import(pathOrModule);
-      const factory = mod.default ?? mod.createPlugin;
-
-      if (typeof factory === 'function') {
-        const plugin: Plugin = factory(pluginConfig ?? {});
-        await this.register(plugin);
-      } else if (isPlugin(mod)) {
-        await this.register(mod);
-      } else if (isPlugin(mod.default)) {
-        await this.register(mod.default);
-      } else {
-        console.warn(`[plugins] Could not load "${pathOrModule}": no plugin export found`);
-      }
-    } catch (err) {
-      console.warn(`[plugins] Failed to load "${pathOrModule}":`, err instanceof Error ? err.message : err);
-    }
-  }
-
   async shutdown(): Promise<void> {
     for (const name of Array.from(this.plugins.keys()).reverse()) {
       await this.unregister(name);
     }
   }
+
+  private setStatusLine(pluginName: string, segments: StatusSegment[]): void {
+    if (segments.length === 0) {
+      const removed = this.statusSegmentsByPlugin.delete(pluginName);
+      if (removed) this.emitStatus();
+      return;
+    }
+    const prev = this.statusSegmentsByPlugin.get(pluginName);
+    if (prev && segmentsEqual(prev, segments)) {
+      return;
+    }
+    this.statusSegmentsByPlugin.set(pluginName, segments);
+    this.emitStatus();
+  }
+
+  private emitStatus(): void {
+    for (const listener of this.statusListeners) {
+      listener();
+    }
+  }
 }
 
-function isPlugin(obj: unknown): obj is Plugin {
-  return typeof obj === 'object' && obj !== null && 'name' in obj;
+function segmentsEqual(a: StatusSegment[], b: StatusSegment[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].text !== b[i].text || a[i].color !== b[i].color || a[i].dim !== b[i].dim) {
+      return false;
+    }
+  }
+  return true;
 }

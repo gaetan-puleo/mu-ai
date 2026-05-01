@@ -10,8 +10,10 @@ export type {
   PluginTool,
   SlashCommand,
   StatusSegment,
+  ToolDisplayHint,
   ToolExecutor,
   ToolResult,
   TurnResult,
 } from './plugin';
-export { PluginRegistry } from './registry';
+export { PluginRegistry, type PluginRegistryOptions } from './registry';
+export { ConsoleUIService, type UINotifyLevel, type UIService } from './ui';

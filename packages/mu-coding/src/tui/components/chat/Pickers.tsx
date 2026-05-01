@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { useChatContext } from '../../context/chat';
-import { PickerModal } from '../chatLayout';
+import { useChatContext } from '../../chat/ChatContext';
+import { PickerModal } from '../primitives/pickerModal';
 
 export function Pickers() {
   const { toggles, models, sessions, session } = useChatContext();

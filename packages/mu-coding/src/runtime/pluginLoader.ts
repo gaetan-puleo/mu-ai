@@ -1,0 +1,116 @@
+import { readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { join, resolve } from 'node:path';
+import type { Plugin, PluginRegistry } from 'mu-agents';
+import { getDataDir, getPluginsDir } from '../config/index';
+import type { InkUIService } from '../tui/plugins/InkUIService';
+
+export function discoverPluginFiles(): string[] {
+  const dir = getPluginsDir();
+  try {
+    return readdirSync(dir)
+      .filter((f) => f.endsWith('.ts'))
+      .map((f) => join(dir, f));
+  } catch {
+    return [];
+  }
+}
+
+function formatPluginError(name: string, err: unknown): string {
+  const parts: string[] = [`Plugin "${name}" failed`];
+  let current: unknown = err;
+  while (current) {
+    if (current instanceof Error) {
+      parts.push(current.message);
+      current = current.cause;
+    } else {
+      parts.push(String(current));
+      break;
+    }
+  }
+  return parts.join(': ');
+}
+
+/** Strip an optional version suffix from a bare package spec (e.g. `foo@1.2.3` → `foo`). */
+function bareName(bare: string): string {
+  const scoped = bare.startsWith('@');
+  const at = bare.indexOf('@', scoped ? 1 : 0);
+  return at === -1 ? bare : bare.slice(0, at);
+}
+
+function resolveNpmPlugin(specifier: string): string {
+  const name = bareName(specifier.slice(4));
+  const dataDir = getDataDir();
+  try {
+    const require = createRequire(resolve(dataDir, 'package.json'));
+    return require.resolve(name);
+  } catch (err) {
+    throw new Error(`Cannot resolve "${name}" from ${dataDir}/node_modules — is it installed?`, { cause: err });
+  }
+}
+
+function isPluginShape(value: unknown): value is Plugin {
+  return typeof value === 'object' && value !== null && 'name' in value && typeof (value as Plugin).name === 'string';
+}
+
+/**
+ * Extract a plugin from a loaded module. Tries (in order):
+ *   1. `module.default` as a factory function
+ *   2. `module.createPlugin` as a factory function
+ *   3. `module.default` as a Plugin object
+ *   4. `module` as a Plugin object
+ *
+ * Returns `null` if no plugin shape matches; the caller should report this
+ * with the list of available exports for debugging.
+ */
+function extractPlugin(mod: Record<string, unknown>, pluginConfig: Record<string, unknown>): Plugin | null {
+  const factory = (mod.default ?? mod.createPlugin) as unknown;
+  if (typeof factory === 'function') {
+    const result = (factory as (cfg: Record<string, unknown>) => unknown)(pluginConfig);
+    return isPluginShape(result) ? result : null;
+  }
+  if (isPluginShape(mod.default)) {
+    return mod.default;
+  }
+  if (isPluginShape(mod)) {
+    return mod;
+  }
+  return null;
+}
+
+export async function loadConfiguredPlugin(
+  registry: PluginRegistry,
+  name: string,
+  pluginConfig?: Record<string, unknown>,
+  uiService?: InkUIService,
+): Promise<void> {
+  const config = pluginConfig ?? {};
+  let target: string;
+  try {
+    target = name.startsWith('npm:') ? resolveNpmPlugin(name) : name;
+  } catch (err) {
+    uiService?.notify(formatPluginError(name, err), 'error');
+    return;
+  }
+
+  let mod: Record<string, unknown>;
+  try {
+    mod = (await import(target)) as Record<string, unknown>;
+  } catch (err) {
+    uiService?.notify(formatPluginError(name, err), 'error');
+    return;
+  }
+
+  const plugin = extractPlugin(mod, config);
+  if (!plugin) {
+    const exportKeys = Object.keys(mod).join(', ') || '(none)';
+    uiService?.notify(`Plugin "${name}": no plugin export found. Exports: [${exportKeys}]`, 'error');
+    return;
+  }
+
+  try {
+    await registry.register(plugin);
+  } catch (err) {
+    uiService?.notify(formatPluginError(name, err), 'error');
+  }
+}

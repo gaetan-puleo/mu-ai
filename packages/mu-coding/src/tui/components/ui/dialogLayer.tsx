@@ -1,8 +1,9 @@
 import { Box, Text, useInput } from 'ink';
 import { useCallback, useEffect, useState } from 'react';
-import type { DialogRequest, InkUIService } from '../../services/uiService';
-import { Dropdown } from './dropdown';
-import { Modal } from './modal';
+import { sanitizeTerminalInput } from '../../input/sanitize';
+import type { DialogRequest, InkUIService } from '../../plugins/InkUIService';
+import { Dropdown } from '../primitives/dropdown';
+import { Modal } from '../primitives/modal';
 
 // ─── Confirm Dialog ───────────────────────────────────────────────────────────
 
@@ -80,6 +81,12 @@ function SelectDialog({
 
 // ─── Input Dialog ─────────────────────────────────────────────────────────────
 
+function sanitizeDialogInput(text: string): string {
+  // Strip mouse sequences + control bytes via the shared helper, then drop
+  // \t/\n that the shared helper preserves — this dialog is single-line.
+  return sanitizeTerminalInput(text).replace(/[\t\n]/g, '');
+}
+
 function InputDialog({
   dialog,
   onResolve,
@@ -94,12 +101,19 @@ function InputDialog({
   useInput((input, key) => {
     if (key.escape) {
       onCancel();
-    } else if (key.return) {
+      return;
+    }
+    if (key.return) {
       onResolve(value || null);
-    } else if (key.backspace || key.delete) {
+      return;
+    }
+    if (key.backspace || key.delete) {
       setValue((v) => v.slice(0, -1));
-    } else if (input && input.length === 1) {
-      setValue((v) => v + input);
+      return;
+    }
+    const insert = sanitizeDialogInput(input);
+    if (insert) {
+      setValue((v) => v + insert);
     }
   });
 

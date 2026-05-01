@@ -102,13 +102,21 @@ Runs the agent loop. Returns `AsyncGenerator<AgentEvent>`.
 
 ### `PluginRegistry`
 
-Manages plugins, tools, hooks, and system prompts.
+Manages plugins, tools, hooks, system prompts, and aggregated status segments.
 
+Plugin loading from a path is the host's responsibility — the registry only
+accepts pre-built `Plugin` objects via `register()`. This keeps it free of
+file-system and module-resolution concerns.
+
+- `new PluginRegistry({ cwd, config, ui?, shutdown? })` — `ui` and `shutdown`
+  are forwarded to plugins through `PluginContext` so they can prompt the user
+  or trigger graceful exit without extra plumbing.
 - `register(plugin)` / `unregister(name)`
-- `loadPlugin(path, config?)` — dynamic import
-- `getTools()` / `getToolDefinitions()`
+- `getTools()` / `getToolDefinitions()` / `getTool(name)`
 - `getSystemPrompts()`
 - `getHooks()`
+- `getStatusSegments()` / `onStatusChange(listener)` — push-based; plugins
+  publish via `ctx.setStatusLine(segments)` from `activate()`.
 - `shutdown()`
 
 ## License

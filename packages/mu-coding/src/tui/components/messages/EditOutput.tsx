@@ -1,33 +1,53 @@
 import { Box, Text } from 'ink';
-import { computeDiff, renderDiff } from '../../../diff';
+import type { ToolDisplayHint } from 'mu-agents';
+import { computeDiff, renderDiff } from '../../../utils/diff';
+import { ToolHeader } from './ToolHeader';
 
 interface EditOutputProps {
   args: string;
   content: string;
   error: boolean;
+  /**
+   * Display hint from the tool's plugin. Used to resolve which JSON arg field
+   * holds the path / from-string / to-string, so a plugin can register a
+   * diff-kind tool with arbitrary field names.
+   */
+  hint?: ToolDisplayHint;
 }
 
-export function EditOutput({ args, content, error }: EditOutputProps) {
-  let path = '(unknown)';
-  let oldString = '';
-  let newString = '';
+interface ParsedEditArgs {
+  path: string;
+  before: string;
+  after: string;
+}
 
+const MAX_DIFF_LINES = 30;
+
+function parseEditArgs(args: string, hint: ToolDisplayHint | undefined): ParsedEditArgs {
+  const fields = hint?.fields ?? {};
+  const pathField = fields.path ?? 'path';
+  const fromField = fields.from ?? 'old_string';
+  const toField = fields.to ?? 'new_string';
   try {
     const parsed = JSON.parse(args);
-    path = parsed.path ?? '(unknown)';
-    oldString = parsed.old_string ?? '';
-    newString = parsed.new_string ?? '';
+    return {
+      path: parsed[pathField] ?? '(unknown)',
+      before: parsed[fromField] ?? '',
+      after: parsed[toField] ?? '',
+    };
   } catch {
-    // ignore
+    return { path: '(unknown)', before: '', after: '' };
   }
+}
+
+export function EditOutput({ args, content, error, hint }: EditOutputProps) {
+  const { path, before, after } = parseEditArgs(args, hint);
+  const verb = hint?.verb ?? 'edit_file';
 
   if (error) {
     return (
       <Box flexDirection="column" flexShrink={0} marginBottom={1}>
-        <Text color="red" bold={true}>
-          ✗ edit_file
-        </Text>
-        <Text dimColor={true}> {path}</Text>
+        <ToolHeader name={verb} subtitle={path} error={true} />
         <Text dimColor={true} wrap="wrap">
           {content}
         </Text>
@@ -35,13 +55,13 @@ export function EditOutput({ args, content, error }: EditOutputProps) {
     );
   }
 
-  const diff = computeDiff(oldString, newString);
+  const diff = computeDiff(before, after);
 
   if (diff.lines.length === 0 && diff.totalOldLines > 0 && diff.totalNewLines > 0) {
     return (
       <Box flexDirection="column" flexShrink={0} marginBottom={1}>
         <Text color="yellow" bold={true}>
-          ! edit_file
+          ! {verb}
         </Text>
         <Text dimColor={true}> {path}</Text>
         <Text dimColor={true}>
@@ -54,35 +74,30 @@ export function EditOutput({ args, content, error }: EditOutputProps) {
   if (diff.lines.length === 0) {
     return (
       <Box flexDirection="column" flexShrink={0} marginBottom={1}>
-        <Text color="green" bold={true}>
-          ✓ edit_file
-        </Text>
-        <Text dimColor={true}> {path}</Text>
+        <ToolHeader name={verb} subtitle={path} />
         <Text dimColor={true}>No changes (content identical)</Text>
       </Box>
     );
   }
 
-  const { lines, truncated } = renderDiff(diff, 30);
+  const { lines, truncated } = renderDiff(diff, MAX_DIFF_LINES);
 
   return (
     <Box flexDirection="column" flexShrink={0} marginBottom={1}>
-      <Text color="green" bold={true}>
-        ✓ edit_file
-      </Text>
-      <Text dimColor={true}> {path}</Text>
+      <ToolHeader name={verb} subtitle={path} />
       <Box flexDirection="column" flexShrink={0}>
-        {lines.map((line) => {
+        {lines.map((line, i) => {
           let color: string | undefined;
           if (line.startsWith('-')) color = 'red';
           else if (line.startsWith('+')) color = 'green';
           return (
-            <Text key={line} color={color} dimColor={color === undefined} wrap="wrap">
+            // biome-ignore lint/suspicious/noArrayIndexKey: diff lines may repeat (blank lines, braces); index disambiguates
+            <Text key={`${i}-${line}`} color={color} dimColor={color === undefined} wrap="wrap">
               {line}
             </Text>
           );
         })}
-        {truncated && <Text dimColor={true}>… (truncated, 30 line limit)</Text>}
+        {truncated && <Text dimColor={true}>… (truncated, {MAX_DIFF_LINES} line limit)</Text>}
       </Box>
     </Box>
   );

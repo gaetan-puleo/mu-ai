@@ -12,8 +12,6 @@ npm install -g mu-coding
 
 ```bash
 mu                    # Start interactive chat
-mu -p "prompt"        # Single-shot prompt, then exit
-mu -m model -p "p"    # Single-shot with specific model
 mu -m model           # Interactive with specific model
 mu -c                 # Continue most recent session
 mu --session <path>   # Resume a specific session file

@@ -6,9 +6,17 @@
   "bin": {
     "mu": "./bin/mu.js"
   },
+  "exports": {
+    "./paths": "./src/paths.ts"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
   "scripts": {
     "dev": "bun --watch bin/mu.js",
-    "start": "bun bin/mu.js"
+    "start": "bun bin/mu.js",
+    "test": "bun test"
   },
   "dependencies": {
     "ink": "^7.0.1",

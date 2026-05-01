@@ -14,6 +14,7 @@
   ],
   "dependencies": {
     "mu-agents": "0.4.0",
+    "mu-coding": "0.4.0",
     "mu-provider": "0.4.0",
     "@sinclair/typebox": "^0.34.0"
   }

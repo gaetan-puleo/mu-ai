@@ -1,27 +1,32 @@
 import { Box, Text } from 'ink';
+import type { ToolDisplayHint } from 'mu-agents';
 import type { ChatMessage } from 'mu-provider';
+import { useToolDisplay } from '../../chat/ToolDisplayContext';
 import { useSpinner } from '../../hooks/useUI';
 import { EditOutput } from './EditOutput';
 import { ReadOutput } from './ReadOutput';
 import { WriteOutput } from './WriteOutput';
 
-const TOOL_VERBS: Record<string, string> = {
-  bash: 'running',
-  read_file: 'reading',
-  write_file: 'writing',
-  edit_file: 'editing',
-};
+/**
+ * Render a tool call. Display behaviour is driven by the optional
+ * `ToolDisplayHint` the plugin attached to its tool — `kind` selects the
+ * dedicated renderer (file-read / file-write / diff / shell), and `verb`
+ * shows in the spinner line. Tools without a hint fall back to a generic
+ * preview block, so plugin-registered tools "just work" without UI changes.
+ */
 
-function getToolArgSummary(name: string, args: string): string {
-  if (name === 'bash') {
-    try {
-      const parsed = JSON.parse(args);
-      return parsed.command ?? args;
-    } catch {
-      return args;
-    }
+function getArgSummary(args: string, hint: ToolDisplayHint | undefined): string {
+  if (!hint?.fields) return args;
+  // For shell-like tools the most useful preview is the command itself;
+  // generic tools show the raw JSON.
+  const commandField = hint.fields.command;
+  if (!commandField) return args;
+  try {
+    const parsed = JSON.parse(args);
+    return parsed[commandField] ?? args;
+  } catch {
+    return args;
   }
-  return args;
 }
 
 export function ToolCallBlock({
@@ -33,13 +38,13 @@ export function ToolCallBlock({
 }) {
   const name = toolCall.function.name;
   const args = toolCall.function.arguments;
+  const hint = useToolDisplay(name);
 
-  // Find the matching tool result message
   const result = toolMsg?.toolResult;
   const hasResult = result !== undefined;
   const spinner = useSpinner(!hasResult);
-  const verb = TOOL_VERBS[name] ?? 'executing';
-  const argSummary = getToolArgSummary(name, args);
+  const verb = hint?.verb ?? 'executing';
+  const argSummary = getArgSummary(args, hint);
 
   return (
     <Box flexDirection="column" flexShrink={0}>
@@ -51,29 +56,47 @@ export function ToolCallBlock({
           </Text>
         </Box>
       ) : (
-        renderToolOutput(name, args, result.content, result.error ?? false, result.expanded)
+        renderToolOutput(name, args, result.content, result.error ?? false, result.expanded, hint)
       )}
     </Box>
   );
 }
 
-function renderToolOutput(name: string, args: string, content: string, error: boolean, expanded?: boolean) {
-  if (name === 'read_file') {
-    return <ReadOutput args={args} error={error} />;
+function renderToolOutput(
+  name: string,
+  args: string,
+  content: string,
+  error: boolean,
+  expanded: boolean | undefined,
+  hint: ToolDisplayHint | undefined,
+) {
+  switch (hint?.kind) {
+    case 'file-read':
+      return <ReadOutput args={args} error={error} />;
+    case 'file-write':
+      return <WriteOutput args={args} content={content} error={error} expanded={expanded ?? false} />;
+    case 'diff':
+      return <EditOutput args={args} content={content} error={error} hint={hint} />;
+    default:
+      return <GenericToolOutput name={name} args={args} content={content} error={error} hint={hint} />;
   }
-  if (name === 'write_file') {
-    return <WriteOutput args={args} content={content} error={error} expanded={expanded ?? false} />;
-  }
-  if (name === 'edit_file') {
-    return <EditOutput args={args} content={content} error={error} />;
-  }
+}
 
-  // Fallback for bash and unknown tools
-  let command = '';
-  if (name === 'bash') {
+interface GenericProps {
+  name: string;
+  args: string;
+  content: string;
+  error: boolean;
+  hint: ToolDisplayHint | undefined;
+}
+
+function GenericToolOutput({ name, args, content, error, hint }: GenericProps) {
+  let summary = '';
+  const commandField = hint?.fields?.command;
+  if (commandField) {
     try {
       const parsed = JSON.parse(args);
-      command = parsed.command ?? '';
+      summary = parsed[commandField] ?? '';
     } catch {
       // ignore
     }
@@ -84,10 +107,10 @@ function renderToolOutput(name: string, args: string, content: string, error: bo
     <Box flexDirection="column" flexShrink={0}>
       <Text color={error ? 'red' : 'green'} bold={true}>
         {error ? '✗' : '✓'} {name}
-        {command && (
+        {summary && (
           <>
             {' '}
-            <Text dimColor={true}>{command}</Text>
+            <Text dimColor={true}>{summary}</Text>
           </>
         )}
       </Text>

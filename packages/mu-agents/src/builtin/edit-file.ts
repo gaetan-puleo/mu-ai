@@ -20,6 +20,11 @@ export const editFileTool: PluginTool = {
       },
     },
   },
+  display: {
+    verb: 'editing',
+    kind: 'diff',
+    fields: { path: 'path', from: 'old_string', to: 'new_string' },
+  },
   execute(args) {
     const path = sanitizePath(args.path as string);
     const oldString = args.old_string as string;

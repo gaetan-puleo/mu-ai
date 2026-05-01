@@ -9,6 +9,7 @@
     "lint:fix": "biome check --fix --unsafe packages/",
     "format": "biome format --write packages/",
     "check": "biome check packages/ && tsc -b",
+    "test": "bun test packages/",
     "knip": "knip",
     "sg": "sg",
     "publish": "bun scripts/publish.ts"

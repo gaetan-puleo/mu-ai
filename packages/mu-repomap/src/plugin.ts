@@ -1,4 +1,4 @@
-import type { Plugin, PluginTool, StatusSegment } from 'mu-agents';
+import type { Plugin, PluginTool, StatusSegment, UIService } from 'mu-agents';
 import { formatSummary } from './formatter';
 import { RepomapManager } from './manager';
 import type { SymbolEntry } from './repomap';
@@ -9,7 +9,7 @@ export interface RepomapOptions {
   maxRefs?: number;
 }
 
-function createSearchCodeTool(opts: RepomapOptions): PluginTool {
+function createSearchCodeTool(opts: RepomapOptions, getCwd: () => string): PluginTool {
   return {
     definition: {
       type: 'function',
@@ -31,9 +31,15 @@ function createSearchCodeTool(opts: RepomapOptions): PluginTool {
         },
       },
     },
+    display: {
+      verb: 'searching',
+      kind: 'search',
+      fields: { query: 'query' },
+    },
     async execute(args) {
       const query = (args.query as string) ?? '';
-      const manager = RepomapManager.getInstance(process.cwd());
+      const cwd = getCwd();
+      const manager = RepomapManager.getInstance(cwd);
 
       if (!query) return await manager.formatTree({ maxFiles: opts.maxFiles ?? 40, maxRefs: opts.maxRefs ?? 10 });
       if (query === 'summary') return await manager.formatSummary({ maxFiles: opts.maxFiles ?? 80 });
@@ -45,7 +51,7 @@ function createSearchCodeTool(opts: RepomapOptions): PluginTool {
       const syms = await manager.findSymbol(query);
       if (syms.length === 0) return `Symbol not found: ${query}`;
 
-      return formatSymbolResults(query, syms);
+      return formatSymbolResults(query, syms, cwd);
     },
   };
 }
@@ -88,8 +94,7 @@ function formatSymbolRefs(sym: SymbolEntry, cwd: string): string[] {
   return parts;
 }
 
-function formatSymbolResults(query: string, syms: SymbolEntry[]): string {
-  const cwd = process.cwd();
+function formatSymbolResults(query: string, syms: SymbolEntry[], cwd: string): string {
   const parts: string[] = [];
 
   parts.push(`"${query}" — ${syms.length} occurrence(s)`);
@@ -116,34 +121,41 @@ function formatSymbolResults(query: string, syms: SymbolEntry[]): string {
 export function createRepomapPlugin(options?: RepomapOptions): Plugin {
   let watcher: RepomapWatcher | null = null;
   let pluginCwd: string | null = null;
+  let pluginUi: UIService | undefined;
+  let setStatusLine: ((segments: StatusSegment[]) => void) | undefined;
   const opts = options ?? {};
+
+  // Capture cwd at activation time so the tool always uses the host-supplied
+  // value, never `process.cwd()` (which can drift if the agent runs elsewhere).
+  const getCwd = (): string => {
+    if (!pluginCwd) {
+      throw new Error('mu-repomap plugin not activated yet');
+    }
+    return pluginCwd;
+  };
+
+  const pushStatus = (state: 'idle' | 'building' | 'watching') => {
+    if (!setStatusLine) return;
+    if (state === 'building') {
+      setStatusLine([{ text: '⟳ indexing', color: 'yellow' }]);
+    } else if (state === 'watching') {
+      setStatusLine([{ text: '● indexed', color: 'green' }]);
+    } else {
+      setStatusLine([{ text: '○ repomap', dim: true }]);
+    }
+  };
 
   return {
     name: 'mu-repomap',
     version: '0.1.0',
 
-    tools: [createSearchCodeTool(opts)],
+    tools: [createSearchCodeTool(opts, getCwd)],
 
     systemPrompt: async (ctx) => {
       const manager = RepomapManager.getInstance(ctx.cwd);
       const map = await manager.getMap();
       if (!map) return '';
       return formatSummary(map, { maxFiles: opts.maxFiles ?? 80 });
-    },
-
-    statusLine(): StatusSegment[] {
-      if (!pluginCwd) return [];
-      const manager = RepomapManager.getInstance(pluginCwd);
-      const state = manager.getState();
-      const segments: StatusSegment[] = [];
-      if (state === 'building') {
-        segments.push({ text: '⟳ indexing', color: 'yellow' });
-      } else if (state === 'watching') {
-        segments.push({ text: '● indexed', color: 'green' });
-      } else {
-        segments.push({ text: '○ repomap', dim: true });
-      }
-      return segments;
     },
 
     commands: [
@@ -168,9 +180,15 @@ export function createRepomapPlugin(options?: RepomapOptions): Plugin {
 
     async activate(ctx) {
       pluginCwd = ctx.cwd;
+      pluginUi = ctx.ui;
+      setStatusLine = ctx.setStatusLine;
+
+      pushStatus('idle');
       const manager = RepomapManager.getInstance(ctx.cwd);
+      manager.setUi(pluginUi);
+      manager.onStateChange(pushStatus);
       await manager.getMap();
-      watcher = new RepomapWatcher(ctx.cwd);
+      watcher = new RepomapWatcher(ctx.cwd, pluginUi);
       watcher.start();
     },
 
@@ -178,6 +196,8 @@ export function createRepomapPlugin(options?: RepomapOptions): Plugin {
       watcher?.stop();
       watcher = null;
       pluginCwd = null;
+      pluginUi = undefined;
+      setStatusLine = undefined;
     },
   };
 }

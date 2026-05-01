@@ -1,16 +1,52 @@
 import type { ChatMessage, ProviderConfig, ToolCall, ToolDefinition } from 'mu-provider';
+import type { UIService } from './ui';
 
 export interface PluginContext {
   cwd: string;
   config: Record<string, unknown>;
+  /**
+   * Host-provided UI service. Available when the host (e.g. mu-coding) supplies
+   * one; otherwise plugins should fall back to a no-op or `ConsoleUIService`.
+   */
+  ui?: UIService;
   getPlugin?: <T extends Plugin>(name: string) => T | undefined;
+  /**
+   * Push status segments for this plugin into the registry. Replaces the older
+   * polling-based `Plugin.statusLine()` getter. Pass `[]` to clear.
+   */
+  setStatusLine?: (segments: StatusSegment[]) => void;
+  /**
+   * Host-provided graceful shutdown hook. When supplied, plugins should prefer
+   * this over `process.exit(...)` so the host can deactivate plugins and restore
+   * terminal state.
+   */
+  shutdown?: (code?: number) => Promise<void> | void;
 }
 
 export type ToolExecutor = (args: Record<string, unknown>, signal?: AbortSignal) => Promise<string> | string;
 
+/**
+ * Optional rendering hints the host can use when displaying a tool call.
+ * The host (e.g. mu-coding's TUI) maps `kind` to a renderer; tools without a
+ * `display` hint fall back to a generic preview.
+ *
+ * Kept renderer-agnostic on purpose — `mu-agents` has no React / Ink dependency.
+ */
+export interface ToolDisplayHint {
+  /** Verb shown in the spinner line, e.g. "reading", "editing". */
+  verb?: string;
+  /** Renderer kind. Hosts decide how to render each kind. Built-ins use
+   *  'file-read' | 'file-write' | 'diff' | 'shell'. */
+  kind?: string;
+  /** Semantic field mapping from rendering concepts to actual JSON arg names.
+   *  Examples: { path: 'path' }, { from: 'old_string', to: 'new_string' }. */
+  fields?: Record<string, string>;
+}
+
 export interface PluginTool {
   definition: ToolDefinition;
   execute: ToolExecutor;
+  display?: ToolDisplayHint;
 }
 
 export interface ToolResult {
@@ -80,7 +116,6 @@ export interface Plugin {
   hooks?: LifecycleHooks;
   commands?: SlashCommand[];
   agentLoop?: AgentLoopStrategy;
-  statusLine?: () => StatusSegment[];
 
   activate?: (context: PluginContext) => Promise<void> | void;
   deactivate?: () => Promise<void> | void;

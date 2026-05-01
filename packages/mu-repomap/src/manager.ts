@@ -1,12 +1,20 @@
+import type { UIService } from 'mu-agents';
 import { formatFileView, formatSummary, formatTree } from './formatter';
+import { createLogger, type RepomapLogger } from './logger';
 import { buildRepomap, findFile, findSymbol, type Repomap, type SymbolEntry } from './repomap';
 
+export type RepomapState = 'idle' | 'building' | 'watching';
+
 let instance: RepomapManager | null = null;
+
+type StateListener = (state: RepomapState) => void;
 
 export class RepomapManager {
   private map: Repomap | null = null;
   private root: string;
   private building = false;
+  private logger: RepomapLogger = createLogger(undefined);
+  private stateListeners: Set<StateListener> = new Set();
 
   constructor(root: string) {
     this.root = root;
@@ -23,7 +31,31 @@ export class RepomapManager {
     instance = null;
   }
 
-  getState(): 'idle' | 'building' | 'watching' {
+  /** Replace the logger. Call from `Plugin.activate` so progress goes through the host UI. */
+  setUi(ui: UIService | undefined): void {
+    this.logger = createLogger(ui);
+  }
+
+  /** Return the active logger so other components (watcher) share routing. */
+  getLogger(): RepomapLogger {
+    return this.logger;
+  }
+
+  onStateChange(listener: StateListener): () => void {
+    this.stateListeners.add(listener);
+    return () => {
+      this.stateListeners.delete(listener);
+    };
+  }
+
+  private emitState(): void {
+    const state = this.getState();
+    for (const listener of this.stateListeners) {
+      listener(state);
+    }
+  }
+
+  getState(): RepomapState {
     if (this.building) return 'building';
     if (this.map) return 'watching';
     return 'idle';
@@ -43,11 +75,13 @@ export class RepomapManager {
     if (this.map) return this.map;
 
     this.building = true;
+    this.emitState();
     try {
-      this.map = await buildRepomap(this.root, true);
+      this.map = await buildRepomap(this.root, true, this.logger);
       return this.map;
     } finally {
       this.building = false;
+      this.emitState();
     }
   }
 

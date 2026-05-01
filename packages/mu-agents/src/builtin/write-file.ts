@@ -18,6 +18,11 @@ export const writeFileTool: PluginTool = {
       },
     },
   },
+  display: {
+    verb: 'writing',
+    kind: 'file-write',
+    fields: { path: 'path', content: 'content' },
+  },
   execute(args) {
     const path = sanitizePath(args.path as string);
     const content = args.content as string;

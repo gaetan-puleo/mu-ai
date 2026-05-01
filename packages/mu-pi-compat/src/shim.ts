@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import type { PluginContext, PluginTool, SlashCommand, StatusSegment } from 'mu-agents';
+import type { PluginContext, PluginTool, SlashCommand, StatusSegment, UIService } from 'mu-agents';
+import type { ShutdownFn } from './loader';
 import { translateCommand } from './translate-command';
 import { translateTool } from './translate-tool';
 import type {
@@ -16,7 +17,6 @@ import type {
   PiShortcutOptions,
   PiToolDefinition,
   PiUI,
-  UIService,
 } from './types';
 
 /**
@@ -39,6 +39,7 @@ export class PiShim implements PiExtensionAPI {
   constructor(
     private ctx: PluginContext,
     private uiService: UIService,
+    private hostShutdown?: ShutdownFn,
   ) {
     this._ui = this.createUI();
   }
@@ -237,6 +238,7 @@ export class PiShim implements PiExtensionAPI {
   // ─── Context Factories ──────────────────────────────────────────────────────
 
   makeContext(signal?: AbortSignal): PiExtensionContext {
+    const shutdown = this.hostShutdown;
     return {
       ui: this._ui,
       hasUI: true,
@@ -248,7 +250,16 @@ export class PiShim implements PiExtensionAPI {
         /* no-op: mu handles abort via AbortController */
       },
       hasPendingMessages: () => this._injectedMessages.length > 0,
-      shutdown: () => process.exit(0),
+      shutdown: () => {
+        // Prefer the host's graceful shutdown so plugins are deactivated and
+        // terminal escape sequences are restored. Fall back to process.exit
+        // only when no host shutdown is configured (e.g. standalone usage).
+        if (shutdown) {
+          void shutdown(0);
+        } else {
+          process.exit(0);
+        }
+      },
       getContextUsage: () => null,
       compact: () => {
         /* no-op: mu has no compaction */

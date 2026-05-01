@@ -14,40 +14,41 @@
     },
     "packages/mu-agents": {
       "name": "mu-agents",
-      "version": "0.1.0",
+      "version": "0.4.0",
       "dependencies": {
-        "mu-provider": "0.1.0",
+        "mu-provider": "0.4.0",
       },
     },
     "packages/mu-coding": {
       "name": "mu-coding",
-      "version": "0.1.0",
+      "version": "0.4.0",
       "bin": {
         "mu": "./bin/mu.js",
       },
       "dependencies": {
         "ink": "^7.0.1",
-        "mu-agents": "0.1.0",
-        "mu-provider": "0.1.0",
+        "mu-agents": "0.4.0",
+        "mu-provider": "0.4.0",
         "react": "^19.2.5",
       },
     },
     "packages/mu-pi-compat": {
       "name": "mu-pi-compat",
-      "version": "0.1.0",
+      "version": "0.4.0",
       "dependencies": {
         "@sinclair/typebox": "^0.34.0",
-        "mu-agents": "0.1.0",
-        "mu-provider": "0.1.0",
+        "mu-agents": "0.4.0",
+        "mu-coding": "0.4.0",
+        "mu-provider": "0.4.0",
       },
     },
     "packages/mu-provider": {
       "name": "mu-provider",
-      "version": "0.1.0",
+      "version": "0.4.0",
     },
     "packages/mu-repomap": {
       "name": "mu-repomap",
-      "version": "0.1.0",
+      "version": "0.4.0",
       "dependencies": {
         "@ast-grep/cli": "^0.42.1",
         "mu-agents": "workspace:*",

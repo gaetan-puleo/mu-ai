@@ -1,5 +1,7 @@
 import { watch } from 'node:fs';
 import { extname, relative } from 'node:path';
+import type { UIService } from 'mu-agents';
+import { createLogger, type RepomapLogger } from './logger';
 import { RepomapManager } from './manager';
 import { SOURCE_EXTS } from './repomap';
 
@@ -7,13 +9,15 @@ export class RepomapWatcher {
   private watcher: ReturnType<typeof watch> | null = null;
   private manager: RepomapManager;
   private root: string;
+  private logger: RepomapLogger;
   private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingChanges: Set<string> = new Set();
   private readonly DEBOUNCE_MS = 500;
 
-  constructor(root: string) {
+  constructor(root: string, ui?: UIService) {
     this.root = root;
     this.manager = RepomapManager.getInstance(root);
+    this.logger = createLogger(ui);
   }
 
   start(): void {
@@ -30,7 +34,7 @@ export class RepomapWatcher {
       this.onFileChange(relative(this.root, fullPath));
     });
 
-    console.log('[repomap] Watching for changes...');
+    this.logger.notify('Watching for changes...', 'info');
   }
 
   stop(): void {
@@ -65,12 +69,12 @@ export class RepomapWatcher {
       this.pendingChanges = new Set();
       if (changes.size > 0) {
         const files = Array.from(changes).join(', ');
-        console.log(`[repomap] Rebuilding (${changes.size} file(s)): ${files}`);
+        this.logger.notify(`Rebuilding (${changes.size} file(s)): ${files}`, 'info');
       }
       try {
         await this.manager.rebuild(changes.size > 0);
       } catch (err) {
-        console.error('[repomap] Rebuild error:', err);
+        this.logger.notify(`Rebuild error: ${err instanceof Error ? err.message : err}`, 'error');
       } finally {
         this.rebuildTimer = null;
       }

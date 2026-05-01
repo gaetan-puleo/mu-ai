@@ -8,12 +8,20 @@ export function useScroll(contentHeight: number, viewHeight: number) {
   const autoScrollRef = useRef(true);
   const maxScroll = Math.max(0, contentHeight - viewHeight);
 
-  // Enable SGR mouse mode so wheel sequences arrive through Ink's input pipeline
+  // Enable SGR mouse mode (1000 = press/release+wheel only, no drag motion;
+  // 1006 = SGR-encoded coordinates) so wheel sequences arrive through Ink's
+  // input pipeline. Mode 1002 (button-event w/ drag) was previously used but
+  // produced spurious "[<32;...M" drag events that leaked into text inputs.
+  //
+  // On cleanup we defensively disable 1000/1002/1003 — any of them might be
+  // active from a prior session/binary/extension and disabling already-off
+  // modes is a no-op. Without this, mouse tracking can leak into the parent
+  // shell after abort.
   const { stdout } = useStdout();
   useEffect(() => {
-    stdout.write('\x1b[?1002h\x1b[?1006h');
+    stdout.write('\x1b[?1000h\x1b[?1006h');
     return () => {
-      stdout.write('\x1b[?1002l\x1b[?1006l');
+      stdout.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l');
     };
   }, [stdout]);
 

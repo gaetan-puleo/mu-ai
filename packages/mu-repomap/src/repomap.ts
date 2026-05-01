@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
+import { createLogger, type RepomapLogger } from './logger';
 import { pLimit } from './utils/p-limit';
 
 // --- Types ---
@@ -251,28 +252,29 @@ function loadRepomap(path: string, root: string): Repomap | null {
 
 // --- Main build ---
 
-export async function buildRepomap(root: string, force = false): Promise<Repomap> {
+export async function buildRepomap(root: string, force = false, logger?: RepomapLogger): Promise<Repomap> {
+  const log = logger ?? createLogger(undefined);
   const path = getRepomapPath(root);
 
   if (!force) {
     const existing = loadRepomap(path, root);
     if (existing) {
-      console.log(`[repomap] Cache hit: ${existing.files.size} files`);
+      log.notify(`Cache hit: ${existing.files.size} files`, 'info');
       return existing;
     }
   }
 
-  console.log('[repomap] Building...');
   const t0 = Date.now();
+  log.progress('Building...');
 
-  console.log('[repomap] Phase 1: scanning declarations...');
+  log.progress('Phase 1: scanning declarations...');
   const symbols = await scanDeclarations(root);
-  console.log(`[repomap] ${symbols.length} declarations found`);
+  log.progress(`${symbols.length} declarations found`);
 
-  console.log('[repomap] Phase 2: scanning references...');
+  log.progress('Phase 2: scanning references...');
   const t1 = Date.now();
   const symbolMap = await scanAllReferences(symbols, root);
-  console.log(`[repomap] References scanned in ${Date.now() - t1}ms`);
+  log.progress(`References scanned in ${Date.now() - t1}ms`);
 
   const files = new Map<string, RepomapFile>();
   for (const [relPath, entries] of symbolMap) {
@@ -287,7 +289,8 @@ export async function buildRepomap(root: string, force = false): Promise<Repomap
   };
 
   saveRepomap(path, map);
-  console.log(`[repomap] Done in ${Date.now() - t0}ms — ${files.size} files`);
+  log.clearProgress();
+  log.notify(`Done in ${Date.now() - t0}ms — ${files.size} files`, 'success');
   return map;
 }
 
