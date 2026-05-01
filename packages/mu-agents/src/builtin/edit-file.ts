@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { PluginTool } from '../plugin';
+import { sanitizePath } from './utils';
 
 export const editFileTool: PluginTool = {
   definition: {
@@ -20,7 +21,7 @@ export const editFileTool: PluginTool = {
     },
   },
   execute(args) {
-    const path = args.path as string;
+    const path = sanitizePath(args.path as string);
     const oldString = args.old_string as string;
     const newString = args.new_string as string;
 

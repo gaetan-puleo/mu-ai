@@ -6,7 +6,6 @@ import { render } from 'ink';
 import { createBuiltinPlugin, PluginRegistry } from 'mu-agents';
 import { parseArgs, resolveInitialMessages } from './cli';
 import { type AppConfig, getDataDir, getPluginsDir, loadConfig } from './config';
-import { runSingleShot } from './singleShot';
 import { handleSubcommand } from './subcommands';
 import { ChatPanel } from './tui/components/chat/ChatPanel';
 import { InkUIService } from './tui/services/uiService';
@@ -129,19 +128,6 @@ async function main() {
 
   const uiService = new InkUIService();
   const registry = await createRegistry(root, config, uiService);
-
-  if (cliArgs.prompt) {
-    try {
-      await runSingleShot(cliArgs.prompt, config, registry);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      console.error(`Error: ${msg}`);
-      process.exit(1);
-    } finally {
-      await registry.shutdown();
-    }
-    return;
-  }
 
   const initialMessages = resolveInitialMessages(cliArgs);
 

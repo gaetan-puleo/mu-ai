@@ -6,6 +6,7 @@ function executeBash(args: Record<string, unknown>, signal?: AbortSignal): Promi
   return new Promise((resolve) => {
     const proc = spawn('bash', ['-c', command], {
       stdio: ['pipe', 'pipe', 'pipe'],
+      detached: true,
     });
 
     let stdout = '';

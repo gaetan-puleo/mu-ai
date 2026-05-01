@@ -1,5 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import type { PluginTool } from '../plugin';
+import { sanitizePath } from './utils';
 
 export const writeFileTool: PluginTool = {
   definition: {
@@ -18,7 +19,7 @@ export const writeFileTool: PluginTool = {
     },
   },
   execute(args) {
-    const path = args.path as string;
+    const path = sanitizePath(args.path as string);
     const content = args.content as string;
     try {
       writeFileSync(path, content, 'utf-8');

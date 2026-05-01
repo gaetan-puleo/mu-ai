@@ -1,9 +1,10 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { ChatMessage } from 'mu-provider';
 import { getLatestSession, loadSession } from './session';
 
 interface CliArgs {
   model?: string;
-  prompt?: string;
   continueSession?: boolean;
   sessionPath?: string;
 }
@@ -13,13 +14,12 @@ function printHelp(): never {
 
 Usage:
   mu                        Start interactive chat
-  mu -p "prompt"            Single-shot prompt, then exit
-  mu -m model -p "p"        Single-shot with specific model
   mu -m model               Interactive with specific model
   mu -c                     Continue most recent session
   mu --session <path>       Resume a specific session file
   mu install npm:<package>  Install a plugin from npm
   mu uninstall npm:<pkg>    Remove an installed plugin
+  mu -v, --version          Print version and exit
 
 Config (XDG):
   ~/.config/mu/config.json  — configuration (baseUrl, model, streamTimeoutMs)
@@ -41,6 +41,12 @@ Keyboard shortcuts (interactive):
   process.exit(0);
 }
 
+function printVersion(): never {
+  const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
+  console.log(`mu ${pkg.version}`);
+  process.exit(0);
+}
+
 export function parseArgs(): CliArgs {
   const args = process.argv.slice(2);
   const result: CliArgs = {};
@@ -49,16 +55,14 @@ export function parseArgs(): CliArgs {
     const arg = args[i];
     if (arg === '-m' && args[i + 1]) {
       result.model = args[++i];
-    } else if (arg === '-p' && args[i + 1]) {
-      result.prompt = args[++i];
     } else if (arg === '-c' || arg === '--continue') {
       result.continueSession = true;
     } else if (arg === '--session' && args[i + 1]) {
       result.sessionPath = args[++i];
+    } else if (arg === '-v' || arg === '--version') {
+      printVersion();
     } else if (arg === '-h' || arg === '--help') {
       printHelp();
-    } else if (!(result.prompt || arg.startsWith('-'))) {
-      result.prompt = arg;
     }
   }
 

@@ -103,8 +103,6 @@ async function* executeToolCalls(
 
     current = [...current, toolMessage];
     yield { type: 'messages', messages: current };
-
-    if (result.error) break;
   }
   return current;
 }
@@ -116,17 +114,24 @@ export async function* runAgent(
   signal: AbortSignal,
   registry: PluginRegistry,
 ): AsyncGenerator<AgentEvent> {
+  // Merge plugin system prompts into config
+  const pluginPrompts = await registry.getSystemPrompts();
+  const mergedConfig: ProviderConfig =
+    pluginPrompts.length > 0
+      ? { ...config, systemPrompt: [config.systemPrompt, ...pluginPrompts].filter(Boolean).join('\n\n') }
+      : config;
+
   // Check if a plugin provides a custom agent loop
   const customLoop = registry.getAgentLoop();
   if (customLoop) {
-    yield* customLoop.run(initialMessages, config, model, signal, registry.getTools(), registry.getHooks());
+    yield* customLoop.run(initialMessages, mergedConfig, model, signal, registry.getTools(), registry.getHooks());
     return;
   }
 
   let current = initialMessages;
 
   while (!signal.aborted) {
-    const { content, reasoning, toolCalls, usage } = yield* streamTurn(current, config, model, signal, registry);
+    const { content, reasoning, toolCalls, usage } = yield* streamTurn(current, mergedConfig, model, signal, registry);
 
     if (usage > 0) {
       yield { type: 'usage', totalTokens: usage };

@@ -1,6 +1,6 @@
 {
   "name": "mu-pi-compat",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Compatibility layer for Pi Coding Agent extensions",
   "type": "module",
   "main": "./src/index.ts",
@@ -13,8 +13,8 @@
     "src"
   ],
   "dependencies": {
-    "mu-agents": "0.2.0",
-    "mu-provider": "0.2.0",
+    "mu-agents": "0.3.0",
+    "mu-provider": "0.3.0",
     "@sinclair/typebox": "^0.34.0"
   }
 }

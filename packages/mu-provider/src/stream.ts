@@ -1,4 +1,4 @@
-import type { ChatMessage, ProviderConfig, StreamChunk, StreamOptions, ToolCall, Usage } from './types';
+import type { ChatMessage, ProviderConfig, StreamChunk, StreamOptions, Usage } from './types';
 
 interface OpenAIChunk {
   choices: Array<{
@@ -70,16 +70,25 @@ async function* readSSEEvents(
   let buffer = '';
 
   while (true) {
-    const { done, value } = await Promise.race([
-      reader.read(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Stream timed out after ${timeoutMs / 1000}s of inactivity`)), timeoutMs),
-      ),
-    ]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const { done, value } = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`Stream timed out after ${timeoutMs / 1000}s of inactivity`)),
+            timeoutMs,
+          );
+        }),
+      ]);
 
-    if (done) return;
+      if (done) return;
 
-    buffer += decoder.decode(value, { stream: true });
+      buffer += decoder.decode(value, { stream: true });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+
     const lines = buffer.split('\n');
     buffer = lines.pop() || '';
 
@@ -97,6 +106,53 @@ async function* readSSEEvents(
       }
     }
   }
+}
+
+// --- Tool call accumulation ---
+
+type ToolCallAccumulator = Record<number, { id: string; name: string; arguments: string }>;
+
+function accumulateToolCallFragments(
+  toolCalls: ToolCallAccumulator,
+  fragments: NonNullable<OpenAIChunk['choices'][0]['delta']>['tool_calls'],
+): void {
+  if (!fragments) return;
+  for (const fragment of fragments) {
+    if (!toolCalls[fragment.index]) {
+      toolCalls[fragment.index] = { id: '', name: '', arguments: '' };
+    }
+    const accumulated = toolCalls[fragment.index];
+    if (fragment.id) {
+      accumulated.id = fragment.id;
+    }
+    if (fragment.function?.name) {
+      accumulated.name += fragment.function.name;
+    }
+    if (fragment.function?.arguments) {
+      accumulated.arguments += fragment.function.arguments;
+    }
+  }
+}
+
+function getCompletedToolCalls(toolCalls: ToolCallAccumulator): StreamChunk[] {
+  return Object.values(toolCalls)
+    .filter((tc) => tc.id && tc.name)
+    .map((tc) => ({
+      type: 'tool_call' as const,
+      toolCall: { id: tc.id, function: { name: tc.name, arguments: tc.arguments } },
+    }));
+}
+
+function processChunkDeltas(delta: NonNullable<OpenAIChunk['choices'][0]['delta']>): StreamChunk[] {
+  const chunks: StreamChunk[] = [];
+  const reasoning = delta.reasoning_content || delta.reasoning;
+  if (reasoning) {
+    chunks.push({ type: 'reasoning', text: reasoning });
+  }
+  if (delta.content) {
+    chunks.push({ type: 'content', text: delta.content });
+  }
+  return chunks;
 }
 
 // --- Main entry point ---
@@ -133,12 +189,24 @@ export async function* streamChat(
   }
 
   const reader = res.body?.getReader();
+  if (!reader) {
+    throw new Error('No response body from API');
+  }
+
+  yield* processStream(reader, config.streamTimeoutMs, options);
+}
+
+async function* processStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutMs: number,
+  options?: StreamOptions,
+): AsyncGenerator<StreamChunk> {
   let usage: Usage | undefined;
-  const toolCalls: Record<number, { id: string; name: string; arguments: string }> = {};
+  const toolCalls: ToolCallAccumulator = {};
+  let toolCallsEmitted = false;
 
   try {
-    for await (const event of readSSEEvents(reader, config.streamTimeoutMs)) {
-      // Track token usage
+    for await (const event of readSSEEvents(reader, timeoutMs)) {
       if (event.usage) {
         usage = {
           promptTokens: event.usage.prompt_tokens ?? 0,
@@ -150,46 +218,23 @@ export async function* streamChat(
       const delta = event.choices?.[0]?.delta;
       if (!delta) continue;
 
-      // Reasoning
-      const reasoning = delta.reasoning_content || delta.reasoning;
-      if (reasoning) {
-        yield { type: 'reasoning', text: reasoning };
-      }
+      yield* processChunkDeltas(delta);
+      accumulateToolCallFragments(toolCalls, delta.tool_calls);
 
-      // Content
-      if (delta.content) {
-        yield { type: 'content', text: delta.content };
-      }
-
-      // Tool calls arrive as fragments — accumulate them
-      if (delta.tool_calls) {
-        for (const fragment of delta.tool_calls) {
-          if (!toolCalls[fragment.index]) {
-            toolCalls[fragment.index] = { id: '', name: '', arguments: '' };
-          }
-          const accumulated = toolCalls[fragment.index];
-          if (fragment.id) {
-            accumulated.id = fragment.id;
-          }
-          if (fragment.function?.name) {
-            accumulated.name += fragment.function.name;
-          }
-          if (fragment.function?.arguments) {
-            accumulated.arguments += fragment.function.arguments;
-          }
+      // Emit completed tool calls when finish_reason signals completion
+      const finishReason = event.choices[0]?.finish_reason;
+      if (finishReason === 'tool_calls' || finishReason === 'stop') {
+        const completed = getCompletedToolCalls(toolCalls);
+        yield* completed;
+        if (completed.length > 0) {
+          toolCallsEmitted = true;
         }
       }
+    }
 
-      // Emit completed tool calls
-      if (event.choices[0]?.finish_reason === 'tool_calls') {
-        for (const tc of Object.values(toolCalls)) {
-          const toolCall: ToolCall = {
-            id: tc.id,
-            function: { name: tc.name, arguments: tc.arguments },
-          };
-          yield { type: 'tool_call', toolCall };
-        }
-      }
+    // Fallback: emit accumulated tool calls if not yet emitted (handles non-standard finish_reason)
+    if (!toolCallsEmitted) {
+      yield* getCompletedToolCalls(toolCalls);
     }
   } finally {
     reader.releaseLock();

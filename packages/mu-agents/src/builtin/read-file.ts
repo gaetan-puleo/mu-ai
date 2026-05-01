@@ -1,7 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import type { PluginTool } from '../plugin';
+import { sanitizePath } from './utils';
 
-function executeReadFileSingle(path: string, start?: number, end?: number): string {
+function executeReadFileSingle(rawPath: string, start?: number, end?: number): string {
+  const path = sanitizePath(rawPath);
   if (!existsSync(path)) {
     return `Error: File not found: ${path}`;
   }
