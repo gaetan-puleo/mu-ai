@@ -1,7 +1,7 @@
 import { type DOMElement as InkDOMElement, useInput } from 'ink';
-import type { PluginRegistry, StatusSegment } from 'mu-agents';
+import type { PluginRegistry } from 'mu-agents';
 import type { ChatMessage, ProviderConfig } from 'mu-provider';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { ShutdownFn } from '../../app/shutdown';
 import type { ChatPanelBodyProps } from '../components/chat/ChatPanelBody';
 import { useToast } from '../components/primitives/toast';
@@ -9,6 +9,7 @@ import { useScroll } from '../hooks/useScroll';
 import { useMeasure, useTerminalSize } from '../hooks/useTerminal';
 import type { InkUIService, ToastRequest } from '../plugins/InkUIService';
 import { useChat } from './useChat';
+import { usePluginStatus } from './usePluginStatus';
 import { useStatusSegments } from './useStatusSegments';
 
 const TOAST_LEVEL_COLORS: Record<string, string> = {
@@ -45,7 +46,7 @@ export function useChatPanel(options: UseChatPanelOptions) {
   const { viewHeight, contentHeight } = useMeasure(viewRef, contentRef, measureKey);
   const { scrollOffset, onScrollUp, onScrollDown } = useScroll(contentHeight, viewHeight);
   const anyModalOpen = ctx.toggles.showModelPicker || ctx.toggles.showSessionPicker;
-  const [pluginStatus, setPluginStatus] = useState<StatusSegment[]>([]);
+  const pluginStatus = usePluginStatus(registry, uiService);
   const { toasts, show, dismiss } = useToast();
 
   useInput((input, key) => key.ctrl && input === 'c' && ctx.abort.onCtrlC(), { isActive: anyModalOpen });
@@ -56,16 +57,6 @@ export function useChatPanel(options: UseChatPanelOptions) {
       show(toast.message, TOAST_LEVEL_COLORS[toast.level] ?? 'white');
     });
   }, [uiService, show]);
-
-  useEffect(() => {
-    // Push-based: registry notifies whenever any plugin updates its segments
-    // (via PluginContext.setStatusLine). Equality is enforced inside the
-    // registry so we only re-render when something actually changed.
-    setPluginStatus(registry.getStatusSegments());
-    return registry.onStatusChange(() => {
-      setPluginStatus(registry.getStatusSegments());
-    });
-  }, [registry]);
 
   const statusSegments = useStatusSegments({
     streaming: ctx.session.streaming,

@@ -46,7 +46,7 @@ function createSearchCodeTool(opts: RepomapOptions, getCwd: () => string): Plugi
       if (query === 'stats') return await manager.getStats();
       if (query === 'tree')
         return await manager.formatTree({ maxFiles: opts.maxFiles ?? 40, maxRefs: opts.maxRefs ?? 10 });
-      if (query.includes('/') || query.includes('\\')) return await manager.formatFile(query, false);
+      if (query.includes('/') || query.includes('\\')) return await manager.formatFile(query);
 
       const syms = await manager.findSymbol(query);
       if (syms.length === 0) return `Symbol not found: ${query}`;

@@ -23,7 +23,6 @@ export interface SymbolEntry extends SymbolLoc {
 export interface RepomapFile {
   path: string;
   exports: SymbolEntry[];
-  internal: SymbolLoc[];
 }
 
 export interface Repomap {
@@ -278,7 +277,7 @@ export async function buildRepomap(root: string, force = false, logger?: Repomap
 
   const files = new Map<string, RepomapFile>();
   for (const [relPath, entries] of symbolMap) {
-    files.set(relPath, { path: relPath, exports: entries, internal: [] });
+    files.set(relPath, { path: relPath, exports: entries });
   }
 
   const map: Repomap = {

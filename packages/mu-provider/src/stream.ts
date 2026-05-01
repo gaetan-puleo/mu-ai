@@ -54,6 +54,13 @@ function buildMessages(messages: ChatMessage[], config: ProviderConfig) {
       apiMessages.push(msg);
     } else if (m.role === 'tool') {
       apiMessages.push({ role: 'tool', tool_call_id: m.toolCallId, content: m.content });
+    } else if (m.role === 'system') {
+      // System messages embedded in a transcript (e.g. resumed sessions where
+      // an old prompt was persisted, or plugin-injected system context) are
+      // forwarded verbatim. The leading `config.systemPrompt` is still pushed
+      // first above so the canonical system instruction precedes any inline
+      // ones — most servers tolerate multiple system messages.
+      apiMessages.push({ role: 'system', content: m.content });
     }
   }
 
@@ -221,9 +228,11 @@ async function* processStream(
       yield* processChunkDeltas(delta);
       accumulateToolCallFragments(toolCalls, delta.tool_calls);
 
-      // Emit completed tool calls when finish_reason signals completion
+      // Emit completed tool calls once when finish_reason signals completion.
+      // Some providers send a trailing usage-only chunk that re-emits the same
+      // finish_reason — guarding on `toolCallsEmitted` avoids duplicate yields.
       const finishReason = event.choices[0]?.finish_reason;
-      if (finishReason === 'tool_calls' || finishReason === 'stop') {
+      if (!toolCallsEmitted && (finishReason === 'tool_calls' || finishReason === 'stop')) {
         const completed = getCompletedToolCalls(toolCalls);
         yield* completed;
         if (completed.length > 0) {

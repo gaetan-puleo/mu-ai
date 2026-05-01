@@ -25,10 +25,13 @@ export function translateTool(piDef: PiToolDefinition, ctx: PiExtensionContext):
     },
     async execute(args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
       const toolCallId = generateId();
-      let _lastUpdate = '';
 
+      // Pi tools call `onUpdate(partial)` to report streaming progress. Route
+      // it through the host UIService so it appears in the status line; clear
+      // the entry on completion so finished tools don't leave stale text.
+      const statusKey = `pi-tool:${toolCallId}`;
       const onUpdate = (partial: string) => {
-        _lastUpdate = partial;
+        if (partial) ctx.ui.setStatus(statusKey, partial);
       };
 
       try {
@@ -37,6 +40,8 @@ export function translateTool(piDef: PiToolDefinition, ctx: PiExtensionContext):
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
         return `Error: ${msg}`;
+      } finally {
+        ctx.ui.clearStatus?.(statusKey);
       }
     },
   };

@@ -7,7 +7,7 @@
     "mu": "./bin/mu.js"
   },
   "exports": {
-    "./paths": "./src/paths.ts"
+    "./config": "./src/config/index.ts"
   },
   "files": [
     "bin",

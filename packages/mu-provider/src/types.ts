@@ -40,7 +40,6 @@ export interface ToolResultInfo {
   name: string;
   content: string;
   error?: boolean;
-  expanded?: boolean;
 }
 
 export interface ChatMessage {

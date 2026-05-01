@@ -125,10 +125,10 @@ export class RepomapManager {
     return formatSummary(map, opts);
   }
 
-  async formatFile(relPath: string, showInternal?: boolean): Promise<string> {
+  async formatFile(relPath: string): Promise<string> {
     const map = await this.getMap();
     if (!map) return 'Repomap not available';
-    return formatFileView(map, relPath, showInternal);
+    return formatFileView(map, relPath);
   }
 
   // --- Stats ---

@@ -56,7 +56,7 @@ export function ToolCallBlock({
           </Text>
         </Box>
       ) : (
-        renderToolOutput(name, args, result.content, result.error ?? false, result.expanded, hint)
+        renderToolOutput(name, args, result.content, result.error ?? false, hint)
       )}
     </Box>
   );
@@ -67,14 +67,13 @@ function renderToolOutput(
   args: string,
   content: string,
   error: boolean,
-  expanded: boolean | undefined,
   hint: ToolDisplayHint | undefined,
 ) {
   switch (hint?.kind) {
     case 'file-read':
       return <ReadOutput args={args} error={error} />;
     case 'file-write':
-      return <WriteOutput args={args} content={content} error={error} expanded={expanded ?? false} />;
+      return <WriteOutput args={args} content={content} error={error} />;
     case 'diff':
       return <EditOutput args={args} content={content} error={error} hint={hint} />;
     default:

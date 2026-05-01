@@ -1,6 +1,7 @@
 export { runAgent } from './agent';
 export { createBuiltinPlugin } from './builtin/index';
 export type {
+  AgentEndReason,
   AgentEvent,
   AgentLoopStrategy,
   CommandContext,

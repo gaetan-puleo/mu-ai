@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { PluginContext, UIService } from 'mu-agents';
-import { getDataDir } from 'mu-coding/paths';
+import { getDataDir } from 'mu-coding/config';
 import { PiShim } from './shim';
 import type { PiCompatConfig, PiExtensionFactory } from './types';
 
@@ -11,9 +11,12 @@ export type ShutdownFn = (code?: number) => Promise<void> | void;
  * Load a single Pi extension from a file path or npm: specifier.
  * Bun handles TypeScript imports natively — no jiti needed.
  *
- * The XDG data directory (where `mu install npm:<pkg>` puts plugins) is shared
- * with mu-coding via the `mu-coding/paths` subpath so the two packages can
- * never disagree about resolution.
+ * The XDG data directory (where `mu install npm:<pkg>` puts plugins) is
+ * resolved via `mu-coding/config`'s `getDataDir`, the single source of truth
+ * shared with mu-coding so the two packages never disagree about resolution.
+ * `mu-coding` doesn't statically import `mu-pi-compat` (it loads it via
+ * dynamic `import()` at plugin-registration time), so this dependency edge is
+ * one-way and doesn't introduce a build-time cycle.
  */
 function formatError(entry: string, err: unknown): string {
   const parts: string[] = [`Extension "${entry}" failed to load`];

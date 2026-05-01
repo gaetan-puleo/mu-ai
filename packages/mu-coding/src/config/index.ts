@@ -1,13 +1,35 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { ProviderConfig } from 'mu-provider';
-import { getConfigDir } from '../paths';
 
-// Path helpers live in `../paths` so other workspace packages (e.g.
-// mu-pi-compat) can share the same XDG resolution without depending on this
-// module's filesystem / config-file machinery. Re-exported for back-compat with
-// existing callers that import them from `config/index`.
-export { getCacheDir, getConfigDir, getDataDir, getPluginsDir } from '../paths';
+// ─── XDG Path Helpers ─────────────────────────────────────────────────────────
+//
+// Path resolution lives alongside config because the config module owns the
+// "where do mu's files live?" question end-to-end (config.json, SYSTEM.md,
+// sessions, plugin caches). Resolved lazily so tests can stub the env after
+// module import; production callers pay only one `process.env` lookup per call.
+//
+// Other workspace packages (e.g. `mu-pi-compat`) import these via the
+// `mu-coding/config` subpath export — see `mu-coding/package.json`.
+
+const HOME = homedir();
+
+export function getConfigDir(): string {
+  return process.env.XDG_CONFIG_HOME ? join(process.env.XDG_CONFIG_HOME, 'mu') : join(HOME, '.config', 'mu');
+}
+
+export function getDataDir(): string {
+  return process.env.XDG_DATA_HOME ? join(process.env.XDG_DATA_HOME, 'mu') : join(HOME, '.local', 'share', 'mu');
+}
+
+export function getCacheDir(): string {
+  return process.env.XDG_CACHE_HOME ? join(process.env.XDG_CACHE_HOME, 'mu') : join(HOME, '.cache', 'mu');
+}
+
+export function getPluginsDir(): string {
+  return join(getConfigDir(), 'plugins');
+}
 
 export interface AppConfig extends ProviderConfig {
   plugins?: Array<string | { name: string; config?: Record<string, unknown> }>;

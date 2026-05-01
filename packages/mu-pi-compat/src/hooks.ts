@@ -1,4 +1,4 @@
-import type { LifecycleHooks } from 'mu-agents';
+import type { AgentEndReason, LifecycleHooks } from 'mu-agents';
 import type { ChatMessage, ToolCall } from 'mu-provider';
 import type { PiShim } from './shim';
 
@@ -194,6 +194,17 @@ async function handleAfterTool(toolCall: ToolCall, result: string, extensions: P
   return modified;
 }
 
+async function handleAfterAgentRun(reason: AgentEndReason, extensions: PiShim[], state: HooksState): Promise<void> {
+  // Only fire `agent_end` if an agent run was actually in progress — guards
+  // against double-fires (`afterLlmCall` already fired it on a clean
+  // no-tool-call exit, so this hook would otherwise fire a second time).
+  if (!state.isFirstTurnOfAgent) {
+    await fireEvent(extensions, 'agent_end', { messages: [], reason });
+    state.isFirstTurnOfAgent = true;
+    state.turnIndex = 0;
+  }
+}
+
 /**
  * Create lifecycle hooks that route mu hook calls to Pi event handlers.
  */
@@ -213,7 +224,7 @@ export function createCompatHooks(getExtensions: () => PiShim[], state: HooksSta
       state.turnIndex++;
 
       if (result.toolCalls.length === 0) {
-        await fireEvent(extensions, 'agent_end', { messages: [] });
+        await fireEvent(extensions, 'agent_end', { messages: [], reason: 'complete' });
         state.isFirstTurnOfAgent = true;
         state.turnIndex = 0;
       }
@@ -227,6 +238,14 @@ export function createCompatHooks(getExtensions: () => PiShim[], state: HooksSta
 
     async afterToolExec(toolCall, result) {
       return handleAfterTool(toolCall, result, getExtensions());
+    },
+
+    async afterAgentRun(reason) {
+      // Belt-and-suspenders: if the agent ended with pending tool calls or via
+      // abort, `afterLlmCall`'s clean-exit branch never fired `agent_end`.
+      // `handleAfterAgentRun` no-ops when state already reset to keep this
+      // exactly-once.
+      await handleAfterAgentRun(reason, getExtensions(), state);
     },
   };
 }

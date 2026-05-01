@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import type { PluginContext, PluginTool, SlashCommand, StatusSegment, UIService } from 'mu-agents';
+import type { PluginContext, PluginTool, SlashCommand, UIService } from 'mu-agents';
 import type { ShutdownFn } from './loader';
 import { translateCommand } from './translate-command';
 import { translateTool } from './translate-tool';
@@ -27,7 +27,6 @@ export class PiShim implements PiExtensionAPI {
   readonly tools: PluginTool[] = [];
   readonly commands: SlashCommand[] = [];
   readonly handlers: Map<string, Array<(...args: never[]) => unknown>> = new Map();
-  readonly statusSegments: StatusSegment[] = [];
 
   private _sessionName: string | undefined;
   private _activeTools: Set<string> = new Set();

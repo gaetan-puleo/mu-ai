@@ -1,6 +1,12 @@
 import type { ChatMessage, ProviderConfig, ToolCall } from 'mu-provider';
 import { streamChat } from 'mu-provider';
-import { runAfterLlmHooks, runAfterToolExecHook, runBeforeLlmHooks, runBeforeToolExecHook } from './hooks';
+import {
+  runAfterAgentRunHooks,
+  runAfterLlmHooks,
+  runAfterToolExecHook,
+  runBeforeLlmHooks,
+  runBeforeToolExecHook,
+} from './hooks';
 import type { AgentEvent, PluginTool, ToolResult, TurnResult } from './plugin';
 import type { PluginRegistry } from './registry';
 
@@ -121,36 +127,51 @@ export async function* runAgent(
       ? { ...config, systemPrompt: [config.systemPrompt, ...pluginPrompts].filter(Boolean).join('\n\n') }
       : config;
 
-  // Check if a plugin provides a custom agent loop
-  const customLoop = registry.getAgentLoop();
-  if (customLoop) {
-    yield* customLoop.run(initialMessages, mergedConfig, model, signal, registry.getTools(), registry.getHooks());
-    return;
-  }
-
-  let current = initialMessages;
-
-  while (!signal.aborted) {
-    const { content, reasoning, toolCalls, usage } = yield* streamTurn(current, mergedConfig, model, signal, registry);
-
-    if (usage > 0) {
-      yield { type: 'usage', totalTokens: usage };
-    }
-    if (signal.aborted) {
-      break;
-    }
-
-    const reasoningField = reasoning || undefined;
-    const assistant: ChatMessage = { role: 'assistant', content, reasoning: reasoningField };
-    if (toolCalls.length === 0) {
-      current = [...current, assistant];
-      yield { type: 'messages', messages: current };
+  const hooks = registry.getHooks();
+  // Wrap the body in try/finally so `afterAgentRun` fires exactly once per
+  // `runAgent` call, regardless of how it terminates: normal completion (LLM
+  // produced a final response), abort via `signal.aborted`, or generator
+  // cancellation by the consumer (Ink unmount, manual `.return()`).
+  try {
+    // Check if a plugin provides a custom agent loop
+    const customLoop = registry.getAgentLoop();
+    if (customLoop) {
+      yield* customLoop.run(initialMessages, mergedConfig, model, signal, registry.getTools(), hooks);
       return;
     }
 
-    current = [...current, { ...assistant, toolCalls }];
-    yield { type: 'messages', messages: current };
-    current = yield* executeToolCalls(toolCalls, current, signal, registry);
-    yield { type: 'turn_end' };
+    let current = initialMessages;
+
+    while (!signal.aborted) {
+      const { content, reasoning, toolCalls, usage } = yield* streamTurn(
+        current,
+        mergedConfig,
+        model,
+        signal,
+        registry,
+      );
+
+      if (usage > 0) {
+        yield { type: 'usage', totalTokens: usage };
+      }
+      if (signal.aborted) {
+        break;
+      }
+
+      const reasoningField = reasoning || undefined;
+      const assistant: ChatMessage = { role: 'assistant', content, reasoning: reasoningField };
+      if (toolCalls.length === 0) {
+        current = [...current, assistant];
+        yield { type: 'messages', messages: current };
+        return;
+      }
+
+      current = [...current, { ...assistant, toolCalls }];
+      yield { type: 'messages', messages: current };
+      current = yield* executeToolCalls(toolCalls, current, signal, registry);
+      yield { type: 'turn_end' };
+    }
+  } finally {
+    await runAfterAgentRunHooks(hooks, signal.aborted ? 'aborted' : 'complete');
   }
 }

@@ -129,7 +129,7 @@ function formatExportSymbol(sym: SymbolEntry, root: string): string[] {
 /**
  * Detailed view for a specific file.
  */
-export function formatFileView(map: Repomap, relPath: string, showInternal?: boolean): string {
+export function formatFileView(map: Repomap, relPath: string): string {
   const file = findFile(map, relPath);
   if (!file) return `File not found: ${relPath}`;
 
@@ -141,17 +141,6 @@ export function formatFileView(map: Repomap, relPath: string, showInternal?: boo
     lines.push('');
     for (const sym of file.exports) {
       lines.push(...formatExportSymbol(sym, map.root));
-    }
-  }
-
-  if (showInternal && file.internal.length > 0) {
-    lines.push('');
-    lines.push(`  ${file.internal.length} internal`);
-    for (const sym of file.internal.slice(0, 30)) {
-      lines.push(`    ${sym.kind} ${sym.name} :${sym.line}`);
-    }
-    if (file.internal.length > 30) {
-      lines.push(`    ... ${file.internal.length - 30} more`);
     }
   }
 

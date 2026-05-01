@@ -63,11 +63,20 @@ export interface TurnResult {
   usage: number;
 }
 
+export type AgentEndReason = 'complete' | 'aborted';
+
 export interface LifecycleHooks {
   beforeLlmCall?: (messages: ChatMessage[], config: ProviderConfig) => ChatMessage[] | Promise<ChatMessage[]>;
   afterLlmCall?: (result: TurnResult) => TurnResult | Promise<TurnResult>;
   beforeToolExec?: (toolCall: ToolCall) => ToolCall | Promise<ToolCall>;
   afterToolExec?: (toolCall: ToolCall, result: string) => string | Promise<string>;
+  /**
+   * Fires once per `runAgent` invocation, after the loop exits — whether the
+   * agent finished normally (LLM produced a final response with no tool calls)
+   * or was aborted via the signal. Plugins should use this for end-of-agent
+   * cleanup; per-turn cleanup belongs in `afterLlmCall`.
+   */
+  afterAgentRun?: (reason: AgentEndReason) => void | Promise<void>;
 }
 
 export interface CommandContext {

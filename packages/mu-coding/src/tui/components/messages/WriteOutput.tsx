@@ -7,7 +7,6 @@ interface WriteOutputProps {
   args: string;
   content: string;
   error: boolean;
-  expanded: boolean;
 }
 
 function parsePath(args: string): string {
@@ -19,7 +18,7 @@ function parsePath(args: string): string {
   }
 }
 
-export function WriteOutput({ args, content, error, expanded }: WriteOutputProps) {
+export function WriteOutput({ args, content, error }: WriteOutputProps) {
   const path = parsePath(args);
 
   if (error) {
@@ -37,7 +36,6 @@ export function WriteOutput({ args, content, error, expanded }: WriteOutputProps
   const totalLines = lines.length;
   const preview = lines.slice(0, PREVIEW_LINES).join('\n');
   const hasMore = totalLines > PREVIEW_LINES;
-  const showFull = expanded || !hasMore;
 
   return (
     <Box flexDirection="column" flexShrink={0} marginBottom={1}>
@@ -48,9 +46,9 @@ export function WriteOutput({ args, content, error, expanded }: WriteOutputProps
         </Text>
         <Box flexDirection="column" flexShrink={0}>
           <Text dimColor={true} wrap="wrap">
-            {showFull ? content : preview}
+            {hasMore ? preview : content}
           </Text>
-          {hasMore && !expanded && <Text dimColor={true}>… ({totalLines - PREVIEW_LINES} more lines)</Text>}
+          {hasMore && <Text dimColor={true}>… ({totalLines - PREVIEW_LINES} more lines)</Text>}
         </Box>
       </Box>
     </Box>

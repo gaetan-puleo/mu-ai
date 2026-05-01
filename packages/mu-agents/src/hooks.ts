@@ -1,5 +1,5 @@
 import type { ChatMessage, ProviderConfig, ToolCall } from 'mu-provider';
-import type { LifecycleHooks, TurnResult } from './plugin';
+import type { AgentEndReason, LifecycleHooks, TurnResult } from './plugin';
 
 export async function runBeforeLlmHooks(
   hooks: LifecycleHooks[],
@@ -47,4 +47,12 @@ export async function runAfterToolExecHook(
     }
   }
   return current;
+}
+
+export async function runAfterAgentRunHooks(hooks: LifecycleHooks[], reason: AgentEndReason): Promise<void> {
+  for (const hook of hooks) {
+    if (hook.afterAgentRun) {
+      await hook.afterAgentRun(reason);
+    }
+  }
 }
