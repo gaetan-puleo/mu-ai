@@ -6,10 +6,11 @@ Minimal terminal AI assistant for local models.
 
 ```
 packages/
-├── mu-provider/   # LLM provider abstraction (streaming, model listing)
-├── mu-agents/     # Agent loop + plugin system (tools, hooks, commands)
-├── mu-repomap/    # Code indexing plugin (ast-grep based repomap)
-└── mu-coding/     # CLI + TUI application
+├── mu-provider/    # LLM provider abstraction (streaming, model listing)
+├── mu-agents/      # Agent loop + plugin system (tools, hooks, commands)
+├── mu-repomap/     # Code indexing plugin (ast-grep based repomap)
+├── mu-pi-compat/   # Pi extension compatibility layer
+└── mu-coding/      # CLI + TUI application
 ```
 
 ## Features
@@ -17,17 +18,19 @@ packages/
 - **Local-first** — works with any OpenAI-compatible API (Ollama, LM Studio, llama-swap, etc.)
 - **Streaming** — real-time token streaming with reasoning content support
 - **Plugin system** — extensible via plugins (tools, lifecycle hooks, commands, custom agent loops)
+- **Pi extension support** — run Pi coding agent extensions through the `mu-pi-compat` layer
+- **Package manager** — install plugins from npm with `mu install npm:<package>`
 - **Code aware** — automatic project indexing via `ast-grep`, search symbols and browse file trees
 - **Session persistence** — conversations auto-saved, resume with `mu -c`
-- **Slash commands** — `/model`, `/sessions`, `/new`, `/reasoning`, `/paste`, `/select`
+- **Slash commands** — `/model`, `/sessions`, `/new`, plus any commands registered by plugins
 - **Single-shot mode** — quick answers without launching the TUI
 - **Minimal deps** — only `ink` + `react` as npm dependencies
 
 ## Installation
 
 ```bash
-git clone https://github.com/you/mu.git
-cd mu
+git clone https://github.com/gaetan-puleo/mu-ai.git
+cd mu-ai
 bun install
 bun start
 ```
@@ -50,10 +53,42 @@ mu -m qwen3-coder -p "what's in this directory"
 mu -c
 
 # Resume a specific session
-mu --session ~/.mu/sessions/2026-04-17T14-30-00-000Z.jsonl
+mu --session ~/.local/share/mu/sessions/2026-04-17T14-30-00-000Z.jsonl
+
+# Install a plugin from npm
+mu install npm:@some-org/my-plugin
+
+# Remove a plugin
+mu uninstall npm:@some-org/my-plugin
 
 # Help
 mu -h
+```
+
+## Plugin Installation
+
+Install plugins from npm directly:
+
+```bash
+mu install npm:@some-org/my-plugin
+```
+
+This installs the package to `~/.local/share/mu/node_modules/` and adds it to your config. Packages are referenced with the `npm:` prefix.
+
+For Pi extensions, add them to `mu-pi-compat`'s extensions list:
+
+```json
+{
+  "plugins": [
+    "npm:my-native-plugin",
+    {
+      "name": "mu-pi-compat",
+      "config": {
+        "extensions": ["npm:@some-org/my-pi-extension"]
+      }
+    }
+  ]
+}
 ```
 
 ## Packages
@@ -92,6 +127,22 @@ const myPlugin: Plugin = {
 };
 ```
 
+### `mu-pi-compat`
+
+Compatibility layer for Pi coding agent extensions. Translates Pi's `ExtensionAPI` into mu's plugin system — tools, commands, lifecycle hooks, and events.
+
+```typescript
+import createPiCompatPlugin from 'mu-pi-compat';
+
+const plugin = createPiCompatPlugin({
+  extensions: ['./my-pi-extension.ts', 'npm:@some-org/pi-extension'],
+  ui: uiServiceInstance,
+});
+await registry.register(plugin);
+```
+
+Pi extensions that use `pi.registerTool()`, `pi.registerCommand()`, and `pi.on()` work through this layer. npm packages with a `"pi"` field in their `package.json` are auto-discovered.
+
 ### `mu-repomap`
 
 Code indexing plugin — provides the `search_code` tool and system prompt context.
@@ -109,19 +160,25 @@ The CLI + TUI application that composes everything.
 
 ## Plugin Configuration
 
-Add plugins to `~/.mu/config.json`:
+Config lives at `~/.config/mu/config.json`:
 
 ```json
 {
   "baseUrl": "http://localhost:8080/v1",
   "plugins": [
     "mu-repomap",
+    "npm:my-native-plugin",
+    { "name": "mu-pi-compat", "config": { "extensions": ["npm:@some-org/my-pi-extension"] } },
     { "name": "./path/to/local/plugin", "config": { "key": "value" } }
   ]
 }
 ```
 
-Plugins are auto-discovered from `node_modules` or loaded from local paths.
+Plugin sources:
+- **Workspace packages** — resolved from the monorepo (e.g. `mu-repomap`)
+- **npm packages** — prefixed with `npm:`, installed to `~/.local/share/mu/node_modules/`
+- **Local files** — `.ts` files in `~/.config/mu/plugins/` are auto-loaded
+- **Explicit paths** — absolute or relative paths to plugin files
 
 ## Keyboard Shortcuts
 
@@ -130,17 +187,16 @@ Plugins are auto-discovered from `node_modules` or loaded from local paths.
 | `Enter` / `Ctrl+S` | Send message |
 | `Shift+Enter` | New line |
 | `Ctrl+C` | Abort streaming / Quit (press twice) |
-| `Esc` | Stop generation (press twice) |
+| `Esc` | Stop generation / Dismiss toast |
 | `Ctrl+N` | New conversation |
 | `Ctrl+M` | Cycle models |
 | `Ctrl+O` | Model picker |
-| `Ctrl+R` | Toggle reasoning |
 | `↑` / `↓` | Navigate input history |
 | `PageUp` / `PageDown` | Scroll chat |
 
 ## Configuration
 
-First run auto-creates `~/.mu/config.json`:
+First run auto-creates `~/.config/mu/config.json`:
 
 ```json
 {
@@ -150,6 +206,17 @@ First run auto-creates `~/.mu/config.json`:
   "streamTimeoutMs": 60000
 }
 ```
+
+### XDG Directories
+
+| Path | Purpose |
+|------|---------|
+| `~/.config/mu/config.json` | Configuration |
+| `~/.config/mu/SYSTEM.md` | System prompt |
+| `~/.config/mu/plugins/` | Local plugin files |
+| `~/.local/share/mu/sessions/` | Saved conversations |
+| `~/.local/share/mu/node_modules/` | Installed npm plugins |
+| `~/.cache/mu/repomap/` | Code index cache |
 
 Models are auto-discovered from the API at startup. Use `-m` or `MU_MODEL` to override.
 
