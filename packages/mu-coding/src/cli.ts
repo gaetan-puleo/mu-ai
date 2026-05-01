@@ -35,7 +35,7 @@ Keyboard shortcuts (interactive):
   Ctrl+N  New conversation
   Ctrl+M  Cycle models
   Ctrl+O  Model picker
-  Ctrl+R  Toggle reasoning`);
+  Ctrl+V  Paste image from clipboard`);
   process.exit(0);
 }
 
