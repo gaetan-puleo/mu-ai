@@ -12,6 +12,6 @@
     "src"
   ],
   "dependencies": {
-    "mu-provider": "workspace:*"
+    "mu-provider": "0.1.0"
   }
 }

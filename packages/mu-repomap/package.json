@@ -13,6 +13,6 @@
   ],
   "dependencies": {
     "@ast-grep/cli": "^0.42.1",
-    "mu-agents": "workspace:*"
+    "mu-agents": "0.1.0"
   }
 }

@@ -12,8 +12,8 @@
   },
   "dependencies": {
     "ink": "^7.0.1",
-    "mu-agents": "workspace:*",
-    "mu-provider": "workspace:*",
+    "mu-agents": "0.1.0",
+    "mu-provider": "0.1.0",
     "react": "^19.2.5"
   }
 }
