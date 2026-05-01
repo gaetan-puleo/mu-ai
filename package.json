@@ -10,7 +10,8 @@
     "format": "biome format --write packages/",
     "check": "biome check packages/ && tsc -b",
     "knip": "knip",
-    "sg": "sg"
+    "sg": "sg",
+    "publish": "bun scripts/publish.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",
