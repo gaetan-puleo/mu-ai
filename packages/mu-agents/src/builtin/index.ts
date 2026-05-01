@@ -1,13 +1,28 @@
 import type { Plugin } from '../plugin';
-import { bashTool } from './bash';
-import { editFileTool } from './edit-file';
-import { readFileTool } from './read-file';
-import { writeFileTool } from './write-file';
+import { createBashTool } from './bash';
+import { createEditFileTool } from './edit-file';
+import { createReadFileTool } from './read-file';
+import { createWriteFileTool } from './write-file';
 
 export function createBuiltinPlugin(): Plugin {
+  // Captured at activation so the file/shell tools operate on the agent's
+  // declared cwd (`PluginContext.cwd`) rather than the host process's
+  // `process.cwd()`. Falls back to `process.cwd()` until the plugin is
+  // registered, which keeps direct standalone usage working in tests.
+  let pluginCwd: string | undefined;
+  const getCwd = (): string => pluginCwd ?? process.cwd();
+
   return {
     name: 'mu-builtin',
     version: '0.1.0',
-    tools: [readFileTool, writeFileTool, editFileTool, bashTool],
+    tools: [
+      createReadFileTool(getCwd),
+      createWriteFileTool(getCwd),
+      createEditFileTool(getCwd),
+      createBashTool(getCwd),
+    ],
+    activate(ctx) {
+      pluginCwd = ctx.cwd;
+    },
   };
 }

@@ -1,12 +1,12 @@
 import { spawn } from 'node:child_process';
-import type { PluginTool } from '../plugin';
+import type { PluginTool, ToolExecutorResult } from '../plugin';
 
-function executeBash(args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
-  const command = args.command as string;
+function executeBash(command: string, cwd: string, signal?: AbortSignal): Promise<ToolExecutorResult> {
   return new Promise((resolve) => {
     const proc = spawn('bash', ['-c', command], {
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: true,
+      cwd,
     });
 
     let stdout = '';
@@ -62,43 +62,49 @@ function executeBash(args: Record<string, unknown>, signal?: AbortSignal): Promi
         .filter(Boolean)
         .join('\n');
       if (signal?.aborted) {
-        resolve('Aborted');
+        resolve({ content: 'Aborted', error: true });
         return;
       }
       if (code !== 0 && !output) {
-        resolve(`Error: Process exited with code ${code}`);
+        resolve({ content: `Error: Process exited with code ${code}`, error: true });
         return;
       }
-      resolve(output || '(no output)');
+      // Non-zero exit with output: treat as error so the LLM sees it as such,
+      // but preserve stdout/stderr in the content.
+      resolve({ content: output || '(no output)', error: code !== 0 });
     });
 
     proc.on('error', (err) => {
       signal?.removeEventListener('abort', onAbort);
-      resolve(`Error: ${err.message}`);
+      resolve({ content: `Error: ${err.message}`, error: true });
     });
   });
 }
 
-export const bashTool: PluginTool = {
-  definition: {
-    type: 'function',
-    function: {
-      name: 'bash',
-      description:
-        'Execute a bash command and return its output. Use for running commands, installing packages, checking status, etc.',
-      parameters: {
-        type: 'object',
-        properties: {
-          command: { type: 'string', description: 'The bash command to execute' },
+export function createBashTool(getCwd: () => string): PluginTool {
+  return {
+    definition: {
+      type: 'function',
+      function: {
+        name: 'bash',
+        description:
+          'Execute a bash command and return its output. Use for running commands, installing packages, checking status, etc.',
+        parameters: {
+          type: 'object',
+          properties: {
+            command: { type: 'string', description: 'The bash command to execute' },
+          },
+          required: ['command'],
         },
-        required: ['command'],
       },
     },
-  },
-  display: {
-    verb: 'running',
-    kind: 'shell',
-    fields: { command: 'command' },
-  },
-  execute: executeBash,
-};
+    display: {
+      verb: 'running',
+      kind: 'shell',
+      fields: { command: 'command' },
+    },
+    execute(args, signal) {
+      return executeBash(args.command as string, getCwd(), signal);
+    },
+  };
+}

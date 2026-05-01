@@ -11,8 +11,11 @@ import { loadAllExtensions } from './loader';
 import type { PiShim } from './shim';
 import type { PiCompatConfig } from './types';
 
-export type { PiCompatConfig, UIService } from './types';
-export { ConsoleUIService } from './types';
+// Public API: Pi-extension authors import these from `mu-pi-compat`. The
+// implementations live in `mu-agents`; we forward them so the consumer
+// surface stays stable even if internal layering shifts.
+export { ConsoleUIService, type UIService } from 'mu-agents';
+export type { PiCompatConfig } from './types';
 
 /**
  * Create the Pi compatibility plugin.

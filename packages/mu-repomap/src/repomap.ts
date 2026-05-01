@@ -34,15 +34,21 @@ export interface Repomap {
 
 // --- SG CLI wrapper ---
 
-const SG_BIN = (() => {
+// Resolved on first use rather than at module load. Module-load resolution
+// captured `process.cwd()` before the host could chdir, and could miss a
+// freshly installed local binary if the module was imported pre-install.
+let cachedSgBin: string | undefined;
+
+function resolveSgBin(): string {
+  if (cachedSgBin) return cachedSgBin;
   const local = join(process.cwd(), 'node_modules/.bin/sg');
-  if (existsSync(local)) return local;
-  return 'sg';
-})();
+  cachedSgBin = existsSync(local) ? local : 'sg';
+  return cachedSgBin;
+}
 
 function runSg(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(SG_BIN, args, { maxBuffer: 20 * 1024 * 1024 }, (err, stdout) => {
+    execFile(resolveSgBin(), args, { maxBuffer: 20 * 1024 * 1024 }, (err, stdout) => {
       if (err) reject(err);
       else resolve(stdout);
     });

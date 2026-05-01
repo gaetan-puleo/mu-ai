@@ -8,6 +8,7 @@ export type RepomapState = 'idle' | 'building' | 'watching';
 let instance: RepomapManager | null = null;
 
 type StateListener = (state: RepomapState) => void;
+type DisposeListener = () => void;
 
 export class RepomapManager {
   private map: Repomap | null = null;
@@ -15,20 +16,73 @@ export class RepomapManager {
   private building = false;
   private logger: RepomapLogger = createLogger(undefined);
   private stateListeners: Set<StateListener> = new Set();
+  private disposeListeners: Set<DisposeListener> = new Set();
+  private disposed = false;
 
   constructor(root: string) {
     this.root = root;
   }
 
+  /**
+   * Singleton accessor — returns the live instance for `root`, creating one
+   * if needed. When `root` differs from the previously cached instance, the
+   * old one is disposed (state-listener fanout cleared, dispose-listeners
+   * fired so external resources like file watchers can stop) before a fresh
+   * instance is created. This keeps long-running processes from leaking
+   * watchers when the working directory changes.
+   */
   static getInstance(root: string): RepomapManager {
-    if (!instance || instance.root !== root) {
+    if (instance && instance.root !== root) {
+      instance.dispose();
+      instance = null;
+    }
+    if (!instance) {
       instance = new RepomapManager(root);
     }
     return instance;
   }
 
+  /** Forget the singleton (test helper) — also disposes the prior instance. */
   static reset(): void {
+    if (instance) {
+      instance.dispose();
+    }
     instance = null;
+  }
+
+  /**
+   * Subscribe to disposal — fires when `dispose()` is called on this
+   * instance, e.g. because `getInstance()` is replacing it for a new root.
+   * Listener is invoked at most once. Returns an unsubscribe function.
+   */
+  onDispose(listener: DisposeListener): () => void {
+    if (this.disposed) {
+      // Already disposed — fire immediately so subscribers don't deadlock
+      // waiting for an event that will never arrive.
+      listener();
+      return () => {
+        /* no-op */
+      };
+    }
+    this.disposeListeners.add(listener);
+    return () => {
+      this.disposeListeners.delete(listener);
+    };
+  }
+
+  /** Tear down: notify dispose-listeners, drop state-listeners, mark disposed. */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const listener of this.disposeListeners) {
+      try {
+        listener();
+      } catch {
+        // best-effort: never let one listener block the rest
+      }
+    }
+    this.disposeListeners.clear();
+    this.stateListeners.clear();
   }
 
   /** Replace the logger. Call from `Plugin.activate` so progress goes through the host UI. */

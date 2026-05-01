@@ -1,7 +1,6 @@
 import { watch } from 'node:fs';
 import { extname, relative } from 'node:path';
-import type { UIService } from 'mu-agents';
-import { createLogger, type RepomapLogger } from './logger';
+import type { RepomapLogger } from './logger';
 import { RepomapManager } from './manager';
 import { SOURCE_EXTS } from './repomap';
 
@@ -9,15 +8,24 @@ export class RepomapWatcher {
   private watcher: ReturnType<typeof watch> | null = null;
   private manager: RepomapManager;
   private root: string;
-  private logger: RepomapLogger;
   private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingChanges: Set<string> = new Set();
+  private unsubDispose: (() => void) | null = null;
   private readonly DEBOUNCE_MS = 500;
 
-  constructor(root: string, ui?: UIService) {
+  constructor(root: string) {
     this.root = root;
     this.manager = RepomapManager.getInstance(root);
-    this.logger = createLogger(ui);
+  }
+
+  /**
+   * Always pull the active logger from the manager so progress and errors
+   * route through whatever UI was last attached via `manager.setUi(...)`.
+   * If the constructor cached a logger, switching UIs (TUI mount, host
+   * shutdown to console) would leave the watcher writing to a stale sink.
+   */
+  private get logger(): RepomapLogger {
+    return this.manager.getLogger();
   }
 
   start(): void {
@@ -34,6 +42,10 @@ export class RepomapWatcher {
       this.onFileChange(relative(this.root, fullPath));
     });
 
+    // If the manager is replaced for a different root, stop watching here so
+    // we don't leak fs.watch handles or fire rebuilds on a disposed manager.
+    this.unsubDispose = this.manager.onDispose(() => this.stop());
+
     this.logger.notify('Watching for changes...', 'info');
   }
 
@@ -45,6 +57,10 @@ export class RepomapWatcher {
     if (this.watcher) {
       this.watcher.close();
       this.watcher = null;
+    }
+    if (this.unsubDispose) {
+      this.unsubDispose();
+      this.unsubDispose = null;
     }
   }
 

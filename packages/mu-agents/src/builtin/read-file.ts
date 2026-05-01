@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import type { PluginTool } from '../plugin';
 import { sanitizePath } from './utils';
 
-function executeReadFileSingle(rawPath: string, start?: number, end?: number): string {
-  const path = sanitizePath(rawPath);
+function executeReadFileSingle(rawPath: string, cwd: string, start?: number, end?: number): string {
+  const path = sanitizePath(rawPath, cwd);
   if (!existsSync(path)) {
     return `Error: File not found: ${path}`;
   }
@@ -31,54 +31,57 @@ function executeReadFileSingle(rawPath: string, start?: number, end?: number): s
   }
 }
 
-export const readFileTool: PluginTool = {
-  definition: {
-    type: 'function',
-    function: {
-      name: 'read_file',
-      description:
-        'Read one or more files. When reading multiple files, pass an array of paths instead of separate calls. Always specify start/end line numbers when you can to minimize token consumption.',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: {
-            oneOf: [
-              { type: 'string', description: 'Absolute or relative file path' },
-              {
-                type: 'array',
-                items: { type: 'string' },
-                description: 'Array of absolute or relative file paths',
-              },
-            ],
+export function createReadFileTool(getCwd: () => string): PluginTool {
+  return {
+    definition: {
+      type: 'function',
+      function: {
+        name: 'read_file',
+        description:
+          'Read one or more files. When reading multiple files, pass an array of paths instead of separate calls. Always specify start/end line numbers when you can to minimize token consumption.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: {
+              oneOf: [
+                { type: 'string', description: 'Absolute or relative file path' },
+                {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Array of absolute or relative file paths',
+                },
+              ],
+            },
+            start: {
+              type: 'integer',
+              description: 'Start line number (1-indexed, inclusive). Omit to read from the beginning.',
+            },
+            end: { type: 'integer', description: 'End line number (1-indexed, inclusive). Omit to read to the end.' },
           },
-          start: {
-            type: 'integer',
-            description: 'Start line number (1-indexed, inclusive). Omit to read from the beginning.',
-          },
-          end: { type: 'integer', description: 'End line number (1-indexed, inclusive). Omit to read to the end.' },
+          required: ['path'],
         },
-        required: ['path'],
       },
     },
-  },
-  display: {
-    verb: 'reading',
-    kind: 'file-read',
-    fields: { path: 'path', start: 'start', end: 'end' },
-  },
-  execute(args) {
-    const paths = Array.isArray(args.path) ? (args.path as string[]) : [args.path as string];
-    const start = args.start as number | undefined;
-    const end = args.end as number | undefined;
+    display: {
+      verb: 'reading',
+      kind: 'file-read',
+      fields: { path: 'path', start: 'start', end: 'end' },
+    },
+    execute(args) {
+      const paths = Array.isArray(args.path) ? (args.path as string[]) : [args.path as string];
+      const start = args.start as number | undefined;
+      const end = args.end as number | undefined;
+      const cwd = getCwd();
 
-    if (paths.length === 1) {
-      return executeReadFileSingle(paths[0], start, end);
-    }
+      if (paths.length === 1) {
+        return executeReadFileSingle(paths[0], cwd, start, end);
+      }
 
-    const results: string[] = [];
-    for (const path of paths) {
-      results.push(executeReadFileSingle(path, start, end));
-    }
-    return results.join('\n\n');
-  },
-};
+      const results: string[] = [];
+      for (const path of paths) {
+        results.push(executeReadFileSingle(path, cwd, start, end));
+      }
+      return results.join('\n\n');
+    },
+  };
+}

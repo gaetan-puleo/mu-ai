@@ -188,7 +188,9 @@ export function createRepomapPlugin(options?: RepomapOptions): Plugin {
       manager.setUi(pluginUi);
       manager.onStateChange(pushStatus);
       await manager.getMap();
-      watcher = new RepomapWatcher(ctx.cwd, pluginUi);
+      // Watcher reads its logger from the manager — no need to pass `ui`
+      // separately, which kept logger routing in sync if the host swapped UIs.
+      watcher = new RepomapWatcher(ctx.cwd);
       watcher.start();
     },
 

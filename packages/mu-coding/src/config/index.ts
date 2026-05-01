@@ -31,6 +31,46 @@ export function getPluginsDir(): string {
   return join(getConfigDir(), 'plugins');
 }
 
+// ─── npm: specifier parsing ───────────────────────────────────────────────────
+//
+// Plugin specifiers stored in `config.plugins` use the form `npm:<bare>` where
+// `<bare>` is a bun/npm package spec — possibly versioned (`foo@1.2.3`,
+// `@scope/foo@^1.0.0`). Multiple call sites need to split this consistently:
+// `mu install`/`mu uninstall` use it for canonicalization & version stripping;
+// the runtime plugin loader uses it to resolve from
+// `~/.local/share/mu/node_modules/<name>`. Centralized here so the rules
+// can never drift between install-time and load-time.
+
+/**
+ * Parsed npm specifier: package name (always present, scope preserved) and an
+ * optional install-time version range. Examples:
+ *
+ *   foo               → { name: "foo" }
+ *   foo@1.2.3         → { name: "foo",         version: "1.2.3" }
+ *   @scope/foo        → { name: "@scope/foo" }
+ *   @scope/foo@^1.0.0 → { name: "@scope/foo",  version: "^1.0.0" }
+ */
+export interface ParsedNpmSpec {
+  name: string;
+  version?: string;
+}
+
+/** Strip the leading `@` for scoped names before searching for the version `@`. */
+export function parseBareNpmSpec(bare: string): ParsedNpmSpec {
+  const scoped = bare.startsWith('@');
+  const at = bare.indexOf('@', scoped ? 1 : 0);
+  if (at === -1) return { name: bare };
+  return { name: bare.slice(0, at), version: bare.slice(at + 1) };
+}
+
+/**
+ * Canonical form stored in `config.plugins`: `npm:<package-name>` with the
+ * version stripped, so `npm:foo@1.2.3` and `npm:foo` deduplicate correctly.
+ */
+export function canonicalNpmSpecifier(bare: string): string {
+  return `npm:${parseBareNpmSpec(bare).name}`;
+}
+
 export interface AppConfig extends ProviderConfig {
   plugins?: Array<string | { name: string; config?: Record<string, unknown> }>;
 }

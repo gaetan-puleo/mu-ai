@@ -1,10 +1,6 @@
 import type { TSchema } from '@sinclair/typebox';
 import type { UIService } from 'mu-agents';
 
-// Re-exported from mu-agents so existing consumers of `mu-pi-compat` can keep
-// importing `UIService` / `ConsoleUIService` from here.
-export { ConsoleUIService, type UIService } from 'mu-agents';
-
 // ─── Pi Extension API Types ────────────────────────────────────────────────────
 
 /**

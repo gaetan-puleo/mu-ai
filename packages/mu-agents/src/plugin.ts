@@ -23,7 +23,26 @@ export interface PluginContext {
   shutdown?: (code?: number) => Promise<void> | void;
 }
 
-export type ToolExecutor = (args: Record<string, unknown>, signal?: AbortSignal) => Promise<string> | string;
+/**
+ * What a tool's `execute` may return:
+ *  - a plain string (legacy / convenience): an error is heuristically inferred
+ *    when the string starts with `"Error:"`. Convenient for quick tools but
+ *    fragile (collisions with legitimate output that begins with that prefix).
+ *  - a `ToolExecutorResult`: explicit `error` flag, no heuristics. Preferred
+ *    for new tools and for any tool whose output may legitimately start with
+ *    "Error:".
+ *
+ * The agent runtime accepts both forms; the registry doesn't care.
+ */
+export interface ToolExecutorResult {
+  content: string;
+  error?: boolean;
+}
+
+export type ToolExecutor = (
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+) => Promise<string | ToolExecutorResult> | string | ToolExecutorResult;
 
 /**
  * Optional rendering hints the host can use when displaying a tool call.

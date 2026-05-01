@@ -13,6 +13,7 @@ export type {
   StatusSegment,
   ToolDisplayHint,
   ToolExecutor,
+  ToolExecutorResult,
   ToolResult,
   TurnResult,
 } from './plugin';

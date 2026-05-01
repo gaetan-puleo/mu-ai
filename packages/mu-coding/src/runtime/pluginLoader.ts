@@ -2,7 +2,7 @@ import { readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import type { Plugin, PluginRegistry } from 'mu-agents';
-import { getDataDir, getPluginsDir } from '../config/index';
+import { getDataDir, getPluginsDir, parseBareNpmSpec } from '../config/index';
 import type { InkUIService } from '../tui/plugins/InkUIService';
 
 export function discoverPluginFiles(): string[] {
@@ -31,15 +31,8 @@ function formatPluginError(name: string, err: unknown): string {
   return parts.join(': ');
 }
 
-/** Strip an optional version suffix from a bare package spec (e.g. `foo@1.2.3` → `foo`). */
-function bareName(bare: string): string {
-  const scoped = bare.startsWith('@');
-  const at = bare.indexOf('@', scoped ? 1 : 0);
-  return at === -1 ? bare : bare.slice(0, at);
-}
-
 function resolveNpmPlugin(specifier: string): string {
-  const name = bareName(specifier.slice(4));
+  const { name } = parseBareNpmSpec(specifier.slice(4));
   const dataDir = getDataDir();
   try {
     const require = createRequire(resolve(dataDir, 'package.json'));
