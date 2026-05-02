@@ -77,7 +77,7 @@ export function createCodingPlugin(config: CodingPluginConfig): Plugin {
       // Register the Ink approval channel against mu-agents' gateway, when
       // mu-agents is present. We use `ctx.getPlugin` to look it up loosely
       // so coding still works in setups that disabled the agent plugin.
-      const agentPlugin = ctx.getPlugin?.<Plugin & AgentPluginShape>('mu-agent');
+      const agentPlugin = ctx.getPlugin?.<Plugin & AgentPluginShape>('mu-agents');
       if (agentPlugin?.approvalGateway) {
         unregisterApprovalChannel = agentPlugin.approvalGateway.registerChannel(
           'tui',

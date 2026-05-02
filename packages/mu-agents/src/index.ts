@@ -16,10 +16,9 @@ export type { Action, PermissionContext, PermissionMap, ToolMatchKeySpec, ToolPe
 export { resolvePermission, validatePermissionMap } from './permissions';
 export {
   AGENT_MESSAGE_TYPES,
-  createMuAgentPlugin,
-  createMuAgentPlugin as default,
-  createMuAgentPlugin as createAgentsPlugin,
-  type MuAgentPluginConfig,
+  type AgentsPluginConfig,
+  createAgentsPlugin,
+  createAgentsPlugin as default,
 } from './plugin';
 export type { AgentSourceManager, AgentSourceRegistry } from './sources';
 // Agent source manager (commit 3)

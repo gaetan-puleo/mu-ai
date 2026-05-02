@@ -1,6 +1,6 @@
 # mu-repomap
 
-Code indexing and symbol search plugin for `mu-agents`. Builds a repository map using AST parsing, watches for file changes, and exposes a `search_code` tool for LLM agents.
+Code indexing and symbol search plugin for `mu-core`. Builds a repository map using AST parsing, watches for file changes, and exposes a `search_code` tool for LLM agents.
 
 ## Install
 
@@ -11,7 +11,7 @@ npm install mu-repomap
 ## Usage as Plugin
 
 ```ts
-import { PluginRegistry } from "mu-agents";
+import { PluginRegistry } from "mu-core";
 import { createRepomapPlugin } from "mu-repomap";
 
 const registry = new PluginRegistry({ cwd: process.cwd(), config: {} });

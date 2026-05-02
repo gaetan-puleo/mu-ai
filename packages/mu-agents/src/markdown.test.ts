@@ -8,7 +8,7 @@ import { loadAgentFile, loadAgentsFromDir, mergeAgents } from './markdown';
 let tmp: string;
 
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'mu-agent-md-'));
+  tmp = mkdtempSync(join(tmpdir(), 'mu-agents-md-'));
 });
 
 afterEach(() => {

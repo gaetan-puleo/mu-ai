@@ -15,12 +15,19 @@ import { DEFAULT_PRIMARY_AGENTS, DEFAULT_SUB_AGENTS } from './builtin';
 import { AgentManager } from './manager';
 import { mergeAgents } from './markdown';
 import { resolvePermission, type ToolMatchKeySpec, validatePermissionMap } from './permissions';
-import { AGENT_MESSAGE_TYPES, AgentIndicatorMessage, AgentSwitchMessage, SubagentMessage } from './renderers';
+import { AGENT_MESSAGE_TYPES, AgentIndicatorMessage, SubagentMessage } from './renderers';
 import { type AgentSourceManager, createAgentSourceManager } from './sources';
 import { createSubagentParallelTool, createSubagentTool } from './subagent';
+import {
+  type AgentSwitchTracker,
+  buildAgentSwitchNote,
+  createAgentSwitchTracker,
+  recordSwitch,
+  resetTracker,
+} from './switchTracker';
 import type { AgentDefinition } from './types';
 
-export interface MuAgentPluginConfig {
+export interface AgentsPluginConfig {
   /** Override the user agents directory (defaults to `~/.config/mu/agents`). */
   agentsDir?: string;
   /** Override the settings path (defaults to `~/.local/share/mu/agent-state.json`). */
@@ -85,23 +92,6 @@ function renderAgentPrompt(agent: AgentDefinition, subagents: AgentDefinition[])
 }
 
 /**
- * Append an agent-switch banner to the live transcript. Uses a plugin-private
- * `customType` so the host renders it via `AgentSwitchMessage`. The message
- * is hidden from the LLM (`role: 'assistant'` + `display.hidden`) — well, in
- * fact we keep `hidden` off so the LLM also sees the banner; this is fine
- * since the banner is short and gives the model context for the new mode.
- */
-function appendSwitchBanner(ctx: PluginContext, previous: AgentDefinition | undefined, next: AgentDefinition): void {
-  ctx.messages?.append({
-    role: 'assistant',
-    content: previous ? `Switched from \`${previous.name}\` to \`${next.name}\` mode.` : `Active agent: ${next.name}.`,
-    customType: AGENT_MESSAGE_TYPES.switch,
-    display: { color: next.color, badge: next.name },
-    meta: { agent: next.name, previous: previous?.name },
-  });
-}
-
-/**
  * Build the lifecycle hooks the plugin contributes:
  *  - `beforeLlmCall` snapshots the live model so subagents stay in sync
  *  - `transformSystemPrompt` injects the active agent's prompt
@@ -109,6 +99,9 @@ function appendSwitchBanner(ctx: PluginContext, previous: AgentDefinition | unde
  *  - `beforeToolExec` policy-rejects tool calls that don't match the agent
  *    whitelist (so the agent prompt + tool registry stay in lock-step even
  *    if the LLM ignores the prompt and tries something it shouldn't)
+ *  - `transformUserInput` injects a hidden system message describing the
+ *    prior agent lineage so the new agent has context — only when the user
+ *    has actually changed agents since their last send.
  */
 interface BuildHooksDeps {
   manager: AgentManager;
@@ -116,6 +109,8 @@ interface BuildHooksDeps {
   approvalGateway: ApprovalGateway;
   approvalChannelId: string;
   registryRef: { current: PluginRegistryView | null };
+  tracker: AgentSwitchTracker;
+  ctxRef: { current: PluginContext | null };
 }
 
 function safeParseArgs(call: { function: { arguments: string } }): Record<string, unknown> {
@@ -201,6 +196,26 @@ function buildHooks(deps: BuildHooksDeps): LifecycleHooks {
         content: `Tool '${toolName}' is not allowed in agent '${agent.name}'. Allowed: ${agent.tools.join(', ') || 'none'}.`,
       };
     },
+    transformUserInput: (_text) => {
+      const active = deps.manager.getActive();
+      if (!active) return { kind: 'pass' };
+      // Seed the tracker with the agent at first send so the very first
+      // user message doesn't trigger a spurious inject.
+      if (deps.tracker.current === null) deps.tracker.current = active.name;
+      const note = buildAgentSwitchNote(deps.tracker, active.name);
+      if (note) {
+        deps.ctxRef.current?.messages?.injectNext({
+          role: 'system',
+          content: note,
+          display: { hidden: true },
+          meta: { agent: active.name, source: 'mu-agents.switch' },
+        });
+      }
+      // Reset the traversal so the next inject only fires if the user
+      // switches agents again before the next send.
+      resetTracker(deps.tracker, active.name);
+      return { kind: 'pass' };
+    },
   };
 }
 
@@ -214,11 +229,7 @@ function makeSwitchCommand(agent: AgentDefinition, deps: BuildCommandsDeps): Sla
     name: agent.name,
     description: `Switch to '${agent.name}' agent — ${agent.description}`,
     async execute(_args) {
-      const previous = deps.manager.getActive();
-      const switched = deps.manager.setActive(agent.name);
-      if (switched && deps.ctxRef.current) {
-        appendSwitchBanner(deps.ctxRef.current, previous, agent);
-      }
+      deps.manager.setActive(agent.name);
       return undefined;
     },
   };
@@ -238,11 +249,8 @@ function buildCommands(deps: BuildCommandsDeps): SlashCommand[] {
           .join(', ');
         return `Current: ${active?.name ?? '(none)'}. Available: ${names}.`;
       }
-      const previous = deps.manager.getActive();
       const switched = deps.manager.setActive(args.trim());
       if (!switched) return `Agent '${args.trim()}' not found.`;
-      const next = deps.manager.getActive();
-      if (next && deps.ctxRef.current) appendSwitchBanner(deps.ctxRef.current, previous, next);
       return undefined;
     },
   });
@@ -261,7 +269,6 @@ function registerRenderers(ctx: PluginContext, store: ActivateDeps['unregisterFn
   if (!ctx.registerMessageRenderer) return;
   // Wrap as JSX so the host's React reconciler sees real component instances
   // and any future hooks (theme / state) keep working.
-  store.push(ctx.registerMessageRenderer(AGENT_MESSAGE_TYPES.switch, (m) => <AgentSwitchMessage msg={m} />));
   store.push(ctx.registerMessageRenderer(AGENT_MESSAGE_TYPES.indicator, (m) => <AgentIndicatorMessage msg={m} />));
   store.push(ctx.registerMessageRenderer(AGENT_MESSAGE_TYPES.subagent, (m) => <SubagentMessage msg={m} />));
 }
@@ -270,9 +277,7 @@ function registerTabShortcut(ctx: PluginContext, deps: ActivateDeps): void {
   if (!ctx.registerShortcut) return;
   deps.unregisterFns.push(
     ctx.registerShortcut('tab', () => {
-      const previous = deps.manager.getActive();
-      const next = deps.manager.cycle();
-      if (next) appendSwitchBanner(ctx, previous, next);
+      deps.manager.cycle();
     }),
   );
 }
@@ -305,10 +310,11 @@ interface PluginInternals {
   modelRef: { current: string };
   registryRef: { current: PluginRegistryView | null };
   ctxRef: { current: PluginContext | null };
+  tracker: AgentSwitchTracker;
   config?: ProviderConfig;
 }
 
-function buildInternals(pluginConfig: MuAgentPluginConfig): PluginInternals {
+function buildInternals(pluginConfig: AgentsPluginConfig): PluginInternals {
   const agentsDir = pluginConfig.agentsDir ?? defaultAgentsDir();
   const settingsPath = pluginConfig.settingsPath ?? defaultSettingsPath();
   const sources = createAgentSourceManager();
@@ -328,6 +334,7 @@ function buildInternals(pluginConfig: MuAgentPluginConfig): PluginInternals {
     modelRef: { current: pluginConfig.model ?? '' },
     registryRef: { current: null },
     ctxRef: { current: null },
+    tracker: createAgentSwitchTracker(),
     config: pluginConfig.config,
   };
 }
@@ -335,7 +342,7 @@ function buildInternals(pluginConfig: MuAgentPluginConfig): PluginInternals {
 /**
  * Plugin factory. Mu-coding loads this through the standard plugin loader,
  * which forwards `{ ui, shutdown, ...userConfig }`. The user-supplied config
- * keys we care about are spelled out in `MuAgentPluginConfig`.
+ * keys we care about are spelled out in `AgentsPluginConfig`.
  */
 /**
  * Build a refresher that re-merges sources, validates each agent's
@@ -415,7 +422,27 @@ function activatePlugin(ctx: PluginContext, internals: PluginInternals, unregist
   registerTabShortcut(ctx, activateDeps);
   registerMentions(ctx, activateDeps);
   pushIndicator(ctx, internals.manager);
-  unregisterFns.push(internals.manager.onChange(() => pushIndicator(ctx, internals.manager)));
+  unregisterFns.push(
+    internals.manager.onChange((next) => {
+      pushIndicator(ctx, internals.manager);
+      if (next) recordSwitch(internals.tracker, next.name);
+    }),
+  );
+  // Reset traversal state when the session is wiped (e.g. /new). The host
+  // emits an empty `messages` snapshot through the message bus on session
+  // reset; we hook that to forget any pending traversal so the next first
+  // user turn doesn't ship a stale switch note.
+  if (ctx.messages?.subscribe) {
+    let lastLen = ctx.messages.get?.().length ?? 0;
+    unregisterFns.push(
+      ctx.messages.subscribe((messages) => {
+        if (messages.length === 0 && lastLen > 0) {
+          resetTracker(internals.tracker, internals.manager.getActive()?.name ?? null);
+        }
+        lastLen = messages.length;
+      }),
+    );
+  }
 }
 
 function deactivatePlugin(internals: PluginInternals, unregisterFns: Array<() => void>): void {
@@ -431,14 +458,14 @@ function deactivatePlugin(internals: PluginInternals, unregisterFns: Array<() =>
   internals.ctxRef.current = null;
 }
 
-export function createMuAgentPlugin(rawConfig: MuAgentPluginConfig = {}): Plugin {
+export function createAgentsPlugin(rawConfig: AgentsPluginConfig = {}): Plugin {
   const internals = buildInternals(rawConfig);
   const unregisterFns: Array<() => void> = [];
 
   return {
-    name: 'mu-agent',
+    name: 'mu-agents',
     version: '0.5.0',
-    /** Public handle hosts can grab via `ctx.getPlugin('mu-agent')`. */
+    /** Public handle hosts can grab via `ctx.getPlugin('mu-agents')`. */
     approvalGateway: internals.approvalGateway,
     tools: buildSubagentTools(internals),
     hooks: buildHooks({
@@ -447,6 +474,8 @@ export function createMuAgentPlugin(rawConfig: MuAgentPluginConfig = {}): Plugin
       approvalGateway: internals.approvalGateway,
       approvalChannelId: internals.approvalChannelId,
       registryRef: internals.registryRef,
+      tracker: internals.tracker,
+      ctxRef: internals.ctxRef,
     }),
     commands: buildCommands({ manager: internals.manager, ctxRef: internals.ctxRef }),
     activate(ctx) {

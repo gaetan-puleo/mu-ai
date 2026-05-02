@@ -21,11 +21,13 @@ chargent ses plugins d'intégration et appellent `startMu({ configPath, plugins 
 ## 1. Liste finale des paquets (6)
 
 ```
-mu-core              SDK : types LLM + transport (SSE/NDJSON/fetch) + ProviderAdapter
-                     + createProvider() + Provider interface + registre providers
+mu-core              SDK : types LLM + Provider interface + registre providers
+                     + (optionnel) ProviderAdapter + createProvider() + transport
+                     SSE/NDJSON/fetch (pour providers non-SDK)
                      + Channel + Session + SessionManager + ActivityBus
                      + UIService + runAgent + plugin SDK + host (startMu)
-mu-openai-provider   openaiAdapter + helpers format OpenAI + factory plugin
+mu-openai-provider   wrapper du SDK officiel `openai` exposé comme Provider
+                     + factory plugin (pas de parse SSE maison, pas d'adapter)
 mu-agents            moteur agent / sous-agent / permission + ApprovalGateway
                      + ApprovalChannel + chargeur markdown (chokidar) + globs picomatch
 mu-repomap           search_code (existant, paths d'imports mis à jour)
@@ -64,12 +66,31 @@ restent dans `mu-coding/src/runtime/codingTools/`, factory
 
 ### 3.2 Provider — couches d'extensibilité
 
-`mu-core/src/provider/transport.ts` (primitives génériques) :
+mu-core expose **deux niveaux** d'API pour qu'un plugin puisse contribuer un
+provider LLM :
+
+1. **Niveau haut — `Provider` direct.** Implémenter l'interface `Provider`
+   et l'enregistrer dans `ProviderRegistry`. C'est ce que fait
+   `mu-openai-provider` : il wrappe le SDK officiel `openai` (pas de parsing
+   SSE manuel) et expose le tout comme un `Provider`.
+
+2. **Niveau bas (optionnel) — `ProviderAdapter` + `createProvider`.** Pour
+   les providers qui ne disposent pas de SDK Node ou parlent un wire
+   protocol custom (Anthropic, Ollama natif, mistral.rs, …), mu-core fournit
+   les primitives transport + un contrat `ProviderAdapter` que
+   `createProvider(adapter)` transforme en `Provider`.
+
+Aucun couplage entre les deux : un plugin peut sauter entièrement la couche
+adapter si son SDK fait déjà le travail.
+
+`mu-core/src/provider/transport.ts` (primitives génériques pour la voie
+adapter) :
 - `readSSE(response, signal)` — lecteur SSE générique
 - `readNDJSON(response, signal)` — lecteur NDJSON
 - `fetchWithIdleTimeout(url, init, timeoutMs)` — fetch avec timeout d'inactivité
 
-`mu-core/src/provider/adapter.ts` (contrat + factory) :
+`mu-core/src/provider/adapter.ts` (contrat + factory, optionnel pour le
+consommateur) :
 
 ```ts
 export interface RequestSpec {
@@ -350,44 +371,81 @@ Hooks lifecycle existants conservés (`beforeLlmCall`, `afterLlmCall`,
 
 ## 4. mu-openai-provider — détail
 
-`mu-openai-provider/src/format.ts` (helpers réutilisables) :
-- `toOpenAIMessages(messages: ChatMessage[]): OpenAIMessage[]`
-- `parseOpenAIChunk(json): ParsedChatEvent`
-- `parseOpenAIUsage(json): Usage`
+### 4.1 Stratégie : SDK officiel `openai`
 
-`mu-openai-provider/src/adapter.ts` :
-```ts
-import type { ProviderAdapter } from 'mu-core';
+Le paquet **utilise directement le SDK Node officiel** (`openai` sur npm)
+plutôt que de reconstruire le wire protocol via `ProviderAdapter` +
+`createProvider`. Justification :
 
-export const openaiAdapter: ProviderAdapter = {
-  id: 'openai',
-  transport: 'sse',
-  buildChatRequest({ messages, config, model, tools }) { /* ... */ },
-  parseChatEvent(raw) { /* parse JSON + dispatch via parseOpenAIChunk */ },
-  buildModelsRequest({ baseUrl }) { /* GET /models */ },
-  parseModelsResponse(body) { /* return data */ },
-};
-```
+- Le SDK gère pour nous : accumulation des `tool_calls` cross-chunks, retry,
+  auth, désérialisation des `delta` (incluant `reasoning_content` /
+  `reasoning` exposés par les serveurs locaux).
+- La complexité de maintenance d'un parser SSE OpenAI maison ne se justifie
+  pas pour gagner ~quelques centaines de kB de bundle.
+- Les hosts qui veulent un chemin SDK-free peuvent toujours publier leur
+  propre provider via la voie `Provider` directe ou
+  `createProvider(adapter)` (cf. §3.2).
+
+### 4.2 Modules
+
+`mu-openai-provider/src/stream.ts` :
+- `streamChat(messages, config, model, options?): AsyncGenerator<StreamChunk>`
+- Wrap le SDK `openai`, gère :
+  - construction des `ChatCompletionMessageParam[]` (texte, `image_url`,
+    `tool_calls`, `tool_call_id`, system messages embarqués)
+  - timeout d'inactivité par chunk via un helper interne `withInactivityTimeout`
+  - extraction des `reasoning_content` / `reasoning` propres aux serveurs locaux
+  - accumulation des fragments `tool_calls` puis émission lorsqu'un
+    `finish_reason` (`'tool_calls'` ou `'stop'`) arrive ; fallback final
+    pour les serveurs qui omettent un `finish_reason`
+  - propagation du `usage` final (avec `cached_tokens` quand reporté) via
+    `options.onUsage`
+
+`mu-openai-provider/src/models.ts` :
+- `listModels(baseUrl): Promise<ApiModel[]>` — appel `client.models.list()` via SDK
 
 `mu-openai-provider/src/plugin.ts` :
 ```ts
-import { createProvider } from 'mu-core';
-import { openaiAdapter } from './adapter.ts';
+import type { Plugin, Provider } from 'mu-core';
+import { listModels } from './models';
+import { streamChat } from './stream';
 
-export default function createOpenAIProviderPlugin() {
+export interface OpenAIProviderPluginConfig {
+  /** Override id; defaults to 'openai'. */
+  id?: string;
+}
+
+export function createOpenAIProviderPlugin(config: OpenAIProviderPluginConfig = {}): Plugin {
+  const provider: Provider = {
+    id: config.id ?? 'openai',
+    streamChat: (messages, cfg, model, options) => streamChat(messages, cfg, model, options),
+    listModels: (cfg) => listModels(cfg.baseUrl),
+  };
   return {
     name: 'mu-openai-provider',
     version: '0.5.0',
     activate(ctx) {
-      ctx.providers?.register(createProvider(openaiAdapter));
+      ctx.providers?.register(provider);
     },
   };
 }
+
+export default createOpenAIProviderPlugin;
 ```
 
-`mu-openai-provider/src/index.ts` re-exporte `openaiAdapter`,
-`createOpenAIProviderPlugin`, et les helpers de format (utiles pour un futur
-`mu-ollama-provider` qui parle OpenAI-compat).
+`mu-openai-provider/src/index.ts` re-exporte :
+- `streamChat`, `listModels` — entry points ad-hoc (scripts, tests)
+- `createOpenAIProviderPlugin`, `OpenAIProviderPluginConfig`, default export
+- Types LLM ré-exportés depuis `mu-core` (compat ascendante des imports
+  `from 'mu-openai-provider'`)
+
+### 4.3 Pas de `format.ts` ni `adapter.ts`
+
+Les helpers `toOpenAIMessages` / `parseOpenAIChunk` / `parseOpenAIUsage` ne
+sont **pas** exposés : leur logique vit dans `stream.ts` (privée, fournie
+par le SDK lui-même). Un futur `mu-ollama-provider` qui souhaiterait parler
+OpenAI-compat sans le SDK implémentera son propre `ProviderAdapter` via
+`createProvider(...)` (cf. §3.2).
 
 ## 5. mu-agents — détail
 
@@ -839,8 +897,14 @@ section Plugin Configuration pour mentionner les nouveaux noms.
 - `host/startMu.test.ts` : config + plugins en code, ordre d'activation
 
 #### mu-openai-provider
-- `format.test.ts` : `toOpenAIMessages`, `parseOpenAIChunk`, `parseOpenAIUsage`
-- `adapter.test.ts` : `buildChatRequest`, `parseChatEvent` happy + edge cases (`[DONE]`, chunk d'usage)
+- `stream.test.ts` (existant, étendu) :
+  - streaming content + reasoning (incluant `reasoning_content` non-standard)
+  - accumulation tool_calls (cas standard et `finish_reason: 'stop'`,
+    fallback sans `finish_reason`)
+  - propagation de `usage` (avec `cached_tokens`)
+  - erreurs HTTP propagées par le SDK
+  - timeout d'inactivité (mock du SDK)
+- Pas de `format.test.ts` ni `adapter.test.ts` : ces modules n'existent plus.
 
 #### mu-agents
 - `permissions.test.ts` : `resolvePermission` :
@@ -870,6 +934,11 @@ section Plugin Configuration pour mentionner les nouveaux noms.
 #### mu-coding
 - Tests existants mis à jour pour nouveaux paths
 - Nouveaux : `tuiChannel.test.ts` (smoke), `InkApprovalChannel.test.ts`
+
+### 11.1 Tests supprimés
+
+- `mu-openai-provider/src/format.test.ts` — supprimé en même temps que
+  `format.ts` (cf. §4.3).
 
 ### 10.3 Couverture cible
 
@@ -906,15 +975,20 @@ Aucun changement fonctionnel attendu — refacto purement mécanique.
 
 **Scope** :
 - mu-core : `Channel`, `InboundMessage`, `ChannelResponder`, `Session`,
-  `SessionManager`, `ActivityBus`, `Provider` interface, `ProviderAdapter`,
-  `createProvider`, `readSSE`, `readNDJSON`, `fetchWithIdleTimeout`, registries,
-  `startMu`
-- mu-openai-provider : refactoré pour utiliser `createProvider(openaiAdapter)`
+  `SessionManager`, `ActivityBus`, `Provider` interface, registres
+  (`ProviderRegistry`, `ChannelRegistry`), `startMu`. Voie adapter optionnelle :
+  `ProviderAdapter`, `createProvider`, `readSSE`, `readNDJSON`,
+  `fetchWithIdleTimeout` (utiles pour des providers non-SDK ; mu-openai-provider
+  ne s'en sert pas).
+- mu-openai-provider : `createOpenAIProviderPlugin` enregistre un `Provider`
+  qui wrappe directement le SDK `openai` (`streamChat` + `listModels`
+  conservés). Pas d'adapter.
 - mu-coding : `useChatSession` rebranché sur `Session`, persistence via
   `session.subscribe`, le TUI reste mais devient préparé à être un Channel
   (la registration via `ctx.channels` arrive au commit 3)
-- Tests : SessionManager, ActivityBus, transport/adapter, registry providers,
-  startMu, `Session.submit`/`subscribe`/`queueForNextTurn`
+- Tests : SessionManager, ActivityBus, transport (pour la voie adapter),
+  registry providers, startMu, `Session.submit`/`subscribe`/`queueForNextTurn`,
+  stream OpenAI (SDK-based) inchangé.
 
 **Gate** : tous verts. Smoke test : `mu` se lance, agent répond, switch
 fonctionne, persistence écrit toujours JSONL.

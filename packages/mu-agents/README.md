@@ -1,4 +1,4 @@
-# mu-agent
+# mu-agents
 
 Agent switcher and subagent orchestration plugin for [mu](../../README.md).
 
@@ -15,14 +15,14 @@ Also ships two tools for delegating to side agents:
 ## Install
 
 ```bash
-mu install npm:mu-agent   # once published, or load via workspace name
+mu install npm:mu-agents   # once published, or load via workspace name
 ```
 
 Add it to `~/.config/mu/config.json`:
 
 ```json
 {
-  "plugins": ["mu-agent"]
+  "plugins": ["mu-agents"]
 }
 ```
 
@@ -80,9 +80,9 @@ next session resumes in the same mode.
 ## Programmatic use
 
 ```ts
-import { createMuAgentPlugin } from 'mu-agent';
+import { createAgentsPlugin } from 'mu-agents';
 
-const plugin = createMuAgentPlugin({
+const plugin = createAgentsPlugin({
   agentsDir: '/path/to/agents',
   settingsPath: '/path/to/state.json',
 });

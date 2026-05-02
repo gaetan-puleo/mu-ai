@@ -15,7 +15,7 @@ let tmp: string;
 let settingsPath: string;
 
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'mu-agent-mgr-'));
+  tmp = mkdtempSync(join(tmpdir(), 'mu-agents-mgr-'));
   settingsPath = join(tmp, 'state.json');
 });
 

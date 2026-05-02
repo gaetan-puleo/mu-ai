@@ -13,11 +13,9 @@ export type {
   ToolResultInfo,
   Usage,
 } from 'mu-core';
-export { openaiAdapter } from './adapter';
-export { type OpenAIMessage, parseOpenAIChunk, parseOpenAIUsage, toOpenAIMessages } from './format';
-// SDK-based legacy entry points. New hosts should register the plugin via
-// `createOpenAIProviderPlugin` and use `runAgent` instead of calling these
-// directly — but they remain available for ad-hoc scripts and tests.
+// SDK-based entry points. Hosts driving the plugin path use the registered
+// Provider; these direct exports remain useful for ad-hoc scripts and tests
+// that want to call OpenAI without going through the registry.
 export { listModels } from './models';
 export { createOpenAIProviderPlugin, default, type OpenAIProviderPluginConfig } from './plugin';
 export { streamChat } from './stream';
