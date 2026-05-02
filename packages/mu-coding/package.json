@@ -1,6 +1,6 @@
 {
   "name": "mu-coding",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Minimal terminal AI assistant for local models",
   "type": "module",
   "bin": {
@@ -24,9 +24,9 @@
   },
   "dependencies": {
     "ink": "^7.0.1",
-    "mu-agents": "0.8.0",
-    "mu-core": "0.8.0",
-    "mu-openai-provider": "0.8.0",
+    "mu-agents": "0.9.0",
+    "mu-core": "0.9.0",
+    "mu-openai-provider": "0.9.0",
     "react": "^19.2.5"
   }
 }
