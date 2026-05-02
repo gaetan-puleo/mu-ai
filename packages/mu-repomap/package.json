@@ -1,6 +1,6 @@
 {
   "name": "mu-repomap",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "Repomap plugin for mu — code indexing and symbol search",
   "type": "module",
   "main": "./src/index.ts",
@@ -14,6 +14,6 @@
   "dependencies": {
     "@ast-grep/cli": "^0.42.1",
     "chokidar": "^5.0.0",
-    "mu-core": "0.12.0"
+    "mu-core": "0.13.0"
   }
 }
