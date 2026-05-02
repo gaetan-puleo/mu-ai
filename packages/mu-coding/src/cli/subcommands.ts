@@ -1,4 +1,5 @@
 import { runInstall, runUninstall } from './install';
+import { runOutdated, runUpdate } from './update';
 
 /**
  * Handle CLI subcommands that run before the TUI.
@@ -13,6 +14,14 @@ export async function handleSubcommand(): Promise<boolean> {
       return true;
     case 'uninstall':
       await runUninstall(process.argv.slice(3));
+      return true;
+    case 'update':
+    case 'upgrade':
+      await runUpdate(process.argv.slice(3));
+      return true;
+    case 'outdated':
+    case 'ping':
+      await runOutdated(process.argv.slice(3));
       return true;
     default:
       return false;

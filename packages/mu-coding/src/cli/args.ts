@@ -21,6 +21,8 @@ Usage:
   mu --session <path>           Resume a specific session file
   mu install npm:<package>      Install a plugin from npm
   mu uninstall npm:<package>    Remove an installed plugin
+  mu update [plugins|self|all]  Update plugins and/or mu (default: all)
+  mu outdated [plugins|self]    List available updates without applying
   mu -v, --version              Print version and exit
   mu -h, --help                 Show this help
 
