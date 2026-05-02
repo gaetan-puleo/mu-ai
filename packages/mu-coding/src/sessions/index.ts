@@ -2,7 +2,7 @@ import { createReadStream, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import type { ChatMessage } from 'mu-provider';
+import type { ChatMessage } from 'mu-core';
 import { getDataDir } from '../config/index';
 import { getProjectId, getProjectName } from './project';
 

@@ -1,10 +1,9 @@
-import type { PluginRegistry } from 'mu-agents';
+import type { PluginRegistry } from 'mu-core';
 import { parseArgs, resolveInitialMessages } from '../cli/args';
 import { handleSubcommand } from '../cli/subcommands';
 import { loadConfig } from '../config/index';
 import { createRegistry } from '../runtime/createRegistry';
 import { InkUIService } from '../tui/plugins/InkUIService';
-import { renderApp } from '../tui/renderApp';
 import { registerShutdown } from './shutdown';
 
 async function runApp(): Promise<void> {
@@ -20,17 +19,20 @@ async function runApp(): Promise<void> {
   let registryRef: PluginRegistry | null = null;
   const shutdown = registerShutdown(() => registryRef);
 
-  const { registry, messageBus } = await createRegistry({ cwd: process.cwd(), config, uiService, shutdown });
-  registryRef = registry;
-
-  renderApp({
+  const initialMessages = resolveInitialMessages(cliArgs);
+  const { registry, channels } = await createRegistry({
+    cwd: process.cwd(),
     config,
-    initialMessages: resolveInitialMessages(cliArgs),
-    registry,
-    messageBus,
     uiService,
+    initialMessages,
     shutdown,
   });
+  registryRef = registry;
+
+  // The TUI is registered as a `Channel` by `createCodingPlugin`. Starting
+  // it mounts Ink with the same options that were captured at activation
+  // time (config, initialMessages, registry, messageBus, uiService, shutdown).
+  await channels.startAll();
 }
 
 export function startApp(): void {

@@ -1,4 +1,5 @@
-import { type ApiModel, listModels } from 'mu-provider';
+import type { ApiModel } from 'mu-core';
+import { listModels } from 'mu-openai-provider';
 import { useCallback, useEffect, useState } from 'react';
 import { saveConfig } from '../../config/index';
 

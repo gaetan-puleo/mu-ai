@@ -1,4 +1,4 @@
-import type { PluginRegistry, ShortcutHandler } from 'mu-agents';
+import type { PluginRegistry, ShortcutHandler } from 'mu-core';
 import { useEffect, useState } from 'react';
 
 interface PluginShortcuts {

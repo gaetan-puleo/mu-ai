@@ -1,12 +1,18 @@
-import { type PluginRegistry, runTransformUserInputHooks } from 'mu-agents';
-import type { ChatMessage, ProviderConfig } from 'mu-provider';
-import { useCallback, useEffect } from 'react';
+import type { ChatMessage, ProviderConfig, Session } from 'mu-core';
+import { type PluginRegistry, runTransformUserInputHooks } from 'mu-core';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { HostMessageBus } from '../../runtime/messageBus';
 import type { AttachmentState } from './useAttachment';
 import { useSessionPersistence } from './useSessionPersistence';
-import { type StreamState, useStreamConsumer } from './useStreamConsumer';
 
-export type { StreamState } from './useStreamConsumer';
+export interface StreamState {
+  text: string;
+  reasoning: string;
+  totalTokens: number;
+  cachedTokens: number;
+}
+
+const EMPTY_STREAM: StreamState = { text: '', reasoning: '', totalTokens: 0, cachedTokens: 0 };
 
 export interface ChatSessionState {
   messages: ChatMessage[];
@@ -20,7 +26,15 @@ export interface ChatSessionState {
 }
 
 interface SessionDeps {
+  /**
+   * mu-core Session instance owned by the host. Authoritative for the
+   * transcript — this hook only mirrors it into React state and writes
+   * persistence on each message_changed event.
+   */
+  session: Session;
+  /** Provider config used as `runTurn` override (model lookup happens here). */
   config: ProviderConfig;
+  /** Currently selected model id (may shift across sends). */
   currentModel: string;
   attachment: AttachmentState;
   controllerRef: React.RefObject<AbortController | null>;
@@ -30,53 +44,11 @@ interface SessionDeps {
 }
 
 /**
- * Build the list of messages to feed the agent for this turn:
- *   - existing transcript
- *   - any messages plugins queued via `MessageBus.injectNext`
- *   - the user's message itself
- *
- * Injected messages are persisted just like the user message so the next
- * resume sees the same context.
+ * Wire the host MessageBus to the Session: bus.append flows through
+ * `session.appendSynthetic` so every subscriber (TUI, broadcaster) sees the
+ * same change. `bus.get()` mirrors the live transcript.
  */
-function buildTurnMessages(prior: ChatMessage[], injections: ChatMessage[], userMsg: ChatMessage): ChatMessage[] {
-  return [...prior, ...injections, userMsg];
-}
-
-/**
- * Treat a message as "synthetic" when it carries plugin metadata not produced
- * by the LLM (custom renderer key, hidden flag, plugin-private meta bag).
- * Synthetic messages are preserved when the agent streams a fresh transcript
- * so that `MessageBus.append`-ed entries (e.g. agent-switch banners) don't
- * vanish on the next `messages` event.
- */
-function isSynthetic(msg: ChatMessage): boolean {
-  return Boolean(msg.customType) || Boolean(msg.display?.hidden) || Boolean(msg.meta);
-}
-
-/**
- * Merge agent-produced messages with plugin-synthetic ones already in state.
- * The agent's snapshot is authoritative for everything it knows about; we
- * splice synthetic entries back in at the same trailing position they
- * originally occupied (last-write semantics — the cluster is appended at
- * the end of the array).
- */
-function mergeWithSynthetic(prev: ChatMessage[], next: ChatMessage[]): ChatMessage[] {
-  const synthetic = prev.filter(isSynthetic);
-  if (synthetic.length === 0) return next;
-  return [...next, ...synthetic];
-}
-
-/**
- * Wire the host MessageBus to React state: keep `bus.get()` in sync with the
- * live transcript and let plugins call `bus.append(...)` from outside the
- * tree. The two effects are split so the appender wiring only re-runs when
- * `setMessages` changes (which is stable in practice).
- */
-function useMessageBusWiring(
-  messageBus: HostMessageBus | undefined,
-  messages: ChatMessage[],
-  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
-): void {
+function useMessageBusWiring(messageBus: HostMessageBus | undefined, messages: ChatMessage[], session: Session): void {
   useEffect(() => {
     messageBus?.setMessages(messages);
   }, [messageBus, messages]);
@@ -84,49 +56,108 @@ function useMessageBusWiring(
   useEffect(() => {
     if (!messageBus) return;
     messageBus.setAppender((message) => {
-      setMessages((prev) => [...prev, message]);
+      session.appendSynthetic(message);
     });
     return () => {
       messageBus.setAppender(null);
     };
-  }, [messageBus, setMessages]);
+  }, [messageBus, session]);
+}
+
+interface SubscriptionDeps {
+  session: Session;
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  setStream: React.Dispatch<React.SetStateAction<StreamState>>;
+  setStreaming: React.Dispatch<React.SetStateAction<boolean>>;
+  setError: React.Dispatch<React.SetStateAction<string | null>>;
+  saveCurrent: (messages: ChatMessage[]) => void;
+}
+
+/**
+ * Subscribe React state to mu-core Session events. Session is authoritative;
+ * this hook only mirrors. Persistence is driven from the same stream so disk
+ * writes are guaranteed to match what the user sees, but writes are
+ * coalesced to once per `stream_ended` to keep tool-heavy turns light on I/O.
+ */
+/**
+ * Build the event handler. Extracted so the cognitive complexity of the
+ * dispatch lives outside the React effect closure (the effect itself is
+ * just `session.subscribe(handler)`).
+ */
+function makeSessionEventHandler(
+  deps: SubscriptionDeps,
+  lastMessagesRef: React.MutableRefObject<ChatMessage[]>,
+): (event: import('mu-core').SessionEvent) => void {
+  const { setMessages, setStream, setStreaming, setError, saveCurrent } = deps;
+  return (event) => {
+    if (event.type === 'messages_changed') {
+      lastMessagesRef.current = event.messages;
+      setMessages(event.messages);
+      return;
+    }
+    if (event.type === 'stream_partial') {
+      setStream((s) => ({ ...s, text: event.text, reasoning: event.reasoning ?? '' }));
+      return;
+    }
+    if (event.type === 'stream_started') {
+      setStreaming(true);
+      setError(null);
+      return;
+    }
+    if (event.type === 'stream_ended') {
+      setStreaming(false);
+      setStream((s) => ({ ...s, text: '', reasoning: '' }));
+      if (lastMessagesRef.current.length > 0) saveCurrent(lastMessagesRef.current);
+      return;
+    }
+    if (event.type === 'usage') {
+      setStream((s) => ({
+        ...s,
+        totalTokens: s.totalTokens + event.totalTokens,
+        cachedTokens: s.cachedTokens + event.cachedTokens,
+      }));
+      return;
+    }
+    if (event.type === 'error') {
+      setError(event.message);
+    }
+  };
+}
+
+function useSessionSubscription(deps: SubscriptionDeps): void {
+  const { session, setMessages, setStream, setStreaming, setError, saveCurrent } = deps;
+  // The "last completed transcript" buffer survives effect re-subscriptions
+  // (e.g. if `saveCurrent` identity ever changes mid-stream). Without a ref
+  // we'd lose the in-flight save target on the next deps change.
+  const lastMessagesRef = useRef<ChatMessage[]>([]);
+  useEffect(() => {
+    const handler = makeSessionEventHandler(
+      { session, setMessages, setStream, setStreaming, setError, saveCurrent },
+      lastMessagesRef,
+    );
+    return session.subscribe(handler);
+  }, [session, setMessages, setStream, setStreaming, setError, saveCurrent]);
 }
 
 interface OnSendDeps {
-  consumer: ReturnType<typeof useStreamConsumer>;
-  messages: ChatMessage[];
+  session: Session;
   config: ProviderConfig;
   currentModel: string;
   attachment: AttachmentState;
   controllerRef: React.RefObject<AbortController | null>;
   registry: PluginRegistry;
   messageBus?: HostMessageBus;
-  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   appendHistory: (text: string) => void;
-  saveCurrent: (messages: ChatMessage[]) => void;
+  streaming: boolean;
 }
 
 function useOnSend(deps: OnSendDeps): (text: string) => Promise<void> {
-  const {
-    consumer,
-    messages,
-    config,
-    currentModel,
-    attachment,
-    controllerRef,
-    registry,
-    messageBus,
-    setMessages,
-    appendHistory,
-    saveCurrent,
-  } = deps;
+  const { session, config, currentModel, attachment, controllerRef, registry, messageBus, appendHistory, streaming } =
+    deps;
   return useCallback(
     async (text: string) => {
-      if (consumer.streaming) return;
+      if (streaming) return;
 
-      // Let plugins transform / intercept the input before constructing a user
-      // message. `intercept` short-circuits the LLM call entirely; plugins
-      // typically pair this with `messageBus.append` to surface a reply.
       const transform = await runTransformUserInputHooks(registry.getHooks(), text);
       if (transform.kind === 'intercept') return;
       const finalText = transform.kind === 'transform' ? transform.text : text;
@@ -136,106 +167,115 @@ function useOnSend(deps: OnSendDeps): (text: string) => Promise<void> {
         content: finalText,
         ...(attachment.attachment ? { images: [attachment.attachment] } : {}),
       };
-      const injections = messageBus?.drainNext() ?? [];
-      // Build the turn payload exactly once so the React update and the
-      // agent input agree on what was sent — avoids divergence with the
-      // closure-captured `messages` snapshot vs. the most recent state.
-      const turnMessages = buildTurnMessages(messages, injections, userMsg);
 
-      setMessages(turnMessages);
+      const injections = messageBus?.drainNext() ?? [];
+      for (const inj of injections) session.queueForNextTurn(inj);
+
       appendHistory(text);
       attachment.clear();
 
       const controller = new AbortController();
       controllerRef.current = controller;
-
-      // Use a merge wrapper so plugin-injected synthetic messages (e.g.
-      // agent-switch banners pushed via `MessageBus.append`) survive each
-      // `messages` event from the agent. Without this, the agent's snapshot
-      // overwrites the array and synthetic entries silently vanish.
-      const onMessagesMerged = (next: ChatMessage[]): void => {
-        setMessages((prev) => mergeWithSynthetic(prev, next));
-      };
+      controller.signal.addEventListener('abort', () => session.abort(), { once: true });
 
       try {
-        const final = await consumer.runStream(
-          turnMessages,
+        await session.runTurn({
+          userMessage: userMsg,
           config,
-          currentModel,
-          controller.signal,
+          model: currentModel,
           registry,
-          onMessagesMerged,
-        );
-        if (final) saveCurrent(final);
+        });
       } finally {
         controllerRef.current = null;
       }
     },
-    [
-      consumer.streaming,
-      consumer.runStream,
-      messages,
-      config,
-      currentModel,
-      attachment,
-      controllerRef,
-      registry,
-      messageBus,
-      setMessages,
-      appendHistory,
-      saveCurrent,
-    ],
+    [streaming, session, config, currentModel, attachment, controllerRef, registry, messageBus, appendHistory],
   );
 }
 
 /**
  * Top-level chat-session hook. Composes:
- *  - `useSessionPersistence` — transcript, history, save path
- *  - `useStreamConsumer`     — in-flight tokens, usage totals, error
+ *  - mu-core `Session` — single source of truth for the transcript
+ *  - `useSessionPersistence` — disk write + history + session paths
  *
- * Provides the `onSend` glue that wires user input through the agent.
+ * The hook is purely reactive: it subscribes to session events and exposes
+ * the resulting state, plus thin wrappers around `session.runTurn` /
+ * `session.setMessages` for user actions.
  */
 export function useChatSession(deps: SessionDeps): ChatSessionState {
-  const { config, currentModel, attachment, controllerRef, initialMessages, registry, messageBus } = deps;
+  const { session, config, currentModel, attachment, controllerRef, initialMessages, registry, messageBus } = deps;
   const persistence = useSessionPersistence(initialMessages);
-  const consumer = useStreamConsumer();
-  const { messages, setMessages, appendHistory, saveCurrent } = persistence;
+  const { appendHistory, saveCurrent, resetForNew, loadFromPath } = persistence;
 
-  useMessageBusWiring(messageBus, messages, setMessages);
+  // Initial seed: feed any persisted messages into the session once.
+  // The session subscription below will then mirror them into React state.
+  useEffect(() => {
+    if (initialMessages?.length) session.setMessages(initialMessages);
+    // Run once per session instance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, initialMessages?.length, initialMessages]);
+
+  const [messages, setMessages] = useState<ChatMessage[]>(() => initialMessages ?? []);
+  const [streaming, setStreaming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [stream, setStream] = useState<StreamState>(EMPTY_STREAM);
+
+  useMessageBusWiring(messageBus, messages, session);
+  useSessionSubscription({ session, setMessages, setStream, setStreaming, setError, saveCurrent });
 
   const onSend = useOnSend({
-    consumer,
-    messages,
+    session,
     config,
     currentModel,
     attachment,
     controllerRef,
     registry,
     messageBus,
-    setMessages,
     appendHistory,
-    saveCurrent,
+    streaming,
   });
 
   const onNew = useCallback(() => {
-    persistence.onNew();
-    consumer.resetSession();
+    // Abort any in-flight turn *before* rotating the session path.
+    // Without this, the streaming `runTurn` keeps emitting `messages_changed`
+    // events that are saved to the newly-rotated path via `stream_ended`,
+    // mixing the old transcript into the brand-new file.
+    if (controllerRef.current) {
+      controllerRef.current.abort();
+      controllerRef.current = null;
+    }
+    resetForNew();
+    // `session.setMessages([])` emits `messages_changed` which the
+    // subscription mirrors into React state, so we don't double-write here.
+    session.setMessages([]);
+    setStream(EMPTY_STREAM);
+    setError(null);
     attachment.clear();
-  }, [persistence.onNew, consumer.resetSession, attachment]);
+  }, [resetForNew, session, attachment, controllerRef]);
 
   const onLoadSession = useCallback(
     (path: string) => {
-      persistence.onLoadSession(path);
-      consumer.resetSession();
+      const loaded = loadFromPath(path);
+      if (loaded.length === 0) return;
+      // Abort any in-flight turn before replacing the transcript, for the
+      // same reason as onNew above.
+      if (controllerRef.current) {
+        controllerRef.current.abort();
+        controllerRef.current = null;
+      }
+      // setMessages emits messages_changed → React state mirrors it.
+      session.setMessages(loaded);
+      setStream(EMPTY_STREAM);
+      setError(null);
     },
-    [persistence.onLoadSession, consumer.resetSession],
+    [loadFromPath, session, controllerRef],
   );
 
   return {
-    messages: persistence.messages,
-    streaming: consumer.streaming,
-    error: consumer.error,
-    stream: consumer.stream,
+    messages,
+    streaming,
+    error,
+    stream,
     inputHistory: persistence.inputHistory,
     onSend,
     onNew,

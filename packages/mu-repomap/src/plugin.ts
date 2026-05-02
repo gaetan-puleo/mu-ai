@@ -1,4 +1,4 @@
-import type { Plugin, PluginTool, StatusSegment, UIService } from 'mu-agents';
+import type { Plugin, PluginTool, StatusSegment, UIService } from 'mu-core';
 import { formatSummary } from './formatter';
 import { RepomapManager } from './manager';
 import type { SymbolEntry } from './repomap';

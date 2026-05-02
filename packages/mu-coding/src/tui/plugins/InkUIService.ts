@@ -1,4 +1,4 @@
-import type { UIService } from 'mu-agents';
+import type { UIService } from 'mu-core';
 
 export type DialogType = 'confirm' | 'select' | 'input';
 

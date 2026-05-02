@@ -1,5 +1,5 @@
 import { describe, expect, it, mock } from 'bun:test';
-import type { ChatMessage } from 'mu-provider';
+import type { ChatMessage } from 'mu-core';
 import { createMessageBus } from './messageBus';
 
 const userMsg = (text: string): ChatMessage => ({ role: 'user', content: text });

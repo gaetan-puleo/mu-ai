@@ -1,7 +1,12 @@
 import { useApp } from 'ink';
-import type { PluginRegistry } from 'mu-agents';
-import type { ChatMessage, ProviderConfig } from 'mu-provider';
-import { useEffect, useRef, useState } from 'react';
+import {
+  type ChatMessage,
+  createSessionManager,
+  type PluginRegistry,
+  type ProviderConfig,
+  type SessionManager,
+} from 'mu-core';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ShutdownFn } from '../../app/shutdown';
 import type { HostMessageBus } from '../../runtime/messageBus';
 import { listSessionsAsync, type SessionInfo } from '../../sessions/index';
@@ -16,6 +21,7 @@ const ABORT_TIMEOUT_MS = 2000;
 export interface ChatContextValue {
   config: ProviderConfig;
   session: ChatSessionState;
+  sessionManager: SessionManager;
   toggles: TogglesState;
   attachment: AttachmentState;
   models: ModelListState;
@@ -39,7 +45,19 @@ export function useChat(
   const attachment = useAttachment();
   const toggles = useToggles();
   const models = useModelList(config.baseUrl, config.model);
+  // Stable SessionManager + Session for the lifetime of the chat hook. Model
+  // updates flow through `runTurn(options)` per call, so we don't need to
+  // re-instantiate on every change.
+  const sessionManager = useMemo(
+    () => createSessionManager({ registry, config, model: models.currentModel || config.model || 'unknown' }),
+    [registry, config, models.currentModel],
+  );
+  const muSession = useMemo(
+    () => sessionManager.getOrCreate('tui', { initialMessages }),
+    [sessionManager, initialMessages],
+  );
   const session = useChatSession({
+    session: muSession,
     config,
     currentModel: models.currentModel,
     attachment,
@@ -75,6 +93,7 @@ export function useChat(
   return {
     config,
     session,
+    sessionManager,
     toggles,
     attachment,
     models,

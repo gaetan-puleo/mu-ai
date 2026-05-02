@@ -1,6 +1,6 @@
 import type { DOMElement } from 'ink';
 import { Box, Text } from 'ink';
-import type { ChatMessage } from 'mu-provider';
+import type { ChatMessage } from 'mu-core';
 import { type RefObject, useMemo } from 'react';
 import type { StreamState } from '../chat/useChatSession';
 import { useTheme } from '../context/ThemeContext';

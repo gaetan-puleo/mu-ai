@@ -1,124 +1,90 @@
-# mu-agents
+# mu-agent
 
-Agent loop orchestration with a plugin system. Runs multi-turn tool-calling conversations against any OpenAI-compatible API via `mu-provider`.
+Agent switcher and subagent orchestration plugin for [mu](../../README.md).
+
+Adds a "primary agent" abstraction on top of the mu plugin system: each agent
+ships with its own system prompt, allowed tool list, and color. Switch agents
+inline with slash commands (`/build`, `/plan`, …) or `Tab` and the LLM sees
+the new persona on its very next reply.
+
+Also ships two tools for delegating to side agents:
+
+- `subagent` — run a single subagent with an isolated task
+- `subagent_parallel` — fan out N subagents concurrently
 
 ## Install
 
 ```bash
-npm install mu-agents
+mu install npm:mu-agent   # once published, or load via workspace name
 ```
 
-## Usage
+Add it to `~/.config/mu/config.json`:
 
-```ts
-import { runAgent, PluginRegistry, createBuiltinPlugin } from "mu-agents";
-import type { ChatMessage, ProviderConfig } from "mu-provider";
-
-const config: ProviderConfig = {
-  baseUrl: "http://localhost:11434/v1",
-  maxTokens: 4096,
-  temperature: 0.7,
-  streamTimeoutMs: 30000,
-};
-
-// Set up registry with built-in file/bash tools
-const registry = new PluginRegistry({ cwd: process.cwd(), config: {} });
-await registry.register(createBuiltinPlugin());
-
-const messages: ChatMessage[] = [
-  { role: "user", content: "Read package.json and summarize it" },
-];
-
-const controller = new AbortController();
-
-for await (const event of runAgent(messages, config, "qwen2.5", controller.signal, registry)) {
-  switch (event.type) {
-    case "content":
-      process.stdout.write(event.text);
-      break;
-    case "reasoning":
-      // chain-of-thought
-      break;
-    case "messages":
-      // updated message history (includes tool results)
-      break;
-    case "usage":
-      console.log(`Tokens: ${event.totalTokens}`);
-      break;
-    case "turn_end":
-      // tool calls executed, next LLM turn starting
-      break;
-  }
+```json
+{
+  "plugins": ["mu-agent"]
 }
 ```
 
-## Plugin System
+## Built-in agents
 
-Plugins can provide tools, system prompts, lifecycle hooks, slash commands, and custom agent loops.
+| Name    | Type     | Tools                                                                  |
+|---------|----------|-------------------------------------------------------------------------|
+| `build` | primary  | `bash`, `read_file`, `write_file`, `edit_file`, `subagent`, `subagent_parallel` |
+| `plan`  | primary  | `read_file`, `search_code`                                              |
+| `review`| subagent | `read_file`, `search_code`, `bash`                                      |
 
-```ts
-import type { Plugin } from "mu-agents";
+## Override / add agents
 
-const myPlugin: Plugin = {
-  name: "my-plugin",
-  tools: [
-    {
-      definition: {
-        type: "function",
-        function: {
-          name: "hello",
-          description: "Say hello",
-          parameters: { type: "object", properties: {} },
-        },
-      },
-      execute: async () => "Hello, world!",
-    },
-  ],
-  hooks: {
-    beforeLlmCall: (messages, config) => messages,
-    afterLlmCall: (result) => result,
-    beforeToolExec: (toolCall) => toolCall,
-    afterToolExec: (toolCall, result) => result,
-  },
-};
+Drop `*.md` files in `~/.config/mu/agents/`. Frontmatter shape:
 
-await registry.register(myPlugin);
+```markdown
+---
+name: refactor
+description: Refactor without changing behaviour
+agent: primary
+tools: read_file, edit_file, search_code, bash
+color: "#ff8c00"
+---
+
+You are the **refactor** agent. Improve readability and structure without
+changing observable behaviour. Run the test suite after every batch of
+edits and revert if anything fails.
 ```
 
-## Built-in Tools
+`agent: subagent` makes the file a subagent (callable from the `subagent`
+tool), `agent: primary` (default) makes it a switchable primary agent.
 
-The `createBuiltinPlugin()` provides:
+## Slash commands
 
-- `bash` — execute shell commands
-- `read_file` — read file contents
-- `write_file` — write file contents
-- `edit_file` — search-and-replace editing
+- `/build`, `/plan`, … — switch to the named primary agent (one per agent)
+- `/agent` — show the current agent
+- `/agent <name>` — switch to `<name>`
 
-## API
+## Mention autocomplete
 
-### `runAgent(messages, config, model, signal, registry)`
+Type `@` followed by a subagent name to get an autocomplete picker. The
+LLM is instructed to interpret `@<name>` mentions as subagent dispatches
+(via the `subagent` / `subagent_parallel` tools).
 
-Runs the agent loop. Returns `AsyncGenerator<AgentEvent>`.
+## Tab cycling
 
-### `PluginRegistry`
+Tab cycles through primary agents when the input is empty. Inside a
+`@mention` picker Tab accepts the highlighted completion.
 
-Manages plugins, tools, hooks, system prompts, and aggregated status segments.
+## Persistence
 
-Plugin loading from a path is the host's responsibility — the registry only
-accepts pre-built `Plugin` objects via `register()`. This keeps it free of
-file-system and module-resolution concerns.
+Active agent is persisted at `~/.local/share/mu/agent-state.json` so the
+next session resumes in the same mode.
 
-- `new PluginRegistry({ cwd, config, ui?, shutdown? })` — `ui` and `shutdown`
-  are forwarded to plugins through `PluginContext` so they can prompt the user
-  or trigger graceful exit without extra plumbing.
-- `register(plugin)` / `unregister(name)`
-- `getTools()` / `getToolDefinitions()` / `getTool(name)`
-- `getSystemPrompts()`
-- `getHooks()`
-- `getStatusSegments()` / `onStatusChange(listener)` — push-based; plugins
-  publish via `ctx.setStatusLine(segments)` from `activate()`.
-- `shutdown()`
+## Programmatic use
 
-## License
+```ts
+import { createMuAgentPlugin } from 'mu-agent';
 
-MIT
+const plugin = createMuAgentPlugin({
+  agentsDir: '/path/to/agents',
+  settingsPath: '/path/to/state.json',
+});
+await registry.register(plugin);
+```

@@ -1,4 +1,4 @@
-import type { PluginRegistry, StatusSegment } from 'mu-agents';
+import type { PluginRegistry, StatusSegment } from 'mu-core';
 import { useEffect, useMemo, useState } from 'react';
 import type { InkUIService } from '../plugins/InkUIService';
 

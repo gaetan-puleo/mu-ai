@@ -1,6 +1,19 @@
-import { createBuiltinPlugin, PluginRegistry } from 'mu-agents';
+import { createMuAgentPlugin } from 'mu-agents';
+import codingAgentsPlugin from 'mu-coding-agents';
+import type { ChatMessage } from 'mu-core';
+import {
+  type ActivityBus,
+  type ChannelRegistry,
+  createActivityBus,
+  createChannelRegistry,
+  createProviderRegistry,
+  PluginRegistry,
+  type ProviderRegistry,
+} from 'mu-core';
+import { createOpenAIProviderPlugin } from 'mu-openai-provider';
 import type { ShutdownFn } from '../app/shutdown';
 import type { AppConfig } from '../config/index';
+import { createCodingPlugin } from '../plugin';
 import type { InkUIService } from '../tui/plugins/InkUIService';
 import { createMessageBus, type HostMessageBus } from './messageBus';
 import { discoverPluginFiles, loadConfiguredPlugin } from './pluginLoader';
@@ -9,6 +22,11 @@ interface CreateRegistryOptions {
   cwd: string;
   config: AppConfig;
   uiService: InkUIService;
+  /**
+   * Initial transcript injected into the TUI's session (e.g. resumed from
+   * disk via `mu -c`). Threaded through to the coding plugin's TUI channel.
+   */
+  initialMessages?: ChatMessage[];
   /**
    * Host shutdown is forwarded to plugins via PluginContext so a plugin
    * calling shutdown gets the same graceful path as Ctrl+C — terminal
@@ -22,6 +40,9 @@ interface CreateRegistryOptions {
 interface RegistryBundle {
   registry: PluginRegistry;
   messageBus: HostMessageBus;
+  providers: ProviderRegistry;
+  channels: ChannelRegistry;
+  activity: ActivityBus;
 }
 
 interface PluginConfigInputs {
@@ -51,18 +72,85 @@ function buildPluginConfig(inputs: PluginConfigInputs, base?: Record<string, unk
   return merged;
 }
 
+/**
+ * Fallback shutdown used when the host (typically tests) doesn't supply one.
+ * Logs a warning when a plugin actually invokes it: production hosts always
+ * pass the real `registerShutdown(...)` handle, so an invocation here means
+ * either the test setup forgot to mock the plugin's shutdown call or a
+ * plugin is reaching for `ctx.shutdown()` in an environment that can't honour
+ * it. Resolves cleanly so the calling plugin sees no behavioural change.
+ */
+async function noopShutdown(code?: number): Promise<void> {
+  console.warn(`[mu-coding] noopShutdown invoked (code=${code ?? 0}); host did not register a real shutdown handler.`);
+}
+
+/**
+ * Wire mu-coding's standard plugin set:
+ *  1. mu-openai-provider — registers the OpenAI streaming provider
+ *  2. mu-agents          — agent switcher + permissions + approval gateway
+ *                          (publishes `ctx.agents` so step 3 can use it)
+ *  3. mu-coding-agents   — registers `agents/*.md` against `ctx.agents`
+ *  4. mu-coding          — coding tools + TUI channel + Ink approval channel
+ *                          (registered against mu-agents' gateway)
+ *
+ * Order matters: mu-agents must activate *before* mu-coding-agents so the
+ * latter sees `ctx.agents`; mu-coding must activate *after* mu-agents so the
+ * approval channel finds the gateway via `ctx.getPlugin('mu-agent')`.
+ */
+async function registerBuiltins(
+  registry: PluginRegistry,
+  options: CreateRegistryOptions,
+  inputs: PluginConfigInputs,
+  messageBus: HostMessageBus,
+): Promise<void> {
+  await registry.register(createOpenAIProviderPlugin());
+  await registry.register(
+    createMuAgentPlugin({
+      config: options.config,
+      model: options.config.model,
+      approvalChannelId: 'tui',
+    }),
+  );
+  await registry.register(codingAgentsPlugin());
+  await registry.register(
+    createCodingPlugin({
+      appConfig: options.config,
+      initialMessages: options.initialMessages,
+      messageBus,
+      uiService: options.uiService,
+      shutdown: options.shutdown ?? noopShutdown,
+      // Pass the concrete registry: the TUI subscribes to renderer / shortcut
+      // / status streams that are not part of the narrow `PluginRegistryView`
+      // exposed via `ctx.registry`.
+      registry,
+    }),
+  );
+  // Silence unused-input warning when no configured/local plugins exist.
+  void inputs;
+}
+
 export async function createRegistry(options: CreateRegistryOptions): Promise<RegistryBundle> {
   const { cwd, config, uiService, shutdown } = options;
   const messageBus = createMessageBus();
-  const registry = new PluginRegistry({ cwd, config: {}, ui: uiService, shutdown, messages: messageBus });
-
-  await registry.register(createBuiltinPlugin());
+  const providers = createProviderRegistry();
+  const channels = createChannelRegistry();
+  const activity = createActivityBus();
+  const registry = new PluginRegistry({
+    cwd,
+    config: {},
+    ui: uiService,
+    shutdown,
+    messages: messageBus,
+    providers,
+    channels,
+    activity,
+  });
 
   const inputs: PluginConfigInputs = { uiService, shutdown, appConfig: config };
 
-  // Locally dropped plugins (~/.config/mu/plugins/*.ts) go through the same
-  // loader as configured ones so they receive `{ ui, shutdown, config, model }`
-  // and get consistent error reporting.
+  await registerBuiltins(registry, options, inputs, messageBus);
+
+  // User-extension plugins ride on top of the builtins.
   for (const filePath of discoverPluginFiles()) {
     await loadConfiguredPlugin(registry, filePath, buildPluginConfig(inputs), uiService);
   }
@@ -73,5 +161,5 @@ export async function createRegistry(options: CreateRegistryOptions): Promise<Re
     await loadConfiguredPlugin(registry, name, buildPluginConfig(inputs, pluginConfig), uiService);
   }
 
-  return { registry, messageBus };
+  return { registry, messageBus, providers, channels, activity };
 }

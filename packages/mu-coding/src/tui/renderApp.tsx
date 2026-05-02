@@ -1,6 +1,5 @@
-import { render } from 'ink';
-import type { PluginRegistry } from 'mu-agents';
-import type { ChatMessage } from 'mu-provider';
+import { type Instance, render } from 'ink';
+import type { ChatMessage, PluginRegistry } from 'mu-core';
 import type { ShutdownFn } from '../app/shutdown';
 import type { AppConfig } from '../config/index';
 import type { HostMessageBus } from '../runtime/messageBus';
@@ -18,9 +17,14 @@ interface RenderAppOptions {
   shutdown: ShutdownFn;
 }
 
-export function renderApp(options: RenderAppOptions): void {
+/**
+ * Renders the chat TUI and returns the Ink `Instance` so callers (the TUI
+ * channel, tests) can unmount it explicitly. Ink stays mounted until the
+ * caller invokes `instance.unmount()` or the process exits.
+ */
+export function renderApp(options: RenderAppOptions): Instance {
   const theme = resolveTheme(options.config.theme);
-  render(
+  return render(
     <ThemeProvider theme={theme}>
       <ChatPanel
         config={options.config}

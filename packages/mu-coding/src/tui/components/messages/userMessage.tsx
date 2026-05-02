@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink';
-import type { ChatMessage } from 'mu-provider';
+import type { ChatMessage } from 'mu-core';
 import { useTheme } from '../../context/ThemeContext';
 
 export function UserMessage({ msg }: { msg: ChatMessage }) {

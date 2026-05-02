@@ -1,4 +1,4 @@
-import type { PluginRegistry } from 'mu-agents';
+import type { PluginRegistry } from 'mu-core';
 
 /**
  * Escape sequences to disable every SGR mouse-tracking mode the TUI may have

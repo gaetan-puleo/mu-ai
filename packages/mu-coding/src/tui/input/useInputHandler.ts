@@ -1,5 +1,5 @@
 import { type Key, useInput, useStdin } from 'ink';
-import type { ShortcutHandler } from 'mu-agents';
+import type { ShortcutHandler } from 'mu-core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { matchCommands, type SlashCommand } from './commands';
 import {

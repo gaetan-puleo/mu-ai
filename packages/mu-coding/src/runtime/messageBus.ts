@@ -1,5 +1,4 @@
-import type { MessageBus } from 'mu-agents';
-import type { ChatMessage } from 'mu-provider';
+import type { ChatMessage, MessageBus } from 'mu-core';
 
 type MessageListener = (messages: ChatMessage[]) => void;
 type Appender = (message: ChatMessage) => void;

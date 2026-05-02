@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink';
-import type { ChatMessage } from 'mu-provider';
+import type { ChatMessage } from 'mu-core';
 import React from 'react';
 import { ReasoningBlock } from './reasoningBlock';
 import { ToolCallBlock } from './toolCallBlock';

@@ -1,16 +1,22 @@
-import type { ChatMessage } from 'mu-provider';
+import type { ChatMessage } from 'mu-core';
 import { useCallback, useRef, useState } from 'react';
 import { generateSessionPath, loadSession, saveSession } from '../../sessions/index';
 
 export interface SessionPersistenceState {
-  messages: ChatMessage[];
-  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   inputHistory: string[];
   appendHistory: (text: string) => void;
   sessionPathRef: React.RefObject<string>;
+  /** Persist the given transcript to the current session file. */
   saveCurrent: (messages: ChatMessage[]) => void;
-  onNew: () => void;
-  onLoadSession: (path: string) => void;
+  /** Reset to a brand-new session: rotates the file path. */
+  resetForNew: () => void;
+  /**
+   * Load a transcript from disk and adopt its path. Returns the loaded
+   * messages so the caller can hand them to the session.
+   */
+  loadFromPath: (path: string) => ChatMessage[];
+  /** Replace history (used after resume / load). */
+  setHistory: (history: string[]) => void;
 }
 
 function userPromptsFrom(messages: ChatMessage[]): string[] {
@@ -18,14 +24,15 @@ function userPromptsFrom(messages: ChatMessage[]): string[] {
 }
 
 /**
- * Owns the conversation transcript and its on-disk persistence. Keeps the
- * current session path, the transcript, and the user-input history in sync.
+ * Side-channel persistence: history bookkeeping, on-disk save, and session
+ * file path management. Does NOT own the transcript — `Session` is the
+ * single source of truth in the new architecture, this hook only writes to
+ * disk and tracks the current target path.
  *
  * Save errors are logged to stderr and do not surface to the chat error
  * channel — they're considered non-fatal (next save attempt may succeed).
  */
 export function useSessionPersistence(initialMessages?: ChatMessage[]): SessionPersistenceState {
-  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages ?? []);
   const [inputHistory, setInputHistory] = useState<string[]>(userPromptsFrom(initialMessages ?? []));
   const sessionPathRef = useRef(generateSessionPath());
 
@@ -39,19 +46,23 @@ export function useSessionPersistence(initialMessages?: ChatMessage[]): SessionP
     });
   }, []);
 
-  const onNew = useCallback(() => {
-    setMessages([]);
+  const resetForNew = useCallback(() => {
     sessionPathRef.current = generateSessionPath();
+    setInputHistory([]);
   }, []);
 
-  const onLoadSession = useCallback((path: string) => {
+  const loadFromPath = useCallback((path: string): ChatMessage[] => {
     const msgs = loadSession(path);
     if (msgs.length > 0) {
-      setMessages(msgs);
-      setInputHistory(userPromptsFrom(msgs));
       sessionPathRef.current = path;
+      setInputHistory(userPromptsFrom(msgs));
     }
+    return msgs;
   }, []);
 
-  return { messages, setMessages, inputHistory, appendHistory, sessionPathRef, saveCurrent, onNew, onLoadSession };
+  const setHistory = useCallback((history: string[]) => {
+    setInputHistory(history);
+  }, []);
+
+  return { inputHistory, appendHistory, sessionPathRef, saveCurrent, resetForNew, loadFromPath, setHistory };
 }

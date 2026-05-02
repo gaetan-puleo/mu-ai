@@ -1,6 +1,5 @@
 import { type DOMElement as InkDOMElement, useInput } from 'ink';
-import type { PluginRegistry } from 'mu-agents';
-import type { ChatMessage, ProviderConfig } from 'mu-provider';
+import type { ChatMessage, PluginRegistry, ProviderConfig } from 'mu-core';
 import { useEffect, useMemo, useRef } from 'react';
 import type { ShutdownFn } from '../../app/shutdown';
 import type { HostMessageBus } from '../../runtime/messageBus';

@@ -1,5 +1,4 @@
-import type { PluginRegistry } from 'mu-agents';
-import type { ChatMessage, ProviderConfig } from 'mu-provider';
+import type { ChatMessage, PluginRegistry, ProviderConfig } from 'mu-core';
 import type { ShutdownFn } from '../../../app/shutdown';
 import type { HostMessageBus } from '../../../runtime/messageBus';
 import { ChatContext } from '../../chat/ChatContext';

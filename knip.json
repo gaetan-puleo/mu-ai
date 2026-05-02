@@ -1,6 +1,9 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "ignoreBinaries": ["sg"],
+  "rules": {
+    "duplicates": "off"
+  },
   "workspaces": {
     "packages/mu-repomap": {
       "ignoreDependencies": ["@ast-grep/cli"]

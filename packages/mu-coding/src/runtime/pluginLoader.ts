@@ -1,7 +1,7 @@
 import { readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
-import type { Plugin, PluginRegistry } from 'mu-agents';
+import type { Plugin, PluginRegistry } from 'mu-core';
 import { getDataDir, getPluginsDir, parseBareNpmSpec } from '../config/index';
 import type { InkUIService } from '../tui/plugins/InkUIService';
 
@@ -71,36 +71,49 @@ function extractPlugin(mod: Record<string, unknown>, pluginConfig: Record<string
   return null;
 }
 
-export async function loadConfiguredPlugin(
-  registry: PluginRegistry,
+/**
+ * Loader variant that *resolves* (imports + extracts) a plugin without
+ * registering it. Used by hosts driving `startMu({ resolvePlugin })`. Errors
+ * surface via `uiService` (or are swallowed when omitted) so the host's
+ * boot log behaviour matches `loadConfiguredPlugin`.
+ */
+export async function resolveConfiguredPlugin(
   name: string,
   pluginConfig?: Record<string, unknown>,
   uiService?: InkUIService,
-): Promise<void> {
+): Promise<Plugin | null> {
   const config = pluginConfig ?? {};
   let target: string;
   try {
     target = name.startsWith('npm:') ? resolveNpmPlugin(name) : name;
   } catch (err) {
     uiService?.notify(formatPluginError(name, err), 'error');
-    return;
+    return null;
   }
-
   let mod: Record<string, unknown>;
   try {
     mod = (await import(target)) as Record<string, unknown>;
   } catch (err) {
     uiService?.notify(formatPluginError(name, err), 'error');
-    return;
+    return null;
   }
-
   const plugin = extractPlugin(mod, config);
   if (!plugin) {
     const exportKeys = Object.keys(mod).join(', ') || '(none)';
     uiService?.notify(`Plugin "${name}": no plugin export found. Exports: [${exportKeys}]`, 'error');
-    return;
+    return null;
   }
+  return plugin;
+}
 
+export async function loadConfiguredPlugin(
+  registry: PluginRegistry,
+  name: string,
+  pluginConfig?: Record<string, unknown>,
+  uiService?: InkUIService,
+): Promise<void> {
+  const plugin = await resolveConfiguredPlugin(name, pluginConfig, uiService);
+  if (!plugin) return;
   try {
     await registry.register(plugin);
   } catch (err) {

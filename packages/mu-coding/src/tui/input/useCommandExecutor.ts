@@ -1,4 +1,4 @@
-import type { CommandContext, SlashCommand as PluginSlashCommand } from 'mu-agents';
+import type { CommandContext, SlashCommand as PluginSlashCommand } from 'mu-core';
 import { useCallback, useMemo } from 'react';
 import { BUILTIN_COMMANDS, fromPluginCommand, type SlashCommand } from './commands';
 import type { InputActions } from './useInputHandler';

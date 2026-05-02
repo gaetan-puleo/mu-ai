@@ -6,11 +6,15 @@ Minimal terminal AI assistant for local models.
 
 ```
 packages/
-├── mu-provider/    # LLM provider abstraction (streaming, model listing)
-├── mu-agents/      # Agent loop + plugin system (tools, hooks, commands)
-├── mu-repomap/     # Code indexing plugin (ast-grep based repomap)
-└── mu-coding/      # CLI + TUI application
+├── mu-core/             # Plugin SDK + agent loop + types + sessions/channels/activity
+├── mu-openai-provider/  # OpenAI-compatible provider plugin (adapter + helpers)
+├── mu-agents/           # Agent switcher, sub-agents, permissions, approval gateway
+├── mu-repomap/          # Code indexing plugin (ast-grep based repomap)
+├── mu-coding-agents/    # Default coding agents (build/plan/explore/review)
+└── mu-coding/           # CLI + TUI application
 ```
+
+Layering: `mu-core` ← `{mu-openai-provider, mu-agents, mu-repomap}` ← `{mu-coding-agents, mu-coding}`.
 
 ## Features
 

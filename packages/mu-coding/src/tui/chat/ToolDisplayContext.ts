@@ -1,4 +1,4 @@
-import type { PluginRegistry, ToolDisplayHint } from 'mu-agents';
+import type { PluginRegistry, ToolDisplayHint } from 'mu-core';
 import { createContext, useContext, useMemo } from 'react';
 
 type ToolDisplayMap = Map<string, ToolDisplayHint>;

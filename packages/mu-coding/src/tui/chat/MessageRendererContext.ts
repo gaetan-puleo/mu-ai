@@ -1,5 +1,4 @@
-import type { PluginRegistry } from 'mu-agents';
-import type { ChatMessage } from 'mu-provider';
+import type { ChatMessage, PluginRegistry } from 'mu-core';
 import { createContext, type ReactNode, useContext, useEffect, useState } from 'react';
 
 /**

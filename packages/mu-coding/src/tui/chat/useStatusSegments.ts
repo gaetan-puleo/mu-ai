@@ -1,4 +1,4 @@
-import type { StatusSegment } from 'mu-agents';
+import type { StatusSegment } from 'mu-core';
 import type { StatusBarSegment } from '../components/statusBar';
 import { useSpinner } from '../hooks/useUI';
 

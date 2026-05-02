@@ -1,4 +1,4 @@
-import type { ImageAttachment } from 'mu-provider';
+import type { ImageAttachment } from 'mu-core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { readClipboardImage } from '../../utils/clipboard';
 

@@ -1,4 +1,4 @@
-import type { ChatMessage } from 'mu-provider';
+import type { ChatMessage } from 'mu-core';
 import React from 'react';
 import { useMessageRenderer } from '../../chat/MessageRendererContext';
 import { AssistantMessage } from './assistantMessage';

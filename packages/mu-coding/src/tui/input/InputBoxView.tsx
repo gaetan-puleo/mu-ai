@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink';
-import type { MentionCompletion } from 'mu-agents';
+import type { MentionCompletion } from 'mu-core';
 import { useTheme } from '../context/ThemeContext';
 import type { Theme } from '../theme/types';
 import type { SlashCommand } from './commands';

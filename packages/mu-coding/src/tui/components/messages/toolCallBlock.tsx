@@ -1,6 +1,5 @@
 import { Box, Text } from 'ink';
-import type { ToolDisplayHint } from 'mu-agents';
-import type { ChatMessage } from 'mu-provider';
+import type { ChatMessage, ToolDisplayHint } from 'mu-core';
 import { useToolDisplay } from '../../chat/ToolDisplayContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useSpinner } from '../../hooks/useUI';

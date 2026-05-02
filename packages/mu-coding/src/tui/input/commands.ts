@@ -1,4 +1,4 @@
-import type { CommandContext, SlashCommand as PluginSlashCommand } from 'mu-agents';
+import type { CommandContext, SlashCommand as PluginSlashCommand } from 'mu-core';
 import type { InputActions } from './useInputHandler';
 
 /**

@@ -1,4 +1,4 @@
-import type { UIService } from 'mu-agents';
+import type { UIService } from 'mu-core';
 
 /**
  * Repomap logger — abstracts where progress and errors go.

@@ -1,4 +1,4 @@
-import type { MentionCompletion, PluginRegistry } from 'mu-agents';
+import type { MentionCompletion, PluginRegistry } from 'mu-core';
 import { useCallback, useEffect, useState } from 'react';
 
 export interface MentionPickerState {

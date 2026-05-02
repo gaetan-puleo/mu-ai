@@ -1,5 +1,5 @@
 import { Box, type DOMElement as InkDOMElement } from 'ink';
-import type { ChatMessage } from 'mu-provider';
+import type { ChatMessage } from 'mu-core';
 import type { StreamState } from '../../chat/useChatSession';
 import { InputBox } from '../../input/InputBox';
 import type { InkUIService } from '../../plugins/InkUIService';

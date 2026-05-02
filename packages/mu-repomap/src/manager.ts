@@ -1,4 +1,4 @@
-import type { UIService } from 'mu-agents';
+import type { UIService } from 'mu-core';
 import { formatFileView, formatSummary, formatTree } from './formatter';
 import { createLogger, type RepomapLogger } from './logger';
 import { buildRepomap, findFile, findSymbol, type Repomap, type SymbolEntry } from './repomap';

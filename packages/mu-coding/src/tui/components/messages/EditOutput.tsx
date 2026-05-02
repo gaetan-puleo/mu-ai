@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink';
-import type { ToolDisplayHint } from 'mu-agents';
+import type { ToolDisplayHint } from 'mu-core';
 import { computeDiff, renderDiff } from '../../../utils/diff';
 import { useTheme } from '../../context/ThemeContext';
 import { ToolHeader } from './ToolHeader';

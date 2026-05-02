@@ -2,7 +2,7 @@ import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ImageAttachment } from 'mu-provider';
+import type { ImageAttachment } from 'mu-core';
 
 const CLIPBOARD_TIMEOUT = 3000;
 

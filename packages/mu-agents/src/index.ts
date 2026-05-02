@@ -1,32 +1,28 @@
-export { runAgent } from './agent';
-export { createBuiltinPlugin } from './builtin/index';
-export { runTransformUserInputHooks } from './hooks';
 export type {
-  AgentEndReason,
-  AgentEvent,
-  AgentLoopStrategy,
-  BeforeToolExecResult,
-  CommandContext,
-  LifecycleHooks,
-  MentionCompletion,
-  MentionProvider,
-  MessageBus,
-  MessageRenderer,
-  Plugin,
-  PluginContext,
-  PluginExtras,
-  PluginRegistryView,
-  PluginTool,
-  ShortcutHandler,
-  SlashCommand,
-  StatusSegment,
-  ToolBlock,
-  ToolDisplayHint,
-  ToolExecutor,
-  ToolExecutorResult,
-  ToolResult,
-  TurnResult,
-  UserInputTransform,
+  ApprovalChannel,
+  ApprovalGateway,
+  ApprovalGatewayRequestInput,
+  ApprovalRequest,
+  ApprovalResult,
+} from './approval';
+// Approval gateway (commit 3)
+export { createApprovalGateway } from './approval';
+export { DEFAULT_PRIMARY_AGENTS, DEFAULT_SUB_AGENTS } from './builtin';
+export { AgentManager } from './manager';
+export { loadAgentFile, loadAgentsFromDir, mergeAgents } from './markdown';
+export type { Action, PermissionContext, PermissionMap, ToolMatchKeySpec, ToolPermission } from './permissions';
+
+// Permissions (commit 3)
+export { resolvePermission, validatePermissionMap } from './permissions';
+export {
+  AGENT_MESSAGE_TYPES,
+  createMuAgentPlugin,
+  createMuAgentPlugin as default,
+  createMuAgentPlugin as createAgentsPlugin,
+  type MuAgentPluginConfig,
 } from './plugin';
-export { PluginRegistry, type PluginRegistryOptions } from './registry';
-export { ConsoleUIService, type UINotifyLevel, type UIService } from './ui';
+export type { AgentSourceManager, AgentSourceRegistry } from './sources';
+// Agent source manager (commit 3)
+export { createAgentSourceManager } from './sources';
+export { runSubagent } from './subagent';
+export type { AgentDefinition, AgentSettings } from './types';

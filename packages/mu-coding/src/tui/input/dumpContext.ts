@@ -1,8 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { PluginRegistry } from 'mu-agents';
-import type { ChatMessage, ProviderConfig, ToolDefinition } from 'mu-provider';
+import type { ChatMessage, PluginRegistry, ProviderConfig, ToolDefinition } from 'mu-core';
 
 /**
  * Render a plain-text view of the full LLM context — the merged system
