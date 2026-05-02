@@ -18,11 +18,13 @@ interface ToolHeaderProps {
 export function ToolHeader({ name, subtitle, error = false }: ToolHeaderProps) {
   const theme = useTheme();
   return (
-    <Box flexDirection="column" flexShrink={0}>
-      <Text color={error ? theme.tool.error : theme.tool.success} bold={true}>
-        {error ? '✗' : '✓'} {name}
+    <Box flexShrink={0}>
+      <Text wrap="truncate-end">
+        <Text color={error ? theme.tool.error : theme.tool.success} bold={true}>
+          {error ? '✗' : '✓'} {name}
+        </Text>
+        {subtitle && <Text dimColor={true}> {subtitle}</Text>}
       </Text>
-      {subtitle && <Text dimColor={true}> {subtitle}</Text>}
     </Box>
   );
 }

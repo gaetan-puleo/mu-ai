@@ -1,7 +1,9 @@
 import { type DOMElement as InkDOMElement, useInput } from 'ink';
+import type { SubagentRunRegistry } from 'mu-agents';
 import type { ChatMessage, PluginRegistry, ProviderConfig } from 'mu-core';
 import { useEffect, useMemo, useRef } from 'react';
 import type { ShutdownFn } from '../../app/shutdown';
+import type { SessionPathHolder } from '../../runtime/createRegistry';
 import type { HostMessageBus } from '../../runtime/messageBus';
 import type { ChatPanelBodyProps } from '../components/chat/ChatPanelBody';
 import { useToast } from '../components/primitives/toast';
@@ -11,6 +13,7 @@ import type { InkUIService, ToastRequest } from '../plugins/InkUIService';
 import { useChat } from './useChat';
 import { usePluginStatus } from './usePluginStatus';
 import { useStatusSegments } from './useStatusSegments';
+import { type SubagentBrowserState, useSubagentBrowser } from './useSubagentBrowser';
 
 const TOAST_LEVEL_COLORS: Record<string, string> = {
   info: 'cyan',
@@ -26,11 +29,24 @@ interface UseChatPanelOptions {
   messageBus?: HostMessageBus;
   uiService?: InkUIService;
   shutdown?: ShutdownFn;
+  sessionPathHolder?: SessionPathHolder;
+  subagentRuns?: SubagentRunRegistry;
 }
 
 export function useChatPanel(options: UseChatPanelOptions) {
-  const { config, initialMessages, registry, messageBus, uiService, shutdown } = options;
-  const ctx = useChat(config, registry, initialMessages, shutdown, uiService, messageBus);
+  const { config, initialMessages, registry, messageBus, uiService, shutdown, sessionPathHolder, subagentRuns } =
+    options;
+  const ctx = useChat(
+    config,
+    registry,
+    initialMessages,
+    shutdown,
+    uiService,
+    messageBus,
+    sessionPathHolder,
+    subagentRuns,
+  );
+  const browser = useSubagentBrowser(subagentRuns);
   const { width, height } = useTerminalSize();
   const viewRef = useRef<InkDOMElement>(null);
   const contentRef = useRef<InkDOMElement>(null);
@@ -80,7 +96,7 @@ export function useChatPanel(options: UseChatPanelOptions) {
     scrollOffset,
     viewHeight,
     contentHeight,
-    isActive: !anyModalOpen,
+    isActive: !anyModalOpen && browser.mode.kind === 'chat',
     onScrollUp,
     onScrollDown,
     uiService,
@@ -94,7 +110,10 @@ export function useChatPanel(options: UseChatPanelOptions) {
     statusSegments,
     toasts,
     onDismissToast: dismiss,
+    browser,
   };
 
   return { ctx, bodyProps };
 }
+
+export type { SubagentBrowserState };

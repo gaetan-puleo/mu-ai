@@ -47,7 +47,7 @@ export function ToolCallBlock({
   const argSummary = getArgSummary(args, hint);
 
   return (
-    <Box flexDirection="column" flexShrink={0}>
+    <Box flexDirection="column" flexShrink={0} marginTop={1} marginBottom={1}>
       {!hasResult ? (
         <Box>
           <Text dimColor={true}>

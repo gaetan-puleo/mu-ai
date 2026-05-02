@@ -22,8 +22,15 @@ export type SessionEvent =
   | { type: 'error'; message: string };
 
 export interface RunTurnOptions {
-  /** Pre-built user message to append before running the agent loop. */
-  userMessage: ChatMessage;
+  /**
+   * Pre-built user message to append before running the agent loop.
+   * Optional: when a plugin's `transformUserInput` returns `'continue'`
+   * the hook has already appended its own user message via
+   * `MessageBus.append`, and the host calls `runTurn` without a
+   * `userMessage` to drain the injectNext queue and stream the LLM
+   * without pushing a duplicate.
+   */
+  userMessage?: ChatMessage;
   /** Override config for this single turn (e.g. fresh model id). */
   config?: ProviderConfig;
   /** Override model for this single turn. */
@@ -159,8 +166,14 @@ class SessionImpl implements Session {
       } else if (e.type === 'usage') {
         this.emit({ type: 'usage', totalTokens: e.totalTokens, cachedTokens: e.cachedTokens ?? 0 });
       } else if (e.type === 'turn_end') {
+        // Clear the locally-tracked partial buffers AND notify subscribers,
+        // otherwise the host's `stream` state still holds the previous step's
+        // reasoning/content between agent loop iterations — visible as a
+        // stale "thinking…" block lingering after a tool call until the next
+        // step's first `content`/`reasoning` chunk overwrites it.
         partialText = '';
         partialReasoning = '';
+        this.emit({ type: 'stream_partial', text: '', reasoning: '' });
       }
     }
     return final;
@@ -175,7 +188,10 @@ class SessionImpl implements Session {
       throw new Error(`Session "${this.id}" already running a turn. Call abort() first or wait for completion.`);
     }
     if (options.baseMessages) this.messages = options.baseMessages.slice();
-    this.messages.push(options.userMessage);
+    // Skip the push when the caller didn't supply a userMessage — that
+    // happens when a `transformUserInput` hook returned `'continue'` and
+    // already appended the user's message itself (see `UserInputTransform`).
+    if (options.userMessage) this.messages.push(options.userMessage);
     if (this.queue.length) {
       this.messages.push(...this.queue);
       this.queue = [];

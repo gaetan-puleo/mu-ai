@@ -21,6 +21,11 @@ export const BUILTIN_COMMANDS: SlashCommand[] = [
   { name: '/sessions', description: 'List project sessions', invoke: (a) => a.onToggleSessionPicker?.() },
   { name: '/new', description: 'New conversation', invoke: (a) => a.onNew?.() },
   {
+    name: '/compact',
+    description: 'Summarize the conversation and replace history with the summary (frees context)',
+    invoke: (a) => a.onCompact?.(),
+  },
+  {
     name: '/context',
     description: 'Show the LLM context (system prompt, messages, tools) as plain text',
     invoke: (a) => a.onShowContext?.(),

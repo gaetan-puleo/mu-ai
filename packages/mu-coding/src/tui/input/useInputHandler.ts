@@ -28,6 +28,7 @@ export interface InputActions {
   onCtrlC?: () => void;
   onPaste?: () => void;
   onNew?: () => void;
+  onCompact?: () => void;
   onCycleModel?: () => void;
   onTogglePicker?: () => void;
   onToggleSessionPicker?: () => void;

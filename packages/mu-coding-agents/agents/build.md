@@ -19,7 +19,7 @@ tools:
     "src/**": allow
     "tests/**": allow
     "**": ask
-  search_code: allow
+  list_symbols: allow
   subagent: allow
   subagent_parallel: allow
 ---

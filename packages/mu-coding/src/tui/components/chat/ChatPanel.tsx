@@ -1,5 +1,7 @@
+import type { SubagentRunRegistry } from 'mu-agents';
 import type { ChatMessage, PluginRegistry, ProviderConfig } from 'mu-core';
 import type { ShutdownFn } from '../../../app/shutdown';
+import type { SessionPathHolder } from '../../../runtime/createRegistry';
 import type { HostMessageBus } from '../../../runtime/messageBus';
 import { ChatContext } from '../../chat/ChatContext';
 import { MessageRendererProvider, useRegistryRenderers } from '../../chat/MessageRendererContext';
@@ -15,6 +17,8 @@ export function ChatPanel({
   messageBus,
   uiService,
   shutdown,
+  sessionPathHolder,
+  subagentRuns,
 }: {
   config: ProviderConfig;
   initialMessages?: ChatMessage[];
@@ -22,8 +26,19 @@ export function ChatPanel({
   messageBus?: HostMessageBus;
   uiService?: InkUIService;
   shutdown?: ShutdownFn;
+  sessionPathHolder?: SessionPathHolder;
+  subagentRuns?: SubagentRunRegistry;
 }) {
-  const { ctx, bodyProps } = useChatPanel({ config, initialMessages, registry, messageBus, uiService, shutdown });
+  const { ctx, bodyProps } = useChatPanel({
+    config,
+    initialMessages,
+    registry,
+    messageBus,
+    uiService,
+    shutdown,
+    sessionPathHolder,
+    subagentRuns,
+  });
   const toolDisplays = useToolDisplayMap(registry);
   const renderers = useRegistryRenderers(registry);
 

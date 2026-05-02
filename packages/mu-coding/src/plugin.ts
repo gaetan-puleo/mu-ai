@@ -12,11 +12,13 @@
  * registry in after constructing it.
  */
 
-import type { ApprovalGateway } from 'mu-agents';
+import type { ApprovalGateway, SubagentRunRegistry } from 'mu-agents';
 import type { ChatMessage, Plugin, PluginContext, PluginRegistry } from 'mu-core';
 import type { ShutdownFn } from './app/shutdown';
 import type { AppConfig } from './config/index';
 import { createCodingToolsPlugin } from './runtime/codingTools/index';
+import type { SessionPathHolder } from './runtime/createRegistry';
+import { createFileMentionProvider } from './runtime/fileMentionProvider';
 import type { HostMessageBus } from './runtime/messageBus';
 import { createTuiChannel } from './tui/channel/tuiChannel';
 import { createInkApprovalChannel } from './tui/plugins/InkApprovalChannel';
@@ -29,6 +31,12 @@ export interface CodingPluginConfig {
   uiService: InkUIService;
   shutdown: ShutdownFn;
   /**
+   * Mutable holder updated by the TUI's session persistence hook so other
+   * plugins (mu-agents) can read the current parent session path when
+   * dispatching subagents. `undefined` until the React tree mounts.
+   */
+  sessionPathHolder?: SessionPathHolder;
+  /**
    * Concrete `PluginRegistry` instance used by the TUI to subscribe to
    * renderers / shortcuts / status segments. Required because `ctx.registry`
    * (the read-only View) does not expose those subscription methods.
@@ -38,6 +46,7 @@ export interface CodingPluginConfig {
 
 interface AgentPluginShape {
   approvalGateway?: ApprovalGateway;
+  runs?: SubagentRunRegistry;
 }
 
 export function createCodingPlugin(config: CodingPluginConfig): Plugin {
@@ -49,6 +58,7 @@ export function createCodingPlugin(config: CodingPluginConfig): Plugin {
   // Captured at activation time so deactivate can clean up both registrations.
   let unregisterTuiChannel: (() => void) | null = null;
   let unregisterApprovalChannel: (() => void) | null = null;
+  let unregisterFileMentions: (() => void) | null = null;
 
   return {
     name: 'mu-coding',
@@ -62,6 +72,13 @@ export function createCodingPlugin(config: CodingPluginConfig): Plugin {
       // Register the TUI channel so other code can stop it gracefully via
       // ctx.channels.stopAll(). The TUI subscribes to the concrete registry
       // (passed in via config), not the narrow context-exposed view.
+      // Resolve the live mu-agents handle so the TUI can subscribe to the
+      // subagent run registry (browser panel + live header). Looked up
+      // loosely so coding still works in setups that disabled the agent
+      // plugin — the TUI then renders a fallback header without the live
+      // subagent navigation surfaces.
+      const agentPlugin = ctx.getPlugin?.<Plugin & AgentPluginShape>('mu-agents');
+
       unregisterTuiChannel =
         ctx.channels?.register(
           createTuiChannel({
@@ -71,13 +88,22 @@ export function createCodingPlugin(config: CodingPluginConfig): Plugin {
             messageBus: config.messageBus,
             uiService: config.uiService,
             shutdown: config.shutdown,
+            sessionPathHolder: config.sessionPathHolder,
+            subagentRuns: agentPlugin?.runs,
           }),
         ) ?? null;
 
-      // Register the Ink approval channel against mu-agents' gateway, when
-      // mu-agents is present. We use `ctx.getPlugin` to look it up loosely
-      // so coding still works in setups that disabled the agent plugin.
-      const agentPlugin = ctx.getPlugin?.<Plugin & AgentPluginShape>('mu-agents');
+      // Register a file completion provider on `@`. Sits alongside the
+      // mu-agents `@`-provider — useMentionPicker concatenates results from
+      // every provider matching a trigger, grouped by category in the UI.
+      // When the user types `@foo`, agents that match by name appear first;
+      // files matching by basename/path follow.
+      if (ctx.registerMentionProvider) {
+        unregisterFileMentions = ctx.registerMentionProvider('@', createFileMentionProvider(ctx.cwd));
+      }
+
+      // Register the Ink approval channel against mu-agents' gateway when
+      // it's available (the lookup above already resolved `agentPlugin`).
       if (agentPlugin?.approvalGateway) {
         unregisterApprovalChannel = agentPlugin.approvalGateway.registerChannel(
           'tui',
@@ -88,6 +114,8 @@ export function createCodingPlugin(config: CodingPluginConfig): Plugin {
     deactivate() {
       unregisterApprovalChannel?.();
       unregisterApprovalChannel = null;
+      unregisterFileMentions?.();
+      unregisterFileMentions = null;
       unregisterTuiChannel?.();
       unregisterTuiChannel = null;
       inner.deactivate?.();

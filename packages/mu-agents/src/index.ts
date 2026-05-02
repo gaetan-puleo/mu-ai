@@ -20,8 +20,18 @@ export {
   createAgentsPlugin,
   createAgentsPlugin as default,
 } from './plugin';
+export { SubagentRunsProvider } from './renderers';
 export type { AgentSourceManager, AgentSourceRegistry } from './sources';
 // Agent source manager (commit 3)
 export { createAgentSourceManager } from './sources';
 export { runSubagent } from './subagent';
+export type {
+  SessionWriter,
+  SubagentRegistryListener,
+  SubagentRun,
+  SubagentRunListener,
+  SubagentRunRegistry,
+  SubagentStatus,
+} from './subagentRun';
+export { createSubagentRunRegistry } from './subagentRun';
 export type { AgentDefinition, AgentSettings } from './types';

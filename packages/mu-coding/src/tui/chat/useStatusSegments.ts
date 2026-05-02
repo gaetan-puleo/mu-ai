@@ -26,6 +26,14 @@ function truncate(text: string, max: number): string {
 
 const tokenFormatter = new Intl.NumberFormat('en-US');
 function formatTokens(n: number): string {
+  if (n >= 1_000_000) {
+    const v = n / 1_000_000;
+    return `${v >= 10 ? v.toFixed(0) : v.toFixed(1)}M`;
+  }
+  if (n >= 1000) {
+    const v = n / 1000;
+    return `${v >= 10 ? v.toFixed(0) : v.toFixed(1)}k`;
+  }
   return tokenFormatter.format(n);
 }
 
@@ -34,14 +42,24 @@ export function useStatusSegments(options: StatusSegmentOptions): StatusBarSegme
   const segments: StatusBarSegment[] = [];
 
   if (options.streaming) {
-    segments.push({ text: `${spinner} generating`, color: 'yellow' });
+    segments.push({ text: spinner, color: 'yellow', align: 'left' });
   }
   if (options.totalTokens > 0) {
     const cached = options.cachedTokens ?? 0;
     const used = formatTokens(options.totalTokens);
-    const head = options.contextLimit ? `${used}/${formatTokens(options.contextLimit)}` : used;
-    const label = cached > 0 ? `${head} tokens (${formatTokens(cached)} cached)` : `${head} tokens`;
-    segments.push({ text: label, dim: true });
+    let head: string;
+    if (options.contextLimit) {
+      const pct = (options.totalTokens / options.contextLimit) * 100;
+      const pctStr = pct >= 10 ? pct.toFixed(0) : pct.toFixed(1);
+      head = `${used} (${pctStr}%)`;
+    } else {
+      head = used;
+    }
+    if (cached > 0) {
+      segments.push({ text: `${head} · ${formatTokens(cached)} cached`, dim: true });
+    } else {
+      segments.push({ text: head, dim: true });
+    }
   }
   if (options.abortWarning) {
     segments.push({ text: 'Esc again to stop', color: 'yellow' });

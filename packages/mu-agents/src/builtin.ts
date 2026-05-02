@@ -5,20 +5,20 @@ import type { AgentDefinition } from './types';
  * dropping a same-name `.md` file in `~/.config/mu/agents/`.
  *
  * Tool names match the actual tools registered by `mu-coding-tools` (read,
- * write, edit, bash) plus `search_code` from `mu-repomap` and the subagent
+ * write, edit, bash) plus `list_symbols` from `mu-repomap` and the subagent
  * tools from this plugin.
  */
 export const DEFAULT_PRIMARY_AGENTS: AgentDefinition[] = [
   {
     name: 'build',
     description: 'Execute code changes, run commands, write files',
-    tools: ['bash', 'read', 'write', 'edit', 'search_code', 'subagent', 'subagent_parallel'],
+    tools: ['bash', 'read', 'write', 'edit', 'list_symbols', 'subagent', 'subagent_parallel'],
     permissions: {
       bash: 'allow',
       read: 'allow',
       write: 'allow',
       edit: 'allow',
-      search_code: 'allow',
+      list_symbols: 'allow',
       subagent: 'allow',
       subagent_parallel: 'allow',
     },
@@ -35,10 +35,10 @@ export const DEFAULT_PRIMARY_AGENTS: AgentDefinition[] = [
   {
     name: 'plan',
     description: 'Plan and analyse tasks, read-only operations',
-    tools: ['read', 'search_code'],
+    tools: ['read', 'list_symbols'],
     permissions: {
       read: 'allow',
-      search_code: 'allow',
+      list_symbols: 'allow',
     },
     color: '#9b59b6',
     systemPrompt: [
@@ -63,10 +63,10 @@ export const DEFAULT_SUB_AGENTS: AgentDefinition[] = [
   {
     name: 'review',
     description: 'Review the most recent changes for issues',
-    tools: ['read', 'search_code', 'bash'],
+    tools: ['read', 'list_symbols', 'bash'],
     permissions: {
       read: 'allow',
-      search_code: 'allow',
+      list_symbols: 'allow',
       bash: { 'git diff*': 'allow', 'git log*': 'allow', 'git show*': 'allow', '*': 'ask' },
     },
     color: '#27ae60',

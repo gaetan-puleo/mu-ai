@@ -124,7 +124,7 @@ describe('createRegistry — activation order + plugin propagation', () => {
     }
   });
 
-  it('agent slash command is contributed by mu-agents (no coding-agents by default)', async () => {
+  it('mu-agents contributes per-primary-agent slash commands but no generic /agent', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'mu-cr-'));
     try {
       const ui = new InkUIService();
@@ -135,8 +135,9 @@ describe('createRegistry — activation order + plugin propagation', () => {
       });
 
       const commandNames = registry.getCommands().map((c) => c.name);
-      expect(commandNames).toContain('agent');
-      // build/plan/review come from mu-agents' DEFAULT_PRIMARY_AGENTS.
+      // The generic `/agent` command was removed; discoverability is via
+      // the per-agent switch commands and the Tab shortcut.
+      expect(commandNames).not.toContain('agent');
       // `explore` originates from mu-coding-agents, which is no longer auto-loaded.
       expect(commandNames).not.toContain('explore');
     } finally {

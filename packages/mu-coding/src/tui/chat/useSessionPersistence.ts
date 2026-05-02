@@ -1,5 +1,6 @@
 import type { ChatMessage } from 'mu-core';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { SessionPathHolder } from '../../runtime/createRegistry';
 import { generateSessionPath, loadSession, saveSession } from '../../sessions/index';
 
 export interface SessionPersistenceState {
@@ -32,9 +33,19 @@ function userPromptsFrom(messages: ChatMessage[]): string[] {
  * Save errors are logged to stderr and do not surface to the chat error
  * channel — they're considered non-fatal (next save attempt may succeed).
  */
-export function useSessionPersistence(initialMessages?: ChatMessage[]): SessionPersistenceState {
+export function useSessionPersistence(
+  initialMessages?: ChatMessage[],
+  sessionPathHolder?: SessionPathHolder,
+): SessionPersistenceState {
   const [inputHistory, setInputHistory] = useState<string[]>(userPromptsFrom(initialMessages ?? []));
   const sessionPathRef = useRef(generateSessionPath());
+
+  // Mirror the live path into the cross-plugin holder so mu-agents can read
+  // it lazily when dispatching a subagent. Using a useEffect keeps the
+  // holder write off the React render path.
+  useEffect(() => {
+    if (sessionPathHolder) sessionPathHolder.current = sessionPathRef.current;
+  }, [sessionPathHolder]);
 
   const appendHistory = useCallback((text: string) => {
     setInputHistory((prev) => [...prev, text]);
@@ -48,17 +59,22 @@ export function useSessionPersistence(initialMessages?: ChatMessage[]): SessionP
 
   const resetForNew = useCallback(() => {
     sessionPathRef.current = generateSessionPath();
+    if (sessionPathHolder) sessionPathHolder.current = sessionPathRef.current;
     setInputHistory([]);
-  }, []);
+  }, [sessionPathHolder]);
 
-  const loadFromPath = useCallback((path: string): ChatMessage[] => {
-    const msgs = loadSession(path);
-    if (msgs.length > 0) {
-      sessionPathRef.current = path;
-      setInputHistory(userPromptsFrom(msgs));
-    }
-    return msgs;
-  }, []);
+  const loadFromPath = useCallback(
+    (path: string): ChatMessage[] => {
+      const msgs = loadSession(path);
+      if (msgs.length > 0) {
+        sessionPathRef.current = path;
+        if (sessionPathHolder) sessionPathHolder.current = sessionPathRef.current;
+        setInputHistory(userPromptsFrom(msgs));
+      }
+      return msgs;
+    },
+    [sessionPathHolder],
+  );
 
   const setHistory = useCallback((history: string[]) => {
     setInputHistory(history);

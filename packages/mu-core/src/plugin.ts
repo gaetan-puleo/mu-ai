@@ -59,6 +59,12 @@ export interface MentionCompletion {
   label?: string;
   /** Secondary text shown dimly in the picker. */
   description?: string;
+  /**
+   * Optional grouping label rendered as a section header in the picker
+   * (e.g. "agents", "files"). When unset, completions are rendered without
+   * a group header. The host hides the header when only one group is shown.
+   */
+  category?: string;
 }
 
 export type MentionProvider = (partial: string) => MentionCompletion[] | Promise<MentionCompletion[]>;
@@ -96,6 +102,12 @@ export interface PluginRegistryView {
   getHooks: () => LifecycleHooks[];
   getSystemPrompts: () => Promise<string[]>;
   applySystemPromptTransforms: (prompt: string) => Promise<string>;
+  /**
+   * Provider registry handle (or `undefined` if the host didn't supply one).
+   * Exposed so plugins that re-issue LLM calls (e.g. the mu-agents subagent
+   * loop) can resolve the configured provider exactly like `runAgent` does.
+   */
+  getProviders: () => ProviderRegistry | undefined;
 }
 
 export interface PluginContext extends PluginExtras {
@@ -249,8 +261,18 @@ export type BeforeToolExecResult = ToolCall | ToolBlock;
  *   - `intercept` — suppress the input entirely; the host should not call the
  *     LLM. Plugins typically pair this with `MessageBus.append` to surface a
  *     reply or status entry.
+ *   - `continue` — the hook has appended the user message itself (e.g. via
+ *     `MessageBus.append` so it shows up live in the transcript). The host
+ *     should NOT push another user message but should still run a turn:
+ *     drain the injectNext queue and stream the LLM. Used by the subagent
+ *     `@`-mention dispatch path so the user's message lands first, the
+ *     subagent runs live, and the parent agent then takes a real turn.
  */
-export type UserInputTransform = { kind: 'pass' } | { kind: 'transform'; text: string } | { kind: 'intercept' };
+export type UserInputTransform =
+  | { kind: 'pass' }
+  | { kind: 'transform'; text: string }
+  | { kind: 'intercept' }
+  | { kind: 'continue' };
 
 export interface LifecycleHooks {
   beforeLlmCall?: (messages: ChatMessage[], config: ProviderConfig) => ChatMessage[] | Promise<ChatMessage[]>;

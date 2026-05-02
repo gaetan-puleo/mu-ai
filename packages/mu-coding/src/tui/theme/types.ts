@@ -79,6 +79,27 @@ interface ThemeStatus {
   separator: string;
 }
 
+interface ThemeMarkdown {
+  /** Heading text color (h1/h2/h3 share this color, h1 is also bold). */
+  heading: string;
+  /** Inline code background. */
+  codeBackground: string;
+  /** Inline code text color. */
+  codeText: string;
+  /** Fenced code-block background. */
+  codeBlockBackground: string;
+  /** Fenced code-block text color. */
+  codeBlockText: string;
+  /** Link `[label](url)` rendering — label color. */
+  link: string;
+  /** Blockquote (`> …`) text color (also dimmed). */
+  blockquote: string;
+  /** List bullet color. */
+  bullet: string;
+  /** Table border color. */
+  tableBorder: string;
+}
+
 interface ThemeCommon {
   error: string;
   warning: string;
@@ -99,6 +120,7 @@ export interface Theme {
   dialog: ThemeDialog;
   diff: ThemeDiff;
   status: ThemeStatus;
+  markdown: ThemeMarkdown;
   common: ThemeCommon;
 }
 

@@ -77,7 +77,7 @@ export class RepomapWatcher {
     } catch (err) {
       // chokidar can throw synchronously on permission / unsupported FS
       // errors. Degrade gracefully: the index built at activation still
-      // serves `search_code` queries; only live updates are disabled.
+      // serves `list_symbols` queries; only live updates are disabled.
       this.logger.notify(
         `Watcher init failed (live updates disabled): ${err instanceof Error ? err.message : String(err)}`,
         'warning',

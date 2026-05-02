@@ -1,4 +1,5 @@
 import { useApp } from 'ink';
+import type { SubagentRunRegistry } from 'mu-agents';
 import {
   type ChatMessage,
   createSessionManager,
@@ -8,6 +9,7 @@ import {
 } from 'mu-core';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ShutdownFn } from '../../app/shutdown';
+import type { SessionPathHolder } from '../../runtime/createRegistry';
 import type { HostMessageBus } from '../../runtime/messageBus';
 import { listSessionsAsync, type SessionInfo } from '../../sessions/index';
 import type { InkUIService } from '../plugins/InkUIService';
@@ -30,6 +32,7 @@ export interface ChatContextValue {
   registry: PluginRegistry;
   uiService?: InkUIService;
   messageBus?: HostMessageBus;
+  subagentRuns?: SubagentRunRegistry;
 }
 
 export function useChat(
@@ -39,6 +42,8 @@ export function useChat(
   shutdown?: ShutdownFn,
   uiService?: InkUIService,
   messageBus?: HostMessageBus,
+  sessionPathHolder?: SessionPathHolder,
+  subagentRuns?: SubagentRunRegistry,
 ): ChatContextValue {
   const { exit } = useApp();
   const controllerRef = useRef<AbortController | null>(null);
@@ -65,6 +70,7 @@ export function useChat(
     initialMessages,
     registry,
     messageBus,
+    sessionPathHolder,
   });
   const abort = useAbort(session.streaming, controllerRef, exit, ABORT_TIMEOUT_MS, shutdown);
 
@@ -102,5 +108,6 @@ export function useChat(
     registry,
     uiService,
     messageBus,
+    subagentRuns,
   };
 }

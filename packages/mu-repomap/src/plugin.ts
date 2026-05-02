@@ -1,26 +1,49 @@
 import type { Plugin, PluginTool, StatusSegment, UIService } from 'mu-core';
-import { formatSummary } from './formatter';
+import { DEFAULT_PAGE_SIZE } from './listSymbols';
 import { RepomapManager } from './manager';
-import type { SymbolEntry } from './repomap';
 import { RepomapWatcher } from './watcher';
 
 export interface RepomapOptions {
-  maxFiles?: number;
-  maxRefs?: number;
+  /** Default page size for `list_symbols`. Overridable per-call via the `pageSize` arg. */
+  pageSize?: number;
 }
 
-function createSearchCodeTool(opts: RepomapOptions, getCwd: () => string): PluginTool {
+const TOOL_DESCRIPTION =
+  'List project symbols layer by layer. You MUST descend progressively to avoid context overflow:\n' +
+  '  1. Start with no query → returns top-level directories.\n' +
+  '  2. Pick one with `dir:<path>` → returns its files and immediate subdirs.\n' +
+  '  3. Pick a file with `file:<path>` → returns its exports.\n' +
+  '  4. Pick a symbol with `sym:<name>` (or `sym:<name>@<file>` to disambiguate) → returns definition + refs.\n' +
+  'NEVER skip layers. Each call returns ≤ pageSize entries (default 20). Use `page:N` for the next slice; ' +
+  '`pageSize:N` to override only when the layer is small.';
+
+function createListSymbolsTool(opts: RepomapOptions, getCwd: () => string): PluginTool {
+  const defaultSize = opts.pageSize && opts.pageSize > 0 ? Math.floor(opts.pageSize) : DEFAULT_PAGE_SIZE;
   return {
     definition: {
       type: 'function',
       function: {
-        name: 'search_code',
-        description:
-          'Search the project code index. Query: symbol name, kind ("fn"/"class"/"interface"), "summary"/"tree"/"stats", or a file path. Empty = tree.',
+        name: 'list_symbols',
+        description: TOOL_DESCRIPTION,
         parameters: {
           type: 'object',
           properties: {
-            query: { type: 'string' },
+            query: {
+              type: 'string',
+              description: '"" (root dirs) | dir:<path> | file:<path> | sym:<name>[@<file>]',
+            },
+            page: {
+              type: 'integer',
+              minimum: 1,
+              default: 1,
+              description: '1-indexed page number for paginated layers.',
+            },
+            pageSize: {
+              type: 'integer',
+              minimum: 1,
+              default: defaultSize,
+              description: `Override default page size (${defaultSize}). Increase only when the layer is small.`,
+            },
           },
           required: [],
           additionalProperties: false,
@@ -28,90 +51,19 @@ function createSearchCodeTool(opts: RepomapOptions, getCwd: () => string): Plugi
       },
     },
     display: {
-      verb: 'searching',
+      verb: 'listing',
       kind: 'search',
       fields: { query: 'query' },
     },
     async execute(args) {
-      const query = (args.query as string) ?? '';
       const cwd = getCwd();
       const manager = RepomapManager.getInstance(cwd);
-
-      if (!query) return await manager.formatTree({ maxFiles: opts.maxFiles ?? 40, maxRefs: opts.maxRefs ?? 10 });
-      if (query === 'summary') return await manager.formatSummary({ maxFiles: opts.maxFiles ?? 80 });
-      if (query === 'stats') return await manager.getStats();
-      if (query === 'tree')
-        return await manager.formatTree({ maxFiles: opts.maxFiles ?? 40, maxRefs: opts.maxRefs ?? 10 });
-      if (query.includes('/') || query.includes('\\')) return await manager.formatFile(query);
-
-      const syms = await manager.findSymbol(query);
-      if (syms.length === 0) return `Symbol not found: ${query}`;
-
-      return formatSymbolResults(query, syms, cwd);
+      const query = typeof args.query === 'string' ? args.query : '';
+      const page = typeof args.page === 'number' ? args.page : 1;
+      const pageSize = typeof args.pageSize === 'number' ? args.pageSize : defaultSize;
+      return await manager.listSymbols({ query, page, pageSize });
     },
   };
-}
-
-function groupSymsByFile(syms: SymbolEntry[], cwd: string): Map<string, SymbolEntry[]> {
-  const byFile = new Map<string, SymbolEntry[]>();
-  for (const s of syms) {
-    const relFile = s.file.replace(`${cwd}/`, '');
-    const group = byFile.get(relFile);
-    if (group) {
-      group.push(s);
-    } else {
-      byFile.set(relFile, [s]);
-    }
-  }
-  return byFile;
-}
-
-function formatSymbolRefs(sym: SymbolEntry, cwd: string): string[] {
-  const parts: string[] = [];
-  if (sym.references.length === 0) return parts;
-
-  parts.push('    refs:');
-  const refsByFile = new Map<string, number[]>();
-  for (const ref of sym.references) {
-    const refFile = ref.file.replace(`${cwd}/`, '');
-    const group = refsByFile.get(refFile);
-    if (group) {
-      group.push(ref.line);
-    } else {
-      refsByFile.set(refFile, [ref.line]);
-    }
-  }
-  for (const [refFile, refLines] of refsByFile) {
-    const sorted = refLines.sort((a, b) => a - b);
-    const rangeHint =
-      sorted.length > 1 ? ` read_file ${refFile} start:${sorted[0]} end:${sorted[sorted.length - 1]}` : '';
-    parts.push(`      ${refFile}:${sorted.join(', ')}${rangeHint}`);
-  }
-  return parts;
-}
-
-function formatSymbolResults(query: string, syms: SymbolEntry[], cwd: string): string {
-  const parts: string[] = [];
-
-  parts.push(`"${query}" — ${syms.length} occurrence(s)`);
-  parts.push('');
-
-  const byFile = groupSymsByFile(syms, cwd);
-
-  for (const [file, fileSyms] of byFile) {
-    parts.push(`## ${file}`);
-    parts.push(`  read_file ${file} start:${fileSyms[0].line} end:${fileSyms[fileSyms.length - 1].line + 5}`);
-    parts.push('');
-
-    for (const sym of fileSyms) {
-      const kindLabel = sym.export ? 'export' : 'internal';
-      parts.push(`  ${sym.kind} ${sym.name} at line ${sym.line} (${kindLabel})`);
-      parts.push(...formatSymbolRefs(sym, cwd));
-      parts.push('');
-    }
-  }
-
-  return parts.join('\n');
 }
 
 export function createRepomapPlugin(options?: RepomapOptions): Plugin {
@@ -143,18 +95,19 @@ export function createRepomapPlugin(options?: RepomapOptions): Plugin {
 
   return {
     name: 'mu-repomap',
-    version: '0.1.0',
+    version: '0.2.0',
 
-    tools: [createSearchCodeTool(opts, getCwd)],
+    tools: [createListSymbolsTool(opts, getCwd)],
 
     systemPrompt: async (ctx) => {
       const manager = RepomapManager.getInstance(ctx.cwd);
       const map = await manager.getMap();
-      const guidance = 'Use `search_code` (repomap index) for symbol/structural lookups instead of `bash` grep/find.';
+      const guidance =
+        'Use `list_symbols` to discover the codebase layer by layer (root dirs → directory → file → symbol). ' +
+        'Always start broad and drill down — never request a deep layer blindly. ' +
+        'Prefer this over bash grep/find for structural lookups.';
       if (!map) return guidance;
-      // Compact summary for the system prompt; the search_code tool can still
-      // render the full summary on demand via `query: "summary"`.
-      return `${guidance}\n\n${formatSummary(map, { maxFiles: 30 })}`;
+      return `${guidance}\nIndex ready: ${map.files.size} files indexed. Call list_symbols with no args for the top-level directories.`;
     },
 
     commands: [

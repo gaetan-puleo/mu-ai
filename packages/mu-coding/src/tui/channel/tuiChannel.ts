@@ -5,9 +5,11 @@
  */
 
 import type { Instance } from 'ink';
+import type { SubagentRunRegistry } from 'mu-agents';
 import type { Channel, ChatMessage, PluginRegistry } from 'mu-core';
 import type { ShutdownFn } from '../../app/shutdown';
 import type { AppConfig } from '../../config/index';
+import type { SessionPathHolder } from '../../runtime/createRegistry';
 import type { HostMessageBus } from '../../runtime/messageBus';
 import type { InkUIService } from '../plugins/InkUIService';
 import { renderApp } from '../renderApp';
@@ -19,6 +21,8 @@ export interface TuiChannelOptions {
   messageBus: HostMessageBus;
   uiService: InkUIService;
   shutdown: ShutdownFn;
+  sessionPathHolder?: SessionPathHolder;
+  subagentRuns?: SubagentRunRegistry;
 }
 
 export function createTuiChannel(opts: TuiChannelOptions): Channel {
@@ -29,7 +33,16 @@ export function createTuiChannel(opts: TuiChannelOptions): Channel {
       // Idempotent: re-starting after a stop remounts; re-starting while
       // mounted is a no-op.
       if (instance) return;
-      instance = renderApp(opts);
+      instance = renderApp({
+        config: opts.config,
+        initialMessages: opts.initialMessages,
+        registry: opts.registry,
+        messageBus: opts.messageBus,
+        uiService: opts.uiService,
+        shutdown: opts.shutdown,
+        sessionPathHolder: opts.sessionPathHolder,
+        subagentRuns: opts.subagentRuns,
+      });
     },
     async stop() {
       if (!instance) return;

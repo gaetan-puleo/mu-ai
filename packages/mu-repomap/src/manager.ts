@@ -1,5 +1,6 @@
 import type { UIService } from 'mu-core';
 import { formatFileView, formatSummary, formatTree } from './formatter';
+import { type ListSymbolsArgs, listSymbols } from './listSymbols';
 import { createLogger, type RepomapLogger } from './logger';
 import { buildRepomap, findFile, findSymbol, type Repomap, type SymbolEntry } from './repomap';
 
@@ -183,6 +184,17 @@ export class RepomapManager {
     const map = await this.getMap();
     if (!map) return 'Repomap not available';
     return formatFileView(map, relPath);
+  }
+
+  /**
+   * Layered discovery entry point: routes through `listSymbols` which
+   * paginates each layer (roots → dir → file → symbol) so the LLM never
+   * receives the whole index in one shot.
+   */
+  async listSymbols(args: ListSymbolsArgs): Promise<string> {
+    const map = await this.getMap();
+    if (!map) return 'Repomap is still indexing — try again in a moment.';
+    return listSymbols(map, args);
   }
 
   // --- Stats ---

@@ -117,7 +117,7 @@ const myPlugin: Plugin = {
 
 ### `mu-repomap`
 
-Code indexing plugin — provides the `search_code` tool and system prompt context.
+Code indexing plugin — provides the `list_symbols` tool and system prompt context.
 
 ```typescript
 import { createRepomapPlugin } from 'mu-repomap';

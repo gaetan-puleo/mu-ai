@@ -1,4 +1,5 @@
 import { Box, Text } from 'ink';
+import { useTheme } from '../../context/ThemeContext';
 import { ToolHeader } from './ToolHeader';
 
 const PREVIEW_LINES = 30;
@@ -19,6 +20,7 @@ function parsePath(args: string): string {
 }
 
 export function WriteOutput({ args, content, error }: WriteOutputProps) {
+  const theme = useTheme();
   const path = parsePath(args);
 
   if (error) {
@@ -44,8 +46,14 @@ export function WriteOutput({ args, content, error }: WriteOutputProps) {
         <Text dimColor={true}>
           {totalLines} line{totalLines !== 1 ? 's' : ''}
         </Text>
-        <Box flexDirection="column" flexShrink={0}>
-          <Text dimColor={true} wrap="wrap">
+        <Box
+          flexDirection="column"
+          flexShrink={0}
+          backgroundColor={theme.tool.previewBackground}
+          paddingX={1}
+          paddingY={0}
+        >
+          <Text color={theme.tool.previewText} wrap="wrap">
             {hasMore ? preview : content}
           </Text>
           {hasMore && <Text dimColor={true}>… ({totalLines - PREVIEW_LINES} more lines)</Text>}

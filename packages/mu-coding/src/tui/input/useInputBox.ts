@@ -31,7 +31,9 @@ interface BufferDraft {
 /**
  * Replace `[triggerStart, cursor)` (the `<trigger><partial>` token) with the
  * chosen completion value plus a trailing space, so the user is left in a
- * sensible position for further input.
+ * sensible position for further input. File completions drop the trigger
+ * (`@`) entirely — the path stands alone in the prompt — while other
+ * categories (agents) keep the `@` prefix as a visible marker.
  */
 function applyMention(
   value: string,
@@ -39,10 +41,12 @@ function applyMention(
   cursor: number,
   trigger: string,
   completion: string,
+  category: string | undefined,
 ): BufferDraft {
   const before = value.slice(0, triggerStart);
   const after = value.slice(cursor);
-  const insertion = `${trigger}${completion} `;
+  const keepTrigger = category !== 'files';
+  const insertion = `${keepTrigger ? trigger : ''}${completion} `;
   return { value: before + insertion + after, cursor: triggerStart + insertion.length };
 }
 
@@ -72,7 +76,14 @@ function buildMentionMode(mentions: MentionPickerState, input: InputHandle): Men
       const completion = mentions.completions[mentions.selectedIndex];
       const trig = mentions.trigger;
       if (!(completion && trig)) return;
-      const draft = applyMention(input.value, mentions.triggerStart, input.cursor, trig, completion.value);
+      const draft = applyMention(
+        input.value,
+        mentions.triggerStart,
+        input.cursor,
+        trig,
+        completion.value,
+        completion.category,
+      );
       input.setBuffer(draft.value, draft.cursor);
     },
   };
@@ -97,6 +108,9 @@ function useInputActions(deps: ActionDeps): InputActions {
       onEsc: abort.onEsc,
       onPaste: attachment.onPaste,
       onNew: session.onNew,
+      onCompact: () => {
+        void session.onCompact();
+      },
       onCycleModel: models.cycleModel,
       onTogglePicker: toggles.onTogglePicker,
       onToggleSessionPicker: toggles.onToggleSessionPicker,
@@ -110,6 +124,7 @@ function useInputActions(deps: ActionDeps): InputActions {
       abort.onEsc,
       attachment.onPaste,
       session.onNew,
+      session.onCompact,
       models.cycleModel,
       models.models.length,
       toggles.onTogglePicker,

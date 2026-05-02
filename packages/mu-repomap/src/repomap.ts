@@ -373,3 +373,94 @@ export function findFile(map: Repomap, pattern: string): RepomapFile | null {
   }
   return null;
 }
+
+// --- Layered discovery helpers (used by list_symbols) ---
+
+export interface RootSummary {
+  /** First path segment, e.g. `packages` or `src`. */
+  root: string;
+  /** Number of files whose relative path begins with this root. */
+  files: number;
+  /** Total exports across those files. */
+  exports: number;
+}
+
+/**
+ * Aggregate the index by the first path segment of each file. Used by L0 of
+ * `list_symbols` to surface the top-level layout without dumping every file.
+ */
+export function groupByRoot(map: Repomap): RootSummary[] {
+  const acc = new Map<string, { files: number; exports: number }>();
+  for (const file of map.files.values()) {
+    const segs = file.path.split('/');
+    const root = segs.length > 1 ? segs[0] : '.';
+    const cur = acc.get(root) ?? { files: 0, exports: 0 };
+    cur.files += 1;
+    cur.exports += file.exports.length;
+    acc.set(root, cur);
+  }
+  return Array.from(acc.entries())
+    .map(([root, v]) => ({ root, files: v.files, exports: v.exports }))
+    .sort((a, b) => a.root.localeCompare(b.root));
+}
+
+export interface DirListing {
+  subdirs: { path: string; files: number; exports: number }[];
+  files: { path: string; exports: number }[];
+}
+
+/**
+ * Non-recursive listing of `prefix`: returns files directly under `prefix`
+ * (no further `/` after the prefix) plus the immediate sub-directories with
+ * aggregated counts. Pass `''` to list the project root.
+ */
+export function listDir(map: Repomap, prefix: string): DirListing {
+  const normalized = prefix.replace(/^\/+|\/+$/g, '');
+  const head = normalized.length === 0 ? '' : `${normalized}/`;
+  const subAcc = new Map<string, { files: number; exports: number }>();
+  const files: { path: string; exports: number }[] = [];
+
+  for (const file of map.files.values()) {
+    if (head && !file.path.startsWith(head)) continue;
+    const rest = head ? file.path.slice(head.length) : file.path;
+    if (!rest.includes('/')) {
+      // File directly under prefix.
+      files.push({ path: file.path, exports: file.exports.length });
+      continue;
+    }
+    // Sub-directory: aggregate by the first segment after `head`.
+    const subSeg = rest.slice(0, rest.indexOf('/'));
+    const subPath = head ? `${head}${subSeg}` : subSeg;
+    const cur = subAcc.get(subPath) ?? { files: 0, exports: 0 };
+    cur.files += 1;
+    cur.exports += file.exports.length;
+    subAcc.set(subPath, cur);
+  }
+
+  return {
+    subdirs: Array.from(subAcc.entries()).map(([path, v]) => ({
+      path,
+      files: v.files,
+      exports: v.exports,
+    })),
+    files,
+  };
+}
+
+/**
+ * Disambiguating lookup: returns the export symbol with `name` defined in
+ * the file matching `filePath` (exact, suffix, or substring), or null if
+ * no match is found.
+ */
+export function findSymbolInFile(map: Repomap, name: string, filePath: string): SymbolEntry | null {
+  const key = name.toLowerCase();
+  const file =
+    map.files.get(filePath) ??
+    Array.from(map.files.values()).find((f) => f.path === filePath || f.path.endsWith(`/${filePath}`)) ??
+    Array.from(map.files.values()).find((f) => f.path.includes(filePath));
+  if (!file) return null;
+  for (const sym of file.exports) {
+    if (sym.name.toLowerCase() === key) return sym;
+  }
+  return null;
+}

@@ -62,12 +62,17 @@ export interface ToolResultInfo {
  *  - `badge` is shown in a small box before the body (e.g. agent name)
  *  - `hidden` keeps the message in the transcript (sent to the LLM) but skips
  *    its on-screen rendering — useful for system reminders.
+ *  - `llmHidden` is the inverse: keep the message in the on-screen transcript
+ *    but strip it from the LLM payload right before the network call. Useful
+ *    for UI-only markers (subagent dispatch headers, status pings) that
+ *    plugins want users to see but the model shouldn't read as conversation.
  */
 export interface MessageDisplay {
   color?: string;
   prefix?: string;
   badge?: string;
   hidden?: boolean;
+  llmHidden?: boolean;
 }
 
 export interface ChatMessage {

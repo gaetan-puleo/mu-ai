@@ -343,6 +343,7 @@ export class PluginRegistry {
         getHooks: () => this.getHooks(),
         getSystemPrompts: () => this.getSystemPrompts(),
         applySystemPromptTransforms: (prompt) => this.applySystemPromptTransforms(prompt),
+        getProviders: () => this.getProviders(),
       },
       setStatusLine: (segments) => this.setStatusLine(pluginName, segments),
       setInputInfo: (segments) => this.setInputInfo(pluginName, segments),

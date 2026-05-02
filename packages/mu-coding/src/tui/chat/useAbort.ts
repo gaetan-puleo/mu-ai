@@ -7,9 +7,14 @@ function useDoublePress(timeoutMs: number) {
 
   const confirm = useCallback(() => {
     if (warning) {
+      // Confirmed press: cancel the pending auto-reset and clear the
+      // warning flag immediately so the status hint ("Esc again to stop"
+      // / "Ctrl+C again to quit") disappears as soon as the action fires.
       if (timerRef.current) {
         clearTimeout(timerRef.current);
+        timerRef.current = null;
       }
+      setWarning(false);
       return true;
     }
     setWarning(true);

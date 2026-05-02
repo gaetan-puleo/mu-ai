@@ -1,3 +1,5 @@
+import { mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { createAgentsPlugin } from 'mu-agents';
 import type { ChatMessage } from 'mu-core';
 import {
@@ -13,9 +15,27 @@ import { createOpenAIProviderPlugin } from 'mu-openai-provider';
 import type { ShutdownFn } from '../app/shutdown';
 import type { AppConfig } from '../config/index';
 import { createCodingPlugin } from '../plugin';
+import { saveSession } from '../sessions/index';
 import type { InkUIService } from '../tui/plugins/InkUIService';
 import { createMessageBus, type HostMessageBus } from './messageBus';
 import { discoverPluginFiles, loadConfiguredPlugin } from './pluginLoader';
+
+/**
+ * Tiny mutable holder used to bridge the React-owned current session path
+ * (`useSessionPersistence`) with plugins that need it at construction time
+ * (here, mu-agents — to derive a sibling directory for subagent runs).
+ *
+ * The holder is created up-front and passed both to `mu-agents` (read via
+ * `getParentSessionPath`) and to the TUI channel (which forwards it into
+ * the React tree where `useSessionPersistence` keeps it in sync).
+ */
+export interface SessionPathHolder {
+  current: string | undefined;
+}
+
+function createSessionPathHolder(): SessionPathHolder {
+  return { current: undefined };
+}
 
 interface CreateRegistryOptions {
   cwd: string;
@@ -42,6 +62,7 @@ interface RegistryBundle {
   providers: ProviderRegistry;
   channels: ChannelRegistry;
   activity: ActivityBus;
+  sessionPathHolder: SessionPathHolder;
 }
 
 interface PluginConfigInputs {
@@ -101,6 +122,7 @@ async function registerBuiltins(
   options: CreateRegistryOptions,
   inputs: PluginConfigInputs,
   messageBus: HostMessageBus,
+  sessionPathHolder: SessionPathHolder,
 ): Promise<void> {
   await registry.register(createOpenAIProviderPlugin());
   await registry.register(
@@ -108,6 +130,14 @@ async function registerBuiltins(
       config: options.config,
       model: options.config.model,
       approvalChannelId: 'tui',
+      // The chat session updates this holder once `useSessionPersistence`
+      // mounts; mu-agents reads it lazily so subagent runs always land
+      // beside the *current* parent transcript file (survives /new + load).
+      getParentSessionPath: () => sessionPathHolder.current,
+      sessionWriter: async (path, messages) => {
+        await mkdir(dirname(path), { recursive: true });
+        await saveSession(path, messages);
+      },
     }),
   );
   await registry.register(
@@ -117,6 +147,7 @@ async function registerBuiltins(
       messageBus,
       uiService: options.uiService,
       shutdown: options.shutdown ?? noopShutdown,
+      sessionPathHolder,
       // Pass the concrete registry: the TUI subscribes to renderer / shortcut
       // / status streams that are not part of the narrow `PluginRegistryView`
       // exposed via `ctx.registry`.
@@ -133,6 +164,7 @@ export async function createRegistry(options: CreateRegistryOptions): Promise<Re
   const providers = createProviderRegistry();
   const channels = createChannelRegistry();
   const activity = createActivityBus();
+  const sessionPathHolder = createSessionPathHolder();
   const registry = new PluginRegistry({
     cwd,
     config: {},
@@ -146,7 +178,7 @@ export async function createRegistry(options: CreateRegistryOptions): Promise<Re
 
   const inputs: PluginConfigInputs = { uiService, shutdown, appConfig: config };
 
-  await registerBuiltins(registry, options, inputs, messageBus);
+  await registerBuiltins(registry, options, inputs, messageBus, sessionPathHolder);
 
   // User-extension plugins ride on top of the builtins.
   for (const filePath of discoverPluginFiles()) {
@@ -159,5 +191,5 @@ export async function createRegistry(options: CreateRegistryOptions): Promise<Re
     await loadConfiguredPlugin(registry, name, buildPluginConfig(inputs, pluginConfig), uiService);
   }
 
-  return { registry, messageBus, providers, channels, activity };
+  return { registry, messageBus, providers, channels, activity, sessionPathHolder };
 }

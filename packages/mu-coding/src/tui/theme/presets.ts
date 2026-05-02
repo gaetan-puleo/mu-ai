@@ -28,7 +28,7 @@ export const DEFAULT_THEME: Theme = {
   tool: {
     success: 'green',
     error: 'red',
-    previewBackground: '#111111',
+    previewBackground: '#2a2a2a',
     previewText: 'white',
     summaryDim: 'gray',
     warning: 'yellow',
@@ -68,6 +68,17 @@ export const DEFAULT_THEME: Theme = {
   },
   status: {
     separator: 'gray',
+  },
+  markdown: {
+    heading: 'cyan',
+    codeBackground: '#2a2a2a',
+    codeText: 'yellow',
+    codeBlockBackground: '#2a2a2a',
+    codeBlockText: 'white',
+    link: 'cyan',
+    blockquote: 'gray',
+    bullet: 'cyan',
+    tableBorder: 'gray',
   },
   common: {
     error: 'red',

@@ -52,22 +52,69 @@ function CommandHints({
   );
 }
 
+/**
+ * Render a label with the substring matching `partial` (case-insensitive)
+ * highlighted using the same accent color the picker uses for the selected
+ * row. Preserves the original casing of the label since we only slice it.
+ */
+function renderHighlightedLabel(label: string, partial: string, theme: Theme) {
+  if (!partial) return <>{label}</>;
+  const idx = label.toLowerCase().indexOf(partial.toLowerCase());
+  if (idx < 0) return <>{label}</>;
+  const head = label.slice(0, idx);
+  const match = label.slice(idx, idx + partial.length);
+  const tail = label.slice(idx + partial.length);
+  return (
+    <>
+      {head}
+      <Text color={theme.input.commandHighlight} bold={true}>
+        {match}
+      </Text>
+      {tail}
+    </>
+  );
+}
+
 function MentionHints({ mentions, theme }: { mentions: MentionPickerView; theme: Theme }) {
   if (!mentions.completions.length) {
     return null;
   }
+  // Group completions by category while preserving the global index so
+  // ↑/↓ navigation still maps to the correct entry. When only one
+  // category is present we hide the header to keep the dropdown compact.
+  const grouped = new Map<string, { c: MentionCompletion; i: number }[]>();
+  mentions.completions.forEach((c, i) => {
+    const key = c.category ?? '';
+    const arr = grouped.get(key);
+    if (arr) arr.push({ c, i });
+    else grouped.set(key, [{ c, i }]);
+  });
+  const showHeaders = grouped.size > 1;
+  const sections = Array.from(grouped.entries());
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {mentions.completions.map((c, i) => (
-        <Box key={c.value} paddingX={1}>
-          <Text
-            color={i === mentions.selectedIndex ? theme.input.commandHighlight : undefined}
-            bold={i === mentions.selectedIndex}
-          >
-            {i === mentions.selectedIndex ? '▸ @' : '  @'}
-            {c.label ?? c.value}
-          </Text>
-          {c.description && <Text dimColor={true}> {c.description}</Text>}
+      {sections.map(([category, items]) => (
+        <Box key={category || 'default'} flexDirection="column">
+          {showHeaders && category && (
+            <Box paddingX={1}>
+              <Text dimColor={true} bold={true}>
+                {category}
+              </Text>
+            </Box>
+          )}
+          {items.map(({ c, i }) => {
+            const selected = i === mentions.selectedIndex;
+            const labelText = c.label ?? c.value;
+            return (
+              <Box key={`${category}:${c.value}`} paddingX={1}>
+                <Text wrap="truncate-start" color={selected ? theme.input.commandHighlight : undefined} bold={selected}>
+                  {selected ? '▸ @' : '  @'}
+                  {renderHighlightedLabel(labelText, mentions.partial, theme)}
+                </Text>
+                {c.description && <Text dimColor={true}> {c.description}</Text>}
+              </Box>
+            );
+          })}
         </Box>
       ))}
     </Box>
@@ -94,12 +141,12 @@ function InputFooter({
   theme: Theme;
 }) {
   const hint = hasMentions
-    ? '↑↓ select · Tab/Enter accept'
+    ? '↑↓ · Tab accept'
     : hasContent
       ? isCommandMode
-        ? '↑↓ select · Enter execute'
-        : 'Enter to send · Shift+Enter for newline · ←→ move'
-      : 'Type / for commands · @ for mentions';
+        ? '↑↓ · Enter run'
+        : ''
+      : '/ commands · @ mentions';
 
   return (
     <Box justifyContent="space-between">

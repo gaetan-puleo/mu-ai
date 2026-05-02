@@ -91,9 +91,15 @@ async function* streamTurn(
 
   const hooks = registry.getHooks();
   const hookedMessages = await runBeforeLlmHooks(hooks, messages, config);
+  // `display.llmHidden` keeps a message in the on-screen transcript but
+  // strips it from the LLM payload. Applied AFTER `beforeLlmHooks` so plugin
+  // hooks still see the full transcript if they want it; this is the very
+  // last filter before the network call. Inverse of `display.hidden`, which
+  // hides from UI but keeps in the LLM payload.
+  const llmMessages = hookedMessages.filter((m) => !m.display?.llmHidden);
   const toolDefinitions = toolDefs.map((t) => t.definition);
 
-  for await (const chunk of streamChatViaRegistry(registry, hookedMessages, config, model, {
+  for await (const chunk of streamChatViaRegistry(registry, llmMessages, config, model, {
     signal,
     tools: toolDefinitions,
     onUsage: (u) => {

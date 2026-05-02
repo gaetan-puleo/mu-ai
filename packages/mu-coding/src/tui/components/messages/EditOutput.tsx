@@ -87,7 +87,13 @@ export function EditOutput({ args, content, error, hint }: EditOutputProps) {
   return (
     <Box flexDirection="column" flexShrink={0} marginBottom={0}>
       <ToolHeader name={verb} subtitle={path} />
-      <Box flexDirection="column" flexShrink={0}>
+      <Box
+        flexDirection="column"
+        flexShrink={0}
+        backgroundColor={theme.tool.previewBackground}
+        paddingX={1}
+        paddingY={0}
+      >
         {lines.map((line, i) => {
           let color: string | undefined;
           if (line.startsWith('-')) color = theme.diff.removed;

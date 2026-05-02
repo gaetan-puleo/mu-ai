@@ -79,25 +79,37 @@ export function useMentionPicker(registry: PluginRegistry, value: string, cursor
       return;
     }
     const partial = value.slice(match.start + 1, cursor);
-    const provider = providers.find((p) => p.trigger === match.trigger);
-    if (!provider) {
+    const matching = providers.filter((p) => p.trigger === match.trigger);
+    if (matching.length === 0) {
       setBase(EMPTY);
       return;
     }
     let cancelled = false;
-    Promise.resolve(provider.provider(partial))
-      .then((completions) => {
-        if (cancelled) return;
-        setBase({
-          trigger: match.trigger,
-          partial,
-          completions,
-          triggerStart: match.start,
-        });
-      })
-      .catch(() => {
-        if (!cancelled) setBase(EMPTY);
+    // Run every provider that registered for this trigger and concatenate
+    // results in registration order. Providers tag completions with
+    // `category` so the picker can render section headers (e.g. agents
+    // first, then files) without the picker hard-coding any plugin id.
+    Promise.all(
+      matching.map(async (entry) => {
+        try {
+          const out = await Promise.resolve(entry.provider(partial));
+          // Default the category to the plugin name so legacy providers
+          // that don't set `category` still get visually grouped.
+          return out.map((c) => ({ ...c, category: c.category ?? entry.plugin }));
+        } catch {
+          return [];
+        }
+      }),
+    ).then((groups) => {
+      if (cancelled) return;
+      const completions = groups.flat();
+      setBase({
+        trigger: match.trigger,
+        partial,
+        completions,
+        triggerStart: match.start,
       });
+    });
     return () => {
       cancelled = true;
     };

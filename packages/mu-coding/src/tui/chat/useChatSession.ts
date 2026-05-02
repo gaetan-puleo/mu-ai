@@ -1,6 +1,7 @@
 import type { ChatMessage, ProviderConfig, Session } from 'mu-core';
 import { type PluginRegistry, runDecorateMessageHooks, runTransformUserInputHooks } from 'mu-core';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { SessionPathHolder } from '../../runtime/createRegistry';
 import type { HostMessageBus } from '../../runtime/messageBus';
 import type { AttachmentState } from './useAttachment';
 import { useSessionPersistence } from './useSessionPersistence';
@@ -23,6 +24,12 @@ export interface ChatSessionState {
   onSend: (text: string) => Promise<void>;
   onNew: () => void;
   onLoadSession: (path: string) => void;
+  /**
+   * Compact the current transcript: ask the model to summarize the entire
+   * conversation, then replace the transcript with `[user marker, assistant
+   * summary]`. Frees context while keeping intent + key decisions in scope.
+   */
+  onCompact: () => Promise<void>;
 }
 
 interface SessionDeps {
@@ -41,6 +48,7 @@ interface SessionDeps {
   initialMessages?: ChatMessage[];
   registry: PluginRegistry;
   messageBus?: HostMessageBus;
+  sessionPathHolder?: SessionPathHolder;
 }
 
 /**
@@ -151,6 +159,76 @@ interface OnSendDeps {
   streaming: boolean;
 }
 
+interface OnCompactDeps {
+  streaming: boolean;
+  session: Session;
+  config: ProviderConfig;
+  currentModel: string;
+  registry: PluginRegistry;
+  controllerRef: React.RefObject<AbortController | null>;
+  saveCurrent: (messages: ChatMessage[]) => void;
+}
+
+const COMPACT_INSTRUCTION =
+  'Compact this conversation. Produce ONE concise summary that captures: ' +
+  "1) the user's overall intent, 2) key decisions made, 3) files modified " +
+  '(paths with line refs where relevant), 4) open tasks / next steps, and ' +
+  '5) any important context the assistant should retain. Output ONLY the ' +
+  'summary text — no preface, no markdown headers.';
+
+/**
+ * Walk a transcript backwards starting at `fromIndex` and return the first
+ * assistant message with non-empty content. Used by the compact flow to
+ * locate the summary the LLM produced for the freshly-injected request.
+ */
+function findLatestAssistantContent(messages: ChatMessage[], fromIndex: number): string {
+  for (let i = messages.length - 1; i >= fromIndex; i--) {
+    const m = messages[i];
+    if (m.role === 'assistant' && m.content && m.content.trim().length > 0) {
+      return m.content;
+    }
+  }
+  return '';
+}
+
+function useOnCompact(deps: OnCompactDeps): () => Promise<void> {
+  const { streaming, session, config, currentModel, registry, controllerRef, saveCurrent } = deps;
+  return useCallback(async () => {
+    if (streaming) return;
+    const before = session.getMessages();
+    if (before.length === 0) return;
+    const beforeCount = before.length;
+
+    // Hide the summarization instruction from the on-screen transcript
+    // (`display.hidden`) but keep it in the LLM payload. Once the run
+    // completes we replace the entire transcript anyway.
+    const summaryInstruction: ChatMessage = {
+      role: 'user',
+      content: COMPACT_INSTRUCTION,
+      display: { hidden: true },
+    };
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    controller.signal.addEventListener('abort', () => session.abort(), { once: true });
+    try {
+      await session.runTurn({ userMessage: summaryInstruction, config, model: currentModel, registry });
+      const summary = findLatestAssistantContent(session.getMessages(), beforeCount);
+      if (!summary) return;
+      // Replace the entire history with a single user marker + the assistant
+      // summary. The next turn runs with a tiny context, "resumed" from
+      // the compacted state.
+      const compacted: ChatMessage[] = [
+        { role: 'user', content: '[Conversation compacted — context below preserves prior intent and decisions]' },
+        { role: 'assistant', content: summary },
+      ];
+      session.setMessages(compacted);
+      saveCurrent(compacted);
+    } finally {
+      controllerRef.current = null;
+    }
+  }, [streaming, session, config, currentModel, registry, controllerRef, saveCurrent]);
+}
+
 function useOnSend(deps: OnSendDeps): (text: string) => Promise<void> {
   const { session, config, currentModel, attachment, controllerRef, registry, messageBus, appendHistory, streaming } =
     deps;
@@ -160,13 +238,22 @@ function useOnSend(deps: OnSendDeps): (text: string) => Promise<void> {
 
       const transform = await runTransformUserInputHooks(registry.getHooks(), text);
       if (transform.kind === 'intercept') return;
+
+      // `continue` signals the hook handled the user message itself
+      // (e.g. mu-agents' @-mention dispatch path appends the user msg
+      // live, runs the subagent live, and queues the synthetic tool
+      // flow for the upcoming turn). We skip the userMessage push but
+      // still drain the queue and stream the LLM follow-up.
+      const isContinue = transform.kind === 'continue';
       const finalText = transform.kind === 'transform' ? transform.text : text;
 
-      const userMsg: ChatMessage = await runDecorateMessageHooks(registry.getHooks(), {
-        role: 'user',
-        content: finalText,
-        ...(attachment.attachment ? { images: [attachment.attachment] } : {}),
-      });
+      const userMsg: ChatMessage | undefined = isContinue
+        ? undefined
+        : await runDecorateMessageHooks(registry.getHooks(), {
+            role: 'user',
+            content: finalText,
+            ...(attachment.attachment ? { images: [attachment.attachment] } : {}),
+          });
 
       const injections = messageBus?.drainNext() ?? [];
       for (const inj of injections) session.queueForNextTurn(inj);
@@ -204,7 +291,7 @@ function useOnSend(deps: OnSendDeps): (text: string) => Promise<void> {
  */
 export function useChatSession(deps: SessionDeps): ChatSessionState {
   const { session, config, currentModel, attachment, controllerRef, initialMessages, registry, messageBus } = deps;
-  const persistence = useSessionPersistence(initialMessages);
+  const persistence = useSessionPersistence(initialMessages, deps.sessionPathHolder);
   const { appendHistory, saveCurrent, resetForNew, loadFromPath } = persistence;
 
   // Initial seed: feed any persisted messages into the session once.
@@ -253,6 +340,16 @@ export function useChatSession(deps: SessionDeps): ChatSessionState {
     attachment.clear();
   }, [resetForNew, session, attachment, controllerRef]);
 
+  const onCompact = useOnCompact({
+    streaming,
+    session,
+    config,
+    currentModel,
+    registry,
+    controllerRef,
+    saveCurrent,
+  });
+
   const onLoadSession = useCallback(
     (path: string) => {
       const loaded = loadFromPath(path);
@@ -280,5 +377,6 @@ export function useChatSession(deps: SessionDeps): ChatSessionState {
     onSend,
     onNew,
     onLoadSession,
+    onCompact,
   };
 }

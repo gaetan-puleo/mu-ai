@@ -31,8 +31,8 @@ Add it to `~/.config/mu/config.json`:
 | Name    | Type     | Tools                                                                  |
 |---------|----------|-------------------------------------------------------------------------|
 | `build` | primary  | `bash`, `read_file`, `write_file`, `edit_file`, `subagent`, `subagent_parallel` |
-| `plan`  | primary  | `read_file`, `search_code`                                              |
-| `review`| subagent | `read_file`, `search_code`, `bash`                                      |
+| `plan`  | primary  | `read_file`, `list_symbols`                                              |
+| `review`| subagent | `read_file`, `list_symbols`, `bash`                                      |
 
 ## Override / add agents
 
@@ -43,7 +43,7 @@ Drop `*.md` files in `~/.config/mu/agents/`. Frontmatter shape:
 name: refactor
 description: Refactor without changing behaviour
 agent: primary
-tools: read_file, edit_file, search_code, bash
+tools: read_file, edit_file, list_symbols, bash
 color: "#ff8c00"
 ---
 
@@ -58,8 +58,6 @@ tool), `agent: primary` (default) makes it a switchable primary agent.
 ## Slash commands
 
 - `/build`, `/plan`, … — switch to the named primary agent (one per agent)
-- `/agent` — show the current agent
-- `/agent <name>` — switch to `<name>`
 
 ## Mention autocomplete
 

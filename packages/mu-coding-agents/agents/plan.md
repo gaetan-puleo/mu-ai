@@ -5,7 +5,7 @@ agent: primary
 color: "#9b59b6"
 tools:
   read: allow
-  search_code: allow
+  list_symbols: allow
 ---
 
 You are the plan agent. You operate read-only: explore the codebase, identify

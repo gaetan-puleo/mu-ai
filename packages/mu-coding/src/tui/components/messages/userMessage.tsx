@@ -11,10 +11,10 @@ export function UserMessage({ msg }: { msg: ChatMessage }) {
     <Box
       flexDirection="column"
       flexShrink={0}
-      marginTop={1}
+      marginBottom={1}
       backgroundColor={theme.user.background}
       paddingX={1}
-      paddingY={0}
+      paddingY={1}
       borderLeft={true}
       borderTop={false}
       borderBottom={false}
