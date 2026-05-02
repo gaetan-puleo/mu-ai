@@ -13,100 +13,15 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, realpathSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { loadConfig, parseBareNpmSpec } from '../config/index';
+import { realpathSync } from 'node:fs';
+import {
+  listConfiguredNpmPlugins,
+  type NpmRegistryView,
+  PACKAGE_NAME,
+  probePluginSync,
+  probeSelfSync,
+} from '../runtime/updateCheck';
 import { ensureDataDir } from './install';
-
-interface NpmRegistryView {
-  current: string;
-  latest: string;
-  hasUpdate: boolean;
-}
-
-const PACKAGE_NAME = 'mu-coding';
-
-function npmViewLatest(name: string): string | undefined {
-  try {
-    const out = execFileSync('npm', ['view', name, 'version'], {
-      stdio: ['ignore', 'pipe', 'ignore'],
-      encoding: 'utf-8',
-    });
-    return out.trim() || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function readInstalledVersion(name: string, cwd: string): string | undefined {
-  try {
-    const path = join(cwd, 'node_modules', name, 'package.json');
-    const pkg = JSON.parse(readFileSync(path, 'utf-8'));
-    return typeof pkg.version === 'string' ? pkg.version : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function readSelfVersion(): string | undefined {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const candidates = [join(here, '..', '..', 'package.json'), join(here, '..', 'package.json')];
-  for (const path of candidates) {
-    try {
-      const pkg = JSON.parse(readFileSync(path, 'utf-8'));
-      if (pkg?.name === PACKAGE_NAME && typeof pkg.version === 'string') return pkg.version;
-    } catch {
-      // try next
-    }
-  }
-  return undefined;
-}
-
-function listConfiguredNpmPlugins(): string[] {
-  const config = loadConfig();
-  const out: string[] = [];
-  for (const entry of config.plugins ?? []) {
-    const spec = typeof entry === 'string' ? entry : entry.name;
-    if (!spec.startsWith('npm:')) continue;
-    const { name } = parseBareNpmSpec(spec.slice(4));
-    out.push(name);
-  }
-  return out;
-}
-
-function isVersionNewer(current: string | undefined, latest: string): boolean {
-  if (!current) return true;
-  if (current === latest) return false;
-  // semver-aware compare without pulling in a dep — split on `.` and compare
-  // numeric segments. Falls back to string compare on non-numeric tails
-  // (e.g. `-beta.1`); good enough for an "is there an update?" probe.
-  const cur = current.split(/[.+-]/).map((p) => Number.parseInt(p, 10));
-  const lat = latest.split(/[.+-]/).map((p) => Number.parseInt(p, 10));
-  const len = Math.max(cur.length, lat.length);
-  for (let i = 0; i < len; i++) {
-    const a = cur[i];
-    const b = lat[i];
-    if (Number.isNaN(a ?? Number.NaN) || Number.isNaN(b ?? Number.NaN)) return current !== latest;
-    if ((a ?? 0) < (b ?? 0)) return true;
-    if ((a ?? 0) > (b ?? 0)) return false;
-  }
-  return false;
-}
-
-function probePlugin(name: string, dataDir: string): NpmRegistryView | null {
-  const latest = npmViewLatest(name);
-  if (!latest) return null;
-  const current = readInstalledVersion(name, dataDir);
-  return { current: current ?? '(not installed)', latest, hasUpdate: isVersionNewer(current, latest) };
-}
-
-function probeSelf(): NpmRegistryView | null {
-  const latest = npmViewLatest(PACKAGE_NAME);
-  if (!latest) return null;
-  const current = readSelfVersion();
-  return { current: current ?? '(unknown)', latest, hasUpdate: isVersionNewer(current, latest) };
-}
 
 function printRow(name: string, view: NpmRegistryView | null) {
   if (!view) {
@@ -130,7 +45,7 @@ export async function runOutdated(args: string[]): Promise<void> {
 
   if (wantsSelf) {
     console.log('mu:');
-    const view = probeSelf();
+    const view = probeSelfSync();
     printRow(PACKAGE_NAME, view);
     if (view?.hasUpdate) anyUpdate = true;
   }
@@ -142,7 +57,7 @@ export async function runOutdated(args: string[]): Promise<void> {
       console.log('  (none configured)');
     } else {
       for (const name of names) {
-        const view = probePlugin(name, dataDir);
+        const view = probePluginSync(name, dataDir);
         printRow(name, view);
         if (view?.hasUpdate) anyUpdate = true;
       }
@@ -226,7 +141,7 @@ function detectSelfInstall(): SelfInstallStrategy {
 }
 
 export async function runUpdateSelf(): Promise<boolean> {
-  const view = probeSelf();
+  const view = probeSelfSync();
   if (view && !view.hasUpdate) {
     console.log(`mu is already up to date (${view.current}).`);
     return true;
