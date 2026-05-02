@@ -2,6 +2,7 @@ import { readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import type { Plugin, PluginRegistry } from 'mu-core';
+import { installNpmPackage } from '../cli/install';
 import { getDataDir, getPluginsDir, parseBareNpmSpec } from '../config/index';
 import type { InkUIService } from '../tui/plugins/InkUIService';
 
@@ -31,14 +32,49 @@ function formatPluginError(name: string, err: unknown): string {
   return parts.join(': ');
 }
 
-function resolveNpmPlugin(specifier: string): string {
-  const { name } = parseBareNpmSpec(specifier.slice(4));
+/**
+ * Resolve an `npm:<spec>` plugin specifier to an absolute path on disk.
+ *
+ * If the package isn't installed yet, runs `bun add <spec>` against the mu
+ * data dir and retries — so users can list a plugin in `config.plugins`
+ * without having to invoke `mu install` first. Set `MU_NO_AUTOINSTALL=1`
+ * to opt out (useful on metered networks or in offline CI).
+ *
+ * `uiService` is optional: when provided, surface "Installing …" / failure
+ * messages through the TUI; otherwise fall back to stderr so the host's
+ * boot log still shows what happened.
+ */
+async function resolveNpmPlugin(specifier: string, uiService?: InkUIService): Promise<string> {
+  const bare = specifier.slice(4);
+  const { name } = parseBareNpmSpec(bare);
   const dataDir = getDataDir();
+  const require = createRequire(resolve(dataDir, 'package.json'));
+
   try {
-    const require = createRequire(resolve(dataDir, 'package.json'));
     return require.resolve(name);
-  } catch (err) {
-    throw new Error(`Cannot resolve "${name}" from ${dataDir}/node_modules — is it installed?`, { cause: err });
+  } catch (firstErr) {
+    if (process.env.MU_NO_AUTOINSTALL) {
+      throw new Error(`Cannot resolve "${name}" from ${dataDir}/node_modules — is it installed?`, { cause: firstErr });
+    }
+
+    const installMsg = `Installing ${name}…`;
+    if (uiService) uiService.notify(installMsg, 'info');
+    else console.error(`[mu] ${installMsg}`);
+
+    try {
+      installNpmPackage(bare, { silent: true });
+    } catch (installErr) {
+      throw new Error(`Failed to auto-install "${name}" into ${dataDir}/node_modules`, { cause: installErr });
+    }
+
+    try {
+      return require.resolve(name);
+    } catch (retryErr) {
+      throw new Error(
+        `Auto-installed "${name}" but cannot resolve it from ${dataDir}/node_modules — install may have failed silently`,
+        { cause: retryErr },
+      );
+    }
   }
 }
 
@@ -85,7 +121,7 @@ export async function resolveConfiguredPlugin(
   const config = pluginConfig ?? {};
   let target: string;
   try {
-    target = name.startsWith('npm:') ? resolveNpmPlugin(name) : name;
+    target = name.startsWith('npm:') ? await resolveNpmPlugin(name, uiService) : name;
   } catch (err) {
     uiService?.notify(formatPluginError(name, err), 'error');
     return null;

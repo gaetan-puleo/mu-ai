@@ -5,7 +5,7 @@ import { canonicalNpmSpecifier, getDataDir, loadConfig, parseBareNpmSpec, saveCo
 
 const INIT_PACKAGE_JSON = JSON.stringify({ private: true, dependencies: {} }, null, 2);
 
-function ensureDataDir(): string {
+export function ensureDataDir(): string {
   const dataDir = getDataDir();
   mkdirSync(dataDir, { recursive: true });
 
@@ -15,6 +15,21 @@ function ensureDataDir(): string {
   }
 
   return dataDir;
+}
+
+/**
+ * Install an npm package into the mu data dir using `bun add`. Shared by the
+ * `mu install` CLI and the runtime auto-installer (pluginLoader). `bare` is
+ * the spec without the `npm:` prefix (e.g. `mu-coding-agents`,
+ * `@scope/foo@^1.0.0`). When `silent`, stdout is suppressed (used by the
+ * runtime path so the TUI isn't garbled at startup).
+ */
+export function installNpmPackage(bare: string, options: { silent?: boolean } = {}): void {
+  const dataDir = ensureDataDir();
+  execFileSync('bun', ['add', bare], {
+    cwd: dataDir,
+    stdio: options.silent ? 'pipe' : 'inherit',
+  });
 }
 
 function stripNpmPrefix(specifier: string): string {
@@ -31,7 +46,7 @@ export async function runInstall(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const dataDir = ensureDataDir();
+  ensureDataDir();
   const config = loadConfig();
   const plugins = config.plugins ?? [];
 
@@ -41,7 +56,7 @@ export async function runInstall(args: string[]): Promise<void> {
 
     console.log(`Installing ${bare}...`);
     try {
-      execFileSync('bun', ['add', bare], { cwd: dataDir, stdio: 'inherit' });
+      installNpmPackage(bare);
     } catch (err) {
       console.error(`Failed to install ${bare}: ${err instanceof Error ? err.message : err}`);
       process.exit(1);
