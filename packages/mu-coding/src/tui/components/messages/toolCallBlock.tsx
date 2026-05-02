@@ -5,6 +5,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useSpinner } from '../../hooks/useUI';
 import { EditOutput } from './EditOutput';
 import { ReadOutput } from './ReadOutput';
+import { WebFetchOutput } from './WebFetchOutput';
 import { WriteOutput } from './WriteOutput';
 
 /**
@@ -76,6 +77,8 @@ function renderToolOutput(
       return <WriteOutput args={args} content={content} error={error} />;
     case 'diff':
       return <EditOutput args={args} content={content} error={error} hint={hint} />;
+    case 'webfetch':
+      return <WebFetchOutput args={args} error={error} />;
     default:
       return <GenericToolOutput name={name} args={args} content={content} error={error} hint={hint} />;
   }
