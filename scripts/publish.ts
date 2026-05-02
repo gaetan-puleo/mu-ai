@@ -6,11 +6,15 @@ import { execSync } from "node:child_process";
 const ROOT = resolve(import.meta.dirname, "..");
 
 // Publish order respects the dependency graph:
-//   mu-provider → mu-agents → mu-repomap, mu-coding
+//   mu-core → {mu-openai-provider, mu-agents} → {mu-repomap, mu-coding-agents, mu-coding}
+// mu-repomap and mu-coding-agents are optional/opt-in plugins (not depended on
+// by mu-coding) but are still published so users can `mu install` them.
 const PACKAGES = [
-  "mu-provider",
+  "mu-core",
+  "mu-openai-provider",
   "mu-agents",
   "mu-repomap",
+  "mu-coding-agents",
   "mu-coding",
 ] as const;
 

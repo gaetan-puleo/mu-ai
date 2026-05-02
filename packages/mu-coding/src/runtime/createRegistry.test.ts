@@ -75,18 +75,19 @@ describe('createRegistry — activation order + plugin propagation', () => {
       // All builtin plugins loaded in the correct order.
       const names = registry.getPlugins().map((p) => p.name);
       expect(names).toContain('mu-openai-provider');
-      expect(names).toContain('mu-agent');
-      expect(names).toContain('mu-coding-agents');
+      expect(names).toContain('mu-agents');
       expect(names).toContain('mu-coding');
+      // mu-coding-agents is opt-in via `config.plugins`, not auto-registered.
+      expect(names).not.toContain('mu-coding-agents');
 
       // TUI channel registered.
       expect(channels.list().map((c) => c.id)).toContain('tui');
 
-      // mu-agent exposes its approval gateway publicly.
+      // mu-agents exposes its approval gateway publicly.
       interface GatewayBearer {
         approvalGateway?: { registerChannel: unknown };
       }
-      const agent = registry.getPlugin<GatewayBearer & { name: string; [k: string]: unknown }>('mu-agent');
+      const agent = registry.getPlugin<GatewayBearer & { name: string; [k: string]: unknown }>('mu-agents');
       expect(agent?.approvalGateway).toBeDefined();
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -123,7 +124,7 @@ describe('createRegistry — activation order + plugin propagation', () => {
     }
   });
 
-  it('mu-coding-agents.registerSource feeds into the agent manager', async () => {
+  it('agent slash command is contributed by mu-agents (no coding-agents by default)', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'mu-cr-'));
     try {
       const ui = new InkUIService();
@@ -133,13 +134,11 @@ describe('createRegistry — activation order + plugin propagation', () => {
         uiService: ui,
       });
 
-      // Every primary agent loaded from the .md files gets a `/<name>` slash
-      // command. build + plan originate from mu-coding-agents/agents/*.md;
-      // their presence proves registerSource was called and the files parsed.
       const commandNames = registry.getCommands().map((c) => c.name);
-      expect(commandNames).toContain('build');
-      expect(commandNames).toContain('plan');
       expect(commandNames).toContain('agent');
+      // build/plan/review come from mu-agents' DEFAULT_PRIMARY_AGENTS.
+      // `explore` originates from mu-coding-agents, which is no longer auto-loaded.
+      expect(commandNames).not.toContain('explore');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

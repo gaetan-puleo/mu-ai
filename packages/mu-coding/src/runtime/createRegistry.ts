@@ -1,5 +1,4 @@
-import { createMuAgentPlugin } from 'mu-agents';
-import codingAgentsPlugin from 'mu-coding-agents';
+import { createAgentsPlugin } from 'mu-agents';
 import type { ChatMessage } from 'mu-core';
 import {
   type ActivityBus,
@@ -88,14 +87,14 @@ async function noopShutdown(code?: number): Promise<void> {
  * Wire mu-coding's standard plugin set:
  *  1. mu-openai-provider — registers the OpenAI streaming provider
  *  2. mu-agents          — agent switcher + permissions + approval gateway
- *                          (publishes `ctx.agents` so step 3 can use it)
- *  3. mu-coding-agents   — registers `agents/*.md` against `ctx.agents`
- *  4. mu-coding          — coding tools + TUI channel + Ink approval channel
+ *  3. mu-coding          — coding tools + TUI channel + Ink approval channel
  *                          (registered against mu-agents' gateway)
  *
- * Order matters: mu-agents must activate *before* mu-coding-agents so the
- * latter sees `ctx.agents`; mu-coding must activate *after* mu-agents so the
- * approval channel finds the gateway via `ctx.getPlugin('mu-agent')`.
+ * Order matters: mu-coding must activate *after* mu-agents so the approval
+ * channel finds the gateway via `ctx.getPlugin('mu-agents')`.
+ *
+ * Optional plugins (mu-coding-agents, mu-repomap, …) are opt-in via
+ * `config.plugins` and loaded below by `loadConfiguredPlugin`.
  */
 async function registerBuiltins(
   registry: PluginRegistry,
@@ -105,13 +104,12 @@ async function registerBuiltins(
 ): Promise<void> {
   await registry.register(createOpenAIProviderPlugin());
   await registry.register(
-    createMuAgentPlugin({
+    createAgentsPlugin({
       config: options.config,
       model: options.config.model,
       approvalChannelId: 'tui',
     }),
   );
-  await registry.register(codingAgentsPlugin());
   await registry.register(
     createCodingPlugin({
       appConfig: options.config,

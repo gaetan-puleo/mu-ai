@@ -114,7 +114,8 @@ Sections available: `input`, `user`, `assistant`, `tool`, `reasoning`,
 
 - Streams responses with live token/s display
 - Multi-turn tool calling (bash, read, write, edit files)
-- Code indexing via `mu-repomap` plugin (auto-loaded)
+- Optional code indexing via the `mu-repomap` plugin (enable via `config.plugins`)
+- Optional default agents (build/plan/explore/review) via `mu-coding-agents` (enable via `config.plugins`)
 - Image attachment support
 - Session persistence and resume
 - Mouse wheel scrolling
