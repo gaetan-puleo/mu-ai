@@ -14,6 +14,9 @@ interface StatusSegmentOptions {
   /** Tokens served from server-side prompt cache. Rendered as `(N cached)`
    *  next to the total when > 0. Omit (or pass 0) to hide the suffix. */
   cachedTokens?: number;
+  /** Model context window (input + output) reported by the provider; when
+   *  set, the tokens segment is rendered as `used/limit tokens`. */
+  contextLimit?: number;
   pluginStatus?: StatusSegment[];
 }
 
@@ -35,10 +38,9 @@ export function useStatusSegments(options: StatusSegmentOptions): StatusBarSegme
   }
   if (options.totalTokens > 0) {
     const cached = options.cachedTokens ?? 0;
-    const label =
-      cached > 0
-        ? `${formatTokens(options.totalTokens)} tokens (${formatTokens(cached)} cached)`
-        : `${formatTokens(options.totalTokens)} tokens`;
+    const used = formatTokens(options.totalTokens);
+    const head = options.contextLimit ? `${used}/${formatTokens(options.contextLimit)}` : used;
+    const label = cached > 0 ? `${head} tokens (${formatTokens(cached)} cached)` : `${head} tokens`;
     segments.push({ text: label, dim: true });
   }
   if (options.abortWarning) {

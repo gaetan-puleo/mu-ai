@@ -1,3 +1,4 @@
+import type { InputInfoSegment } from 'mu-core';
 import { useCallback, useMemo, useRef } from 'react';
 import { useChatContext } from '../chat/ChatContext';
 import { dumpContext } from './dumpContext';
@@ -14,6 +15,12 @@ export interface InputBoxProps {
   isActive?: boolean;
   model?: string;
   history?: string[];
+  /**
+   * Extra info chips rendered in the footer (before the model). Generic
+   * mechanism for upstream consumers to surface context (active agent,
+   * branch, ...) without `InputBox` knowing what they are.
+   */
+  infoSegments?: InputInfoSegment[];
 }
 
 interface BufferDraft {
@@ -114,6 +121,8 @@ function useInputActions(deps: ActionDeps): InputActions {
   );
 }
 
+const EMPTY_SEGMENTS: InputInfoSegment[] = [];
+
 export function useInputBox({
   onSubmit,
   onScrollUp,
@@ -121,6 +130,7 @@ export function useInputBox({
   isActive = true,
   model = '',
   history = [],
+  infoSegments = EMPTY_SEGMENTS,
 }: InputBoxProps): InputBoxViewProps {
   const { config, session, toggles, attachment, models, abort, registry, uiService } = useChatContext();
   // Ref pattern: the mention controls depend on the input handler's
@@ -193,6 +203,7 @@ export function useInputBox({
     streaming: session.streaming,
     isActive,
     model,
+    infoSegments,
     attachmentName: attachment.attachment?.name ?? null,
     attachmentError: attachment.attachmentError,
     mentions:

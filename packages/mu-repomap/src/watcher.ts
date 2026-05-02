@@ -1,11 +1,29 @@
-import { watch } from 'node:fs';
 import { extname, relative } from 'node:path';
+import chokidar, { type FSWatcher } from 'chokidar';
 import type { RepomapLogger } from './logger';
 import { RepomapManager } from './manager';
 import { SOURCE_EXTS } from './repomap';
 
+/**
+ * Directories chokidar should never descend into. Recursive `fs.watch` used
+ * to register inotify watches against every node_modules / .git / build
+ * artefact in the tree, easily blowing past `fs.inotify.max_user_watches`
+ * and crashing the host with an unhandled `'error'` event. Filtering at
+ * registration time keeps the watch set bounded to actual source files.
+ */
+const IGNORED_GLOBS = [
+  '**/node_modules/**',
+  '**/.git/**',
+  '**/dist/**',
+  '**/build/**',
+  '**/.mu/**',
+  '**/.cache/**',
+  '**/.next/**',
+  '**/.turbo/**',
+];
+
 export class RepomapWatcher {
-  private watcher: ReturnType<typeof watch> | null = null;
+  private watcher: FSWatcher | null = null;
   private manager: RepomapManager;
   private root: string;
   private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
@@ -31,22 +49,58 @@ export class RepomapWatcher {
   start(): void {
     if (this.watcher) return;
 
-    this.watcher = watch(this.root, { recursive: true }, (_eventType, filename) => {
-      if (!filename) return;
+    try {
+      this.watcher = chokidar.watch(this.root, {
+        // chokidar v5 accepts an array of matchers (glob strings, regexes,
+        // or `(path, stats?) => boolean`). Critically: this list is consulted
+        // *during* the initial recursive scan, so heavy directories like
+        // `node_modules` are pruned before chokidar registers a single
+        // inotify watch in them. Calling `watcher.unwatch(...)` post-hoc
+        // would be too late — the scan would already have walked the tree.
+        ignored: [
+          ...IGNORED_GLOBS,
+          (p, stats) => {
+            // Only filter files by extension; let directories through so we
+            // can descend into source trees the globs didn't already prune.
+            // `stats` is undefined on early events — fall through to the
+            // ext check (correct for files).
+            if (stats?.isDirectory()) return false;
+            const ext = extname(p).toLowerCase();
+            return ext.length > 0 && !SOURCE_EXTS.has(ext);
+          },
+        ],
+        ignoreInitial: true,
+        persistent: true,
+        // Avoid pnpm/workspace symlink loops blowing up the watch set.
+        followSymlinks: false,
+      });
+    } catch (err) {
+      // chokidar can throw synchronously on permission / unsupported FS
+      // errors. Degrade gracefully: the index built at activation still
+      // serves `search_code` queries; only live updates are disabled.
+      this.logger.notify(
+        `Watcher init failed (live updates disabled): ${err instanceof Error ? err.message : String(err)}`,
+        'warning',
+      );
+      this.watcher = null;
+      return;
+    }
 
-      const filePath = typeof filename === 'string' ? filename : Buffer.from(filename).toString('utf-8');
-      const fullPath = `${this.root}/${filePath}`;
+    this.watcher.on('add', (p) => this.handleChange(p));
+    this.watcher.on('change', (p) => this.handleChange(p));
+    this.watcher.on('unlink', (p) => this.handleChange(p));
 
-      if (this.shouldIgnore(fullPath)) return;
-
-      this.onFileChange(relative(this.root, fullPath));
+    // CRITICAL: without this listener, an inotify ENOSPC / EMFILE / EACCES
+    // becomes an `uncaughtException` and `app/shutdown.ts` exits the host
+    // silently (the error scrolls away when the terminal is restored from
+    // raw mode). Surface as a warning toast instead.
+    this.watcher.on('error', (err) => {
+      this.logger.notify(`Watcher error: ${err instanceof Error ? err.message : String(err)}`, 'warning');
     });
 
     // If the manager is replaced for a different root, stop watching here so
-    // we don't leak fs.watch handles or fire rebuilds on a disposed manager.
+    // we don't leak fs handles or fire rebuilds on a disposed manager.
     this.unsubDispose = this.manager.onDispose(() => this.stop());
-
-    this.logger.notify('Watching for changes...', 'info');
   }
 
   stop(): void {
@@ -55,7 +109,7 @@ export class RepomapWatcher {
       this.rebuildTimer = null;
     }
     if (this.watcher) {
-      this.watcher.close();
+      void this.watcher.close();
       this.watcher = null;
     }
     if (this.unsubDispose) {
@@ -64,16 +118,15 @@ export class RepomapWatcher {
     }
   }
 
-  private shouldIgnore(fullPath: string): boolean {
-    const parts = fullPath.split('/');
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (parts[i].startsWith('.') && parts[i] !== '.') return true;
-    }
+  private handleChange(fullPath: string): void {
+    // Defensive double-check: chokidar's `ignored` callback covered ext, but
+    // a path could still slip through during initial scan races.
     const ext = extname(fullPath).toLowerCase();
-    return !SOURCE_EXTS.has(ext);
-  }
+    if (!SOURCE_EXTS.has(ext)) return;
 
-  private onFileChange(relPath: string): void {
+    const relPath = relative(this.root, fullPath);
+    if (!relPath || relPath.startsWith('..')) return;
+
     this.pendingChanges.add(relPath);
 
     if (this.rebuildTimer) {
@@ -83,10 +136,6 @@ export class RepomapWatcher {
     this.rebuildTimer = setTimeout(async () => {
       const changes = this.pendingChanges;
       this.pendingChanges = new Set();
-      if (changes.size > 0) {
-        const files = Array.from(changes).join(', ');
-        this.logger.notify(`Rebuilding (${changes.size} file(s)): ${files}`, 'info');
-      }
       try {
         await this.manager.rebuild(changes.size > 0);
       } catch (err) {

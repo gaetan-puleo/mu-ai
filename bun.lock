@@ -14,10 +14,10 @@
     },
     "packages/mu-agents": {
       "name": "mu-agents",
-      "version": "0.5.0",
+      "version": "0.8.0",
       "dependencies": {
         "chokidar": "^5.0.0",
-        "mu-core": "0.5.0",
+        "mu-core": "0.8.0",
         "picomatch": "^4.0.4",
         "yaml": "^2.8.4",
       },
@@ -31,44 +31,44 @@
     },
     "packages/mu-coding": {
       "name": "mu-coding",
-      "version": "0.5.0",
+      "version": "0.8.0",
       "bin": {
         "mu": "./bin/mu.js",
       },
       "dependencies": {
         "ink": "^7.0.1",
-        "mu-agents": "0.5.0",
-        "mu-coding-agents": "0.5.0",
-        "mu-core": "0.5.0",
-        "mu-openai-provider": "0.5.0",
+        "mu-agents": "0.8.0",
+        "mu-core": "0.8.0",
+        "mu-openai-provider": "0.8.0",
         "react": "^19.2.5",
       },
     },
     "packages/mu-coding-agents": {
       "name": "mu-coding-agents",
-      "version": "0.5.0",
+      "version": "0.8.0",
       "dependencies": {
         "mu-core": "0.5.0",
       },
     },
     "packages/mu-core": {
       "name": "mu-core",
-      "version": "0.5.0",
+      "version": "0.8.0",
     },
     "packages/mu-openai-provider": {
       "name": "mu-openai-provider",
-      "version": "0.5.0",
+      "version": "0.8.0",
       "dependencies": {
-        "mu-core": "0.5.0",
+        "mu-core": "0.8.0",
         "openai": "^6.35.0",
       },
     },
     "packages/mu-repomap": {
       "name": "mu-repomap",
-      "version": "0.5.0",
+      "version": "0.8.0",
       "dependencies": {
         "@ast-grep/cli": "^0.42.1",
-        "mu-core": "0.5.0",
+        "chokidar": "^5.0.0",
+        "mu-core": "0.8.0",
       },
     },
   },

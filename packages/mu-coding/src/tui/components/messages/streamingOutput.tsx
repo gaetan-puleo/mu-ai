@@ -5,7 +5,7 @@ import { ReasoningBlock } from './reasoningBlock';
 export function StreamingOutput({ currentText, currentReasoning }: { currentText: string; currentReasoning: string }) {
   const theme = useTheme();
   return (
-    <Box flexDirection="column" flexShrink={0} marginBottom={1}>
+    <Box flexDirection="column" flexShrink={0} marginBottom={0}>
       {currentReasoning && <ReasoningBlock reasoning={currentReasoning} />}
       <Text wrap="wrap">
         {currentText}

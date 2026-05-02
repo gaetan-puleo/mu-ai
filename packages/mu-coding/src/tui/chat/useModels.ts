@@ -1,5 +1,5 @@
 import type { ApiModel } from 'mu-core';
-import { listModels } from 'mu-openai-provider';
+import { fetchModelContextLimit, listModels } from 'mu-openai-provider';
 import { useCallback, useEffect, useState } from 'react';
 import { saveConfig } from '../../config/index';
 
@@ -41,6 +41,30 @@ export function useModelList(baseUrl: string, preferredModel?: string): ModelLis
       cancelled = true;
     };
   }, [baseUrl, preferredModel]);
+
+  // Lazily probe the active model's context window. Fires whenever the
+  // selection changes; skips if we already know the limit for that id.
+  // Runs in the background so the UI never blocks waiting for `/props`.
+  // Triggers a model load on llama-swap-style proxies, but only for the
+  // model the user has actually picked — same model the next chat would
+  // load anyway.
+  useEffect(() => {
+    if (!(baseUrl && currentModel)) return;
+    const known = models.find((m) => m.id === currentModel);
+    if (!known || known.contextLimit !== undefined) return;
+    let cancelled = false;
+    fetchModelContextLimit(baseUrl, currentModel)
+      .then((limit) => {
+        if (cancelled || !limit) return;
+        setModels((prev) => prev.map((m) => (m.id === currentModel ? { ...m, contextLimit: limit } : m)));
+      })
+      .catch(() => {
+        /* silently ignore — providers without `/props` just don't get a limit */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl, currentModel, models]);
 
   const cycleModel = useCallback(() => {
     if (models.length === 0) {

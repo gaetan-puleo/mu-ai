@@ -14,15 +14,15 @@ export const AssistantMessage: React.FC<{
   return (
     <Box flexDirection="column" flexShrink={0} marginBottom={1}>
       {badge && (
-        <Box marginBottom={1}>
+        <Box>
           <Text color={color} bold={true}>
-            [{badge}]
+            {badge.charAt(0).toUpperCase() + badge.slice(1)}
           </Text>
         </Box>
       )}
       {msg.reasoning && <ReasoningBlock reasoning={msg.reasoning} />}
       {msg.toolCalls?.length ? (
-        <Box flexDirection="column" marginBottom={1}>
+        <Box flexDirection="column">
           {msg.toolCalls.map((tc, i) => (
             <ToolCallBlock key={tc.id} toolCall={tc} toolMsg={toolMessages?.[i]} />
           ))}

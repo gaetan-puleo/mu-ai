@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type {
   AgentSourceRegistry,
+  ChatMessage,
   LifecycleHooks,
   Plugin,
   PluginContext,
@@ -130,6 +131,28 @@ function findToolMatchKey(
   return tool?.permission?.matchKey;
 }
 
+function stampActiveAgent(msg: ChatMessage, manager: AgentManager): ChatMessage {
+  // Stamp every freshly-built message with the active agent's name + color
+  // so the TUI can show per-message attribution. Don't clobber display
+  // fields a plugin (or the message author) already set, and skip messages
+  // intentionally hidden from the UI.
+  if (msg.display?.hidden) return msg;
+  if (msg.role !== 'user') return msg;
+  const agent = manager.getActive();
+  if (!agent) return msg;
+  const display = msg.display ?? {};
+  const meta = msg.meta ?? {};
+  return {
+    ...msg,
+    display: {
+      ...display,
+      badge: display.badge ?? agent.name,
+      color: display.color ?? agent.color,
+    },
+    meta: { ...meta, agent: meta.agent ?? agent.name },
+  };
+}
+
 function buildHooks(deps: BuildHooksDeps): LifecycleHooks {
   return {
     // Capture the live model on every LLM call so subagents launched mid-
@@ -139,6 +162,7 @@ function buildHooks(deps: BuildHooksDeps): LifecycleHooks {
       if (config.model) deps.modelRef.current = config.model;
       return messages;
     },
+    decorateMessage: (msg) => stampActiveAgent(msg, deps.manager),
     transformSystemPrompt: (prompt) => {
       const agent = deps.manager.getActive();
       if (!agent) return prompt;
@@ -297,8 +321,12 @@ function registerMentions(ctx: PluginContext, deps: ActivateDeps): void {
 
 function pushIndicator(ctx: PluginContext, manager: AgentManager): void {
   const agent = manager.getActive();
-  if (!agent) return;
-  ctx.setStatusLine?.([{ text: `▣ ${agent.name}`, color: agent.color }]);
+  if (!agent) {
+    ctx.setInputInfo?.([]);
+    return;
+  }
+  const display = agent.name.charAt(0).toUpperCase() + agent.name.slice(1);
+  ctx.setInputInfo?.([{ key: 'mu-agents.active', text: display, color: agent.color, bold: true }]);
 }
 
 interface PluginInternals {
@@ -467,6 +495,8 @@ export function createAgentsPlugin(rawConfig: AgentsPluginConfig = {}): Plugin {
     version: '0.5.0',
     /** Public handle hosts can grab via `ctx.getPlugin('mu-agents')`. */
     approvalGateway: internals.approvalGateway,
+    /** Public handle to the agent manager (active agent + onChange). */
+    manager: internals.manager,
     tools: buildSubagentTools(internals),
     hooks: buildHooks({
       manager: internals.manager,

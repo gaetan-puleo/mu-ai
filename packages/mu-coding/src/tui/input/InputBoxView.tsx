@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink';
-import type { MentionCompletion } from 'mu-core';
+import type { InputInfoSegment, MentionCompletion } from 'mu-core';
 import { useTheme } from '../context/ThemeContext';
 import type { Theme } from '../theme/types';
 import type { SlashCommand } from './commands';
@@ -19,6 +19,7 @@ export interface InputBoxViewProps {
   streaming: boolean;
   isActive: boolean;
   model: string;
+  infoSegments: InputInfoSegment[];
   attachmentName: string | null;
   attachmentError: string | null;
   mentions: MentionPickerView | null;
@@ -75,6 +76,7 @@ function MentionHints({ mentions, theme }: { mentions: MentionPickerView; theme:
 
 function InputFooter({
   model,
+  infoSegments,
   attachmentName,
   attachmentError,
   hasContent,
@@ -83,6 +85,7 @@ function InputFooter({
   theme,
 }: {
   model: string;
+  infoSegments: InputInfoSegment[];
   attachmentName: string | null;
   attachmentError: string | null;
   hasContent: boolean;
@@ -101,6 +104,11 @@ function InputFooter({
   return (
     <Box justifyContent="space-between">
       <Box gap={1}>
+        {infoSegments.map((seg) => (
+          <Text key={seg.key} color={seg.color} bold={seg.bold}>
+            {seg.text}
+          </Text>
+        ))}
         {model && (
           <Text color={theme.input.modelLabel} bold={true}>
             {model}
@@ -225,6 +233,7 @@ export function InputBoxView(props: InputBoxViewProps) {
       </Box>
       <InputFooter
         model={props.model}
+        infoSegments={props.infoSegments}
         attachmentName={props.attachmentName}
         attachmentError={props.attachmentError}
         hasContent={props.value.length > 0}

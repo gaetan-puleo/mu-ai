@@ -3,7 +3,7 @@ export { createActivityBus } from './activity';
 export { runAgent } from './agent';
 export type { Channel, ChannelRegistry, ChannelResponder, InboundKind, InboundMessage, ResponseMode } from './channel';
 export { createChannelRegistry } from './channel';
-export { runTransformUserInputHooks } from './hooks';
+export { runDecorateMessageHooks, runTransformUserInputHooks } from './hooks';
 export type { MuConfigShape, MuHandle, StartMuOptions } from './host/index';
 export { startMu } from './host/index';
 export type {
@@ -13,6 +13,7 @@ export type {
   AgentSourceRegistry,
   BeforeToolExecResult,
   CommandContext,
+  InputInfoSegment,
   LifecycleHooks,
   MentionCompletion,
   MentionProvider,

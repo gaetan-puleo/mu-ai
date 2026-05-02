@@ -11,10 +11,10 @@ export function UserMessage({ msg }: { msg: ChatMessage }) {
     <Box
       flexDirection="column"
       flexShrink={0}
-      marginY={1}
+      marginTop={1}
       backgroundColor={theme.user.background}
       paddingX={1}
-      paddingY={1}
+      paddingY={0}
       borderLeft={true}
       borderTop={false}
       borderBottom={false}
@@ -23,9 +23,9 @@ export function UserMessage({ msg }: { msg: ChatMessage }) {
       borderStyle="single"
     >
       {badge && (
-        <Box marginBottom={1}>
+        <Box>
           <Text color={msg.display?.color} bold={true}>
-            [{badge}]
+            {badge.charAt(0).toUpperCase() + badge.slice(1)}
           </Text>
         </Box>
       )}

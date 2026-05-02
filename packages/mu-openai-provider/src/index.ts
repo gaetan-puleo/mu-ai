@@ -16,6 +16,6 @@ export type {
 // SDK-based entry points. Hosts driving the plugin path use the registered
 // Provider; these direct exports remain useful for ad-hoc scripts and tests
 // that want to call OpenAI without going through the registry.
-export { listModels } from './models';
+export { fetchModelContextLimit, listModels } from './models';
 export { createOpenAIProviderPlugin, default, type OpenAIProviderPluginConfig } from './plugin';
 export { streamChat } from './stream';

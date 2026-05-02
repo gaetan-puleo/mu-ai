@@ -1,8 +1,9 @@
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createLogger, type RepomapLogger } from './logger';
 import { pLimit } from './utils/p-limit';
 
@@ -34,16 +35,62 @@ export interface Repomap {
 
 // --- SG CLI wrapper ---
 
-// Resolved on first use rather than at module load. Module-load resolution
-// captured `process.cwd()` before the host could chdir, and could miss a
-// freshly installed local binary if the module was imported pre-install.
-let cachedSgBin: string | undefined;
+/**
+ * Locate the `sg` (ast-grep) binary, preferring the copy shipped with this
+ * package so the host doesn't accidentally invoke `/usr/bin/sg` — which on
+ * Debian-family systems is the `newgrp` setgid helper, not ast-grep.
+ *
+ * Resolution order:
+ *   1. `<this-package>/node_modules/.bin/sg` (always present when installed
+ *      via npm; symlinked when installed in a workspace)
+ *   2. Walk up from this file looking for a `node_modules/.bin/sg` (covers
+ *      the monorepo root, where bun hoists @ast-grep/cli)
+ *   3. `<process.cwd()>/node_modules/.bin/sg` (legacy behaviour)
+ *   4. Bare `sg` from PATH — only if it self-identifies as ast-grep via
+ *      `sg --version`. Otherwise we throw rather than silently invoking
+ *      newgrp, which causes scans to "succeed" with empty results.
+ */
+function looksLikeAstGrep(bin: string): boolean {
+  try {
+    const out = execFileSync(bin, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).toString();
+    return /ast-grep/i.test(out);
+  } catch {
+    return false;
+  }
+}
 
 function resolveSgBin(): string {
-  if (cachedSgBin) return cachedSgBin;
-  const local = join(process.cwd(), 'node_modules/.bin/sg');
-  cachedSgBin = existsSync(local) ? local : 'sg';
-  return cachedSgBin;
+  const candidates: string[] = [];
+
+  // 1. Sibling node_modules of this package (always present after install).
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    candidates.push(join(here, '..', 'node_modules', '.bin', 'sg'));
+    // 2. Walk up to find a hoisted binary (workspace / monorepo root).
+    let dir = here;
+    for (let i = 0; i < 8; i++) {
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      candidates.push(join(parent, 'node_modules', '.bin', 'sg'));
+      dir = parent;
+    }
+  } catch {
+    // import.meta.url unavailable — fall through.
+  }
+
+  // 3. Caller's cwd (legacy fallback for hosts that pre-install ast-grep).
+  candidates.push(join(process.cwd(), 'node_modules', '.bin', 'sg'));
+
+  for (const c of candidates) {
+    if (existsSync(c)) return c;
+  }
+
+  // 4. PATH lookup — verify it's actually ast-grep, not /usr/bin/sg (newgrp).
+  if (looksLikeAstGrep('sg')) return 'sg';
+
+  throw new Error(
+    'ast-grep binary not found. Install `@ast-grep/cli` in your project, or ensure mu-repomap was installed with its dependencies.',
+  );
 }
 
 function runSg(args: string[]): Promise<string> {
@@ -111,34 +158,53 @@ function parseSgJson(output: string): SgMatch[] {
 
 // --- Index building ---
 
-async function scanDeclarations(root: string): Promise<SymbolLoc[]> {
+function matchToSymbol(m: SgMatch, kind: SymbolLoc['kind']): SymbolLoc | null {
+  const mv = m.metaVariables?.single ?? {};
+  let name = Object.values(mv)[0]?.text ?? '?';
+
+  if (kind === 'const') {
+    name = name.split(/[:\s=]/)[0].trim();
+  }
+
+  const line = m.range.start.line + 1;
+  const exportFlag = /^export\s/.test(m.lines) || /^pub\s/.test(m.lines);
+
+  if (kind === 'const' && !exportFlag) return null;
+  if (name.startsWith('_')) return null;
+
+  return { file: m.file, line, kind, export: exportFlag, name };
+}
+
+async function scanPattern(pattern: string, root: string): Promise<SymbolLoc[]> {
+  const output = await runSg(['run', '--pattern', pattern, '--json', root]);
+  const matches = parseSgJson(output);
+  const kind = detectKind(pattern);
+  const out: SymbolLoc[] = [];
+  for (const m of matches) {
+    const sym = matchToSymbol(m, kind);
+    if (sym) out.push(sym);
+  }
+  return out;
+}
+
+async function scanDeclarations(root: string, log: RepomapLogger): Promise<SymbolLoc[]> {
   const all: SymbolLoc[] = [];
+  let firstError: unknown = null;
 
   for (const pattern of DECL_PATTERNS) {
     try {
-      const output = await runSg(['run', '--pattern', pattern, '--json', root]);
-      const matches = parseSgJson(output);
-      const kind = detectKind(pattern);
-
-      for (const m of matches) {
-        const mv = m.metaVariables?.single ?? {};
-        let name = Object.values(mv)[0]?.text ?? '?';
-
-        if (kind === 'const') {
-          name = name.split(/[:\s=]/)[0].trim();
-        }
-
-        const line = m.range.start.line + 1;
-        const exportFlag = /^export\s/.test(m.lines) || /^pub\s/.test(m.lines);
-
-        if (kind === 'const' && !exportFlag) continue;
-        if (name.startsWith('_')) continue;
-
-        all.push({ file: m.file, line, kind, export: exportFlag, name });
-      }
-    } catch {
-      // skip
+      all.push(...(await scanPattern(pattern, root)));
+    } catch (err) {
+      if (!firstError) firstError = err;
     }
+  }
+
+  if (all.length === 0 && firstError) {
+    // Surface the underlying ast-grep failure once so users see *something*
+    // instead of an empty repomap. Most common cause: wrong `sg` binary on
+    // PATH or missing @ast-grep/cli install.
+    const msg = firstError instanceof Error ? firstError.message : String(firstError);
+    log.notify(`ast-grep scan failed: ${msg}`, 'error');
   }
 
   return all;
@@ -264,22 +330,12 @@ export async function buildRepomap(root: string, force = false, logger?: Repomap
   if (!force) {
     const existing = loadRepomap(path, root);
     if (existing) {
-      log.notify(`Cache hit: ${existing.files.size} files`, 'info');
       return existing;
     }
   }
 
-  const t0 = Date.now();
-  log.progress('Building...');
-
-  log.progress('Phase 1: scanning declarations...');
-  const symbols = await scanDeclarations(root);
-  log.progress(`${symbols.length} declarations found`);
-
-  log.progress('Phase 2: scanning references...');
-  const t1 = Date.now();
+  const symbols = await scanDeclarations(root, log);
   const symbolMap = await scanAllReferences(symbols, root);
-  log.progress(`References scanned in ${Date.now() - t1}ms`);
 
   const files = new Map<string, RepomapFile>();
   for (const [relPath, entries] of symbolMap) {
@@ -295,7 +351,6 @@ export async function buildRepomap(root: string, force = false, logger?: Repomap
 
   saveRepomap(path, map);
   log.clearProgress();
-  log.notify(`Done in ${Date.now() - t0}ms — ${files.size} files`, 'success');
   return map;
 }
 

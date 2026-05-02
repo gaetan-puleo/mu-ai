@@ -177,7 +177,7 @@ export function createRepomapPlugin(options?: RepomapOptions): Plugin {
       },
     ],
 
-    async activate(ctx) {
+    activate(ctx) {
       pluginCwd = ctx.cwd;
       pluginUi = ctx.ui;
       setStatusLine = ctx.setStatusLine;
@@ -186,7 +186,15 @@ export function createRepomapPlugin(options?: RepomapOptions): Plugin {
       const manager = RepomapManager.getInstance(ctx.cwd);
       manager.setUi(pluginUi);
       manager.onStateChange(pushStatus);
-      await manager.getMap();
+
+      // Build the index in the background so the host's startup isn't
+      // blocked by an ast-grep cold scan. State transitions (idle →
+      // building → watching) flow through `pushStatus`, and any failure
+      // surfaces as a toast via the manager's logger.
+      manager.getMap().catch((err) => {
+        pluginUi?.notify(`Repomap build failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+      });
+
       // Watcher reads its logger from the manager — no need to pass `ui`
       // separately, which kept logger routing in sync if the host swapped UIs.
       watcher = new RepomapWatcher(ctx.cwd);

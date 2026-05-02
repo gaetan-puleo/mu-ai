@@ -1,5 +1,5 @@
 import type { ChatMessage, ProviderConfig, Session } from 'mu-core';
-import { type PluginRegistry, runTransformUserInputHooks } from 'mu-core';
+import { type PluginRegistry, runDecorateMessageHooks, runTransformUserInputHooks } from 'mu-core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { HostMessageBus } from '../../runtime/messageBus';
 import type { AttachmentState } from './useAttachment';
@@ -162,11 +162,11 @@ function useOnSend(deps: OnSendDeps): (text: string) => Promise<void> {
       if (transform.kind === 'intercept') return;
       const finalText = transform.kind === 'transform' ? transform.text : text;
 
-      const userMsg: ChatMessage = {
+      const userMsg: ChatMessage = await runDecorateMessageHooks(registry.getHooks(), {
         role: 'user',
         content: finalText,
         ...(attachment.attachment ? { images: [attachment.attachment] } : {}),
-      };
+      });
 
       const injections = messageBus?.drainNext() ?? [];
       for (const inj of injections) session.queueForNextTurn(inj);

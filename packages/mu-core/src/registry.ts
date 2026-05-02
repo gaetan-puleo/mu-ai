@@ -3,6 +3,7 @@ import type { ChannelRegistry } from './channel';
 import type {
   AgentLoopStrategy,
   AgentSourceRegistry,
+  InputInfoSegment,
   LifecycleHooks,
   MentionProvider,
   MessageBus,
@@ -73,6 +74,8 @@ export class PluginRegistry {
   private context: PluginContext;
   private statusSegmentsByPlugin: Map<string, StatusSegment[]> = new Map();
   private statusListeners: Set<StatusListener> = new Set();
+  private inputInfoByPlugin: Map<string, InputInfoSegment[]> = new Map();
+  private inputInfoListeners: Set<StatusListener> = new Set();
   private renderers: RendererEntry[] = [];
   private shortcuts: ShortcutEntry[] = [];
   private mentions: MentionEntry[] = [];
@@ -119,6 +122,9 @@ export class PluginRegistry {
     this.plugins.delete(name);
     if (this.statusSegmentsByPlugin.delete(name)) {
       this.emitStatus();
+    }
+    if (this.inputInfoByPlugin.delete(name)) {
+      this.emitInputInfo();
     }
     this.dropPluginRegistrations(name);
   }
@@ -246,6 +252,24 @@ export class PluginRegistry {
     };
   }
 
+  /** Aggregate of every plugin's most recently pushed input-info segments, in registration order. */
+  getInputInfoSegments(): InputInfoSegment[] {
+    const segments: InputInfoSegment[] = [];
+    for (const plugin of this.plugins.values()) {
+      const pluginSegments = this.inputInfoByPlugin.get(plugin.name);
+      if (pluginSegments?.length) segments.push(...pluginSegments);
+    }
+    return segments;
+  }
+
+  /** Subscribe to input-info segment changes. Returns an unsubscribe fn. */
+  onInputInfoChange(listener: StatusListener): () => void {
+    this.inputInfoListeners.add(listener);
+    return () => {
+      this.inputInfoListeners.delete(listener);
+    };
+  }
+
   getAgentLoop(): AgentLoopStrategy | undefined {
     for (const plugin of this.plugins.values()) {
       if (plugin.agentLoop) {
@@ -321,6 +345,7 @@ export class PluginRegistry {
         applySystemPromptTransforms: (prompt) => this.applySystemPromptTransforms(prompt),
       },
       setStatusLine: (segments) => this.setStatusLine(pluginName, segments),
+      setInputInfo: (segments) => this.setInputInfo(pluginName, segments),
       registerMessageRenderer: (customType, renderer) => this.addRenderer(pluginName, customType, renderer),
       registerShortcut: (key, handler) => this.addShortcut(pluginName, key, handler),
       registerMentionProvider: (trigger, provider) => this.addMention(pluginName, trigger, provider),
@@ -349,10 +374,28 @@ export class PluginRegistry {
     this.emitStatus();
   }
 
+  private setInputInfo(pluginName: string, segments: InputInfoSegment[]): void {
+    if (segments.length === 0) {
+      const removed = this.inputInfoByPlugin.delete(pluginName);
+      if (removed) this.emitInputInfo();
+      return;
+    }
+    const prev = this.inputInfoByPlugin.get(pluginName);
+    if (prev && inputInfoEqual(prev, segments)) {
+      return;
+    }
+    this.inputInfoByPlugin.set(pluginName, segments);
+    this.emitInputInfo();
+  }
+
   private emitStatus(): void {
     for (const listener of this.statusListeners) {
       listener();
     }
+  }
+
+  private emitInputInfo(): void {
+    for (const listener of this.inputInfoListeners) listener();
   }
 
   private addRenderer(plugin: string, customType: string, renderer: MessageRenderer): () => void {
@@ -423,6 +466,16 @@ function segmentsEqual(a: StatusSegment[], b: StatusSegment[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
     if (a[i].text !== b[i].text || a[i].color !== b[i].color || a[i].dim !== b[i].dim) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function inputInfoEqual(a: InputInfoSegment[], b: InputInfoSegment[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].key !== b[i].key || a[i].text !== b[i].text || a[i].color !== b[i].color || a[i].bold !== b[i].bold) {
       return false;
     }
   }

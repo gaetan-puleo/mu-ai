@@ -114,7 +114,7 @@ function GenericToolOutput({ name, args, content, error, hint }: GenericProps) {
           </>
         )}
       </Text>
-      <Box flexDirection="column" backgroundColor={theme.tool.previewBackground} padding={1} marginTop={1}>
+      <Box flexDirection="column" backgroundColor={theme.tool.previewBackground} paddingX={1} paddingY={0}>
         <Text color={theme.tool.previewText}>{preview}</Text>
       </Box>
     </Box>

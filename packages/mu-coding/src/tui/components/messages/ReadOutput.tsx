@@ -32,7 +32,7 @@ export function ReadOutput({ args, error }: ReadOutputProps) {
   const subtitle = paths.length === 1 ? `${paths[0]}${rangeLabel}` : `${paths.length} files${rangeLabel}`;
 
   return (
-    <Box flexDirection="column" flexShrink={0} marginBottom={1}>
+    <Box flexDirection="column" flexShrink={0} marginBottom={0}>
       <ToolHeader name="read_file" subtitle={subtitle} error={error} />
       {paths.length > 1 && (
         <Box flexDirection="column" flexShrink={0}>

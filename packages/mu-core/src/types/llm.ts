@@ -104,4 +104,12 @@ export interface StreamOptions {
 
 export interface ApiModel {
   id: string;
+  /**
+   * Maximum input + output token window the provider advertises for this
+   * model. OpenAI itself doesn't expose this on `/models`; compat servers
+   * (llama.cpp, LM Studio, vLLM, Ollama's openai shim, ...) often do under
+   * names like `context_length`, `max_context_length`, or
+   * `max_position_embeddings`. Omitted when the provider doesn't report it.
+   */
+  contextLimit?: number;
 }

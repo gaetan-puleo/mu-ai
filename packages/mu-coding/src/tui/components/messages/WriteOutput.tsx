@@ -23,7 +23,7 @@ export function WriteOutput({ args, content, error }: WriteOutputProps) {
 
   if (error) {
     return (
-      <Box flexDirection="column" flexShrink={0} marginBottom={1}>
+      <Box flexDirection="column" flexShrink={0} marginBottom={0}>
         <ToolHeader name="write_file" error={true} />
         <Text dimColor={true} wrap="wrap">
           {content}
@@ -38,7 +38,7 @@ export function WriteOutput({ args, content, error }: WriteOutputProps) {
   const hasMore = totalLines > PREVIEW_LINES;
 
   return (
-    <Box flexDirection="column" flexShrink={0} marginBottom={1}>
+    <Box flexDirection="column" flexShrink={0} marginBottom={0}>
       <ToolHeader name="write_file" subtitle={path} />
       <Box flexDirection="column" flexShrink={0}>
         <Text dimColor={true}>

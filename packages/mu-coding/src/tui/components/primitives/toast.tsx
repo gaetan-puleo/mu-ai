@@ -1,5 +1,5 @@
 import { Box, Text, useInput, useStdout } from 'ink';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 
 export interface Toast {
@@ -8,22 +8,53 @@ export interface Toast {
   color?: string;
 }
 
+const TOAST_TIMEOUT_MS = 60_000;
+
 let nextId = 0;
 
 export function useToast() {
   const [toasts, setToasts] = useState<Toast[]>([]);
-
-  const show = useCallback((message: string, color?: string) => {
-    const id = nextId++;
-    setToasts((prev) => [...prev, { id, message, color }]);
-  }, []);
+  const timersRef = useRef(new Map<number, ReturnType<typeof setTimeout>>());
 
   const dismiss = useCallback((id: number) => {
+    const timer = timersRef.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      timersRef.current.delete(id);
+    }
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  const show = useCallback(
+    (message: string, color?: string) => {
+      const id = nextId++;
+      setToasts((prev) => [...prev, { id, message, color }]);
+      const timer = setTimeout(() => dismiss(id), TOAST_TIMEOUT_MS);
+      timersRef.current.set(id, timer);
+    },
+    [dismiss],
+  );
+
   const dismissFirst = useCallback(() => {
-    setToasts((prev) => prev.slice(1));
+    setToasts((prev) => {
+      const [first, ...rest] = prev;
+      if (first) {
+        const timer = timersRef.current.get(first.id);
+        if (timer) {
+          clearTimeout(timer);
+          timersRef.current.delete(first.id);
+        }
+      }
+      return rest;
+    });
+  }, []);
+
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
+    };
   }, []);
 
   return { toasts, show, dismiss, dismissFirst };

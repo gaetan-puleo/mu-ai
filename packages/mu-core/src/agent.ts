@@ -4,6 +4,7 @@ import {
   runAfterToolExecHook,
   runBeforeLlmHooks,
   runBeforeToolExecHook,
+  runDecorateMessageHooks,
 } from './hooks';
 import type { AgentEvent, PluginTool, ToolResult, TurnResult } from './plugin';
 import type { PluginRegistry } from './registry';
@@ -129,24 +130,24 @@ async function executeOneToolCall(
 
   if ('blocked' in hookOutcome) {
     const content = await runAfterToolExecHook(hooks, tc, hookOutcome.content);
-    return {
+    return runDecorateMessageHooks(hooks, {
       role: 'tool',
       content,
       toolCallId: tc.id,
       toolResult: { name: tc.function.name, content, error: hookOutcome.error ?? true },
       toolCallArgs: { [tc.function.name]: tc.function.arguments },
-    };
+    });
   }
 
   const result = await executeTool(hookOutcome, tools, signal);
   const content = await runAfterToolExecHook(hooks, hookOutcome, result.content);
-  return {
+  return runDecorateMessageHooks(hooks, {
     role: 'tool',
     content,
     toolCallId: result.tool_call_id,
     toolResult: { name: result.name, content, error: result.error },
     toolCallArgs: { [result.name]: tc.function.arguments },
-  };
+  });
 }
 
 async function* executeToolCalls(
@@ -220,14 +221,16 @@ export async function* runAgent(
       }
 
       const reasoningField = reasoning || undefined;
-      const assistant: ChatMessage = { role: 'assistant', content, reasoning: reasoningField };
+      const assistantBase: ChatMessage = { role: 'assistant', content, reasoning: reasoningField };
       if (toolCalls.length === 0) {
+        const assistant = await runDecorateMessageHooks(registry.getHooks(), assistantBase);
         current = [...current, assistant];
         yield { type: 'messages', messages: current };
         return;
       }
 
-      current = [...current, { ...assistant, toolCalls }];
+      const assistantWithCalls = await runDecorateMessageHooks(registry.getHooks(), { ...assistantBase, toolCalls });
+      current = [...current, assistantWithCalls];
       yield { type: 'messages', messages: current };
       current = yield* executeToolCalls(toolCalls, current, signal, registry, tools);
       yield { type: 'turn_end' };

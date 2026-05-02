@@ -59,6 +59,7 @@ export function useChatPanel(options: UseChatPanelOptions) {
     });
   }, [uiService, show]);
 
+  const contextLimit = ctx.models.models.find((m) => m.id === ctx.models.currentModel)?.contextLimit;
   const statusSegments = useStatusSegments({
     streaming: ctx.session.streaming,
     abortWarning: ctx.abort.abortWarning,
@@ -67,6 +68,7 @@ export function useChatPanel(options: UseChatPanelOptions) {
     modelError: ctx.models.modelError,
     totalTokens: ctx.session.stream.totalTokens,
     cachedTokens: ctx.session.stream.cachedTokens,
+    contextLimit,
     pluginStatus,
   });
 

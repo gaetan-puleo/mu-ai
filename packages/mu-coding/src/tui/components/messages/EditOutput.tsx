@@ -48,7 +48,7 @@ export function EditOutput({ args, content, error, hint }: EditOutputProps) {
 
   if (error) {
     return (
-      <Box flexDirection="column" flexShrink={0} marginBottom={1}>
+      <Box flexDirection="column" flexShrink={0} marginBottom={0}>
         <ToolHeader name={verb} subtitle={path} error={true} />
         <Text dimColor={true} wrap="wrap">
           {content}
@@ -61,7 +61,7 @@ export function EditOutput({ args, content, error, hint }: EditOutputProps) {
 
   if (diff.lines.length === 0 && diff.totalOldLines > 0 && diff.totalNewLines > 0) {
     return (
-      <Box flexDirection="column" flexShrink={0} marginBottom={1}>
+      <Box flexDirection="column" flexShrink={0} marginBottom={0}>
         <Text color={theme.diff.warning} bold={true}>
           ! {verb}
         </Text>
@@ -75,7 +75,7 @@ export function EditOutput({ args, content, error, hint }: EditOutputProps) {
 
   if (diff.lines.length === 0) {
     return (
-      <Box flexDirection="column" flexShrink={0} marginBottom={1}>
+      <Box flexDirection="column" flexShrink={0} marginBottom={0}>
         <ToolHeader name={verb} subtitle={path} />
         <Text dimColor={true}>No changes (content identical)</Text>
       </Box>
@@ -85,7 +85,7 @@ export function EditOutput({ args, content, error, hint }: EditOutputProps) {
   const { lines, truncated } = renderDiff(diff, MAX_DIFF_LINES);
 
   return (
-    <Box flexDirection="column" flexShrink={0} marginBottom={1}>
+    <Box flexDirection="column" flexShrink={0} marginBottom={0}>
       <ToolHeader name={verb} subtitle={path} />
       <Box flexDirection="column" flexShrink={0}>
         {lines.map((line, i) => {

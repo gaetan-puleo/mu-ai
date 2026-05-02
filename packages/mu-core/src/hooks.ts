@@ -58,6 +58,22 @@ export async function runAfterToolExecHook(
   return current;
 }
 
+/**
+ * Pipe a freshly built `ChatMessage` through every `decorateMessage` hook in
+ * order. Each hook may return a (possibly mutated) message; later hooks see
+ * the result of the previous one. Used to stamp display hints (agent badge,
+ * color) without coupling the host to any specific plugin.
+ */
+export async function runDecorateMessageHooks(hooks: LifecycleHooks[], msg: ChatMessage): Promise<ChatMessage> {
+  let current = msg;
+  for (const hook of hooks) {
+    if (hook.decorateMessage) {
+      current = await hook.decorateMessage(current);
+    }
+  }
+  return current;
+}
+
 export async function runAfterAgentRunHooks(hooks: LifecycleHooks[], reason: AgentEndReason): Promise<void> {
   for (const hook of hooks) {
     if (hook.afterAgentRun) {

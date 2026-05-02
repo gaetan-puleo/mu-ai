@@ -120,6 +120,13 @@ export interface PluginContext extends PluginExtras {
    */
   setStatusLine?: (segments: StatusSegment[]) => void;
   /**
+   * Push info chips into the host's input footer (e.g. "Coding" agent
+   * label). Replaces the segments previously pushed by *this* plugin. Pass
+   * `[]` to clear. Hosts that don't render an input footer are free to
+   * ignore the call.
+   */
+  setInputInfo?: (segments: InputInfoSegment[]) => void;
+  /**
    * Host-provided graceful shutdown hook. When supplied, plugins should prefer
    * this over `process.exit(...)` so the host can deactivate plugins and restore
    * terminal state.
@@ -276,6 +283,14 @@ export interface LifecycleHooks {
    * cleanup; per-turn cleanup belongs in `afterLlmCall`.
    */
   afterAgentRun?: (reason: AgentEndReason) => void | Promise<void>;
+  /**
+   * Decorate a freshly built `ChatMessage` (user / assistant / tool) before
+   * it's appended to the transcript. Plugins typically use this to stamp
+   * `display.badge` / `display.color` (e.g. with the active agent name +
+   * color) or augment `meta`. Hooks compose left-to-right; later hooks see
+   * the prior hook's output. Should not change `role` or `content`.
+   */
+  decorateMessage?: (msg: ChatMessage) => ChatMessage | Promise<ChatMessage>;
 }
 
 export interface CommandContext {
@@ -313,6 +328,19 @@ export interface StatusSegment {
   text: string;
   color?: string;
   dim?: boolean;
+}
+
+/**
+ * Info chip a plugin pushes into the input footer (e.g. active agent name).
+ * Aggregated across plugins by `PluginRegistry.getInputInfoSegments()` and
+ * surfaced to the host's input UI in registration order.
+ */
+export interface InputInfoSegment {
+  /** Stable key — used by the renderer for list reconciliation. */
+  key: string;
+  text: string;
+  color?: string;
+  bold?: boolean;
 }
 
 export interface Plugin {
