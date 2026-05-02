@@ -1,5 +1,5 @@
 import type { ChatMessage, ProviderConfig, ToolCall } from 'mu-provider';
-import type { AgentEndReason, LifecycleHooks, TurnResult } from './plugin';
+import type { AgentEndReason, BeforeToolExecResult, LifecycleHooks, TurnResult, UserInputTransform } from './plugin';
 
 export async function runBeforeLlmHooks(
   hooks: LifecycleHooks[],
@@ -25,12 +25,21 @@ export async function runAfterLlmHooks(hooks: LifecycleHooks[], result: TurnResu
   return current;
 }
 
-export async function runBeforeToolExecHook(hooks: LifecycleHooks[], toolCall: ToolCall): Promise<ToolCall> {
-  let current = toolCall;
+/**
+ * Run every `beforeToolExec` hook in order. Each hook may either return a
+ * (possibly mutated) `ToolCall` to keep the chain going, or a `ToolBlock` to
+ * short-circuit execution. Once a hook blocks the call, no further hooks run
+ * — there's nothing useful to forward.
+ */
+export async function runBeforeToolExecHook(
+  hooks: LifecycleHooks[],
+  toolCall: ToolCall,
+): Promise<BeforeToolExecResult> {
+  let current: BeforeToolExecResult = toolCall;
   for (const hook of hooks) {
-    if (hook.beforeToolExec) {
-      current = await hook.beforeToolExec(current);
-    }
+    if (!hook.beforeToolExec) continue;
+    if ('blocked' in current) return current;
+    current = await hook.beforeToolExec(current);
   }
   return current;
 }
@@ -55,4 +64,26 @@ export async function runAfterAgentRunHooks(hooks: LifecycleHooks[], reason: Age
       await hook.afterAgentRun(reason);
     }
   }
+}
+
+/**
+ * Compose every `transformUserInput` hook. Earlier hooks see the raw text;
+ * each subsequent hook sees the (possibly rewritten) text emitted by the
+ * previous one. The first `intercept` short-circuits the chain.
+ */
+export async function runTransformUserInputHooks(hooks: LifecycleHooks[], text: string): Promise<UserInputTransform> {
+  let current: UserInputTransform = { kind: 'pass' };
+  let working = text;
+  for (const hook of hooks) {
+    if (!hook.transformUserInput) continue;
+    const next = await hook.transformUserInput(working);
+    if (next.kind === 'intercept') {
+      return next;
+    }
+    if (next.kind === 'transform') {
+      working = next.text;
+      current = next;
+    }
+  }
+  return current;
 }

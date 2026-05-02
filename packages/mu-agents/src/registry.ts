@@ -2,9 +2,13 @@ import type { ToolDefinition } from 'mu-provider';
 import type {
   AgentLoopStrategy,
   LifecycleHooks,
+  MentionProvider,
+  MessageBus,
+  MessageRenderer,
   Plugin,
   PluginContext,
   PluginTool,
+  ShortcutHandler,
   SlashCommand,
   StatusSegment,
 } from './plugin';
@@ -19,6 +23,26 @@ export interface PluginRegistryOptions {
   ui?: UIService;
   /** Host-supplied graceful shutdown. Forwarded via `PluginContext.shutdown`. */
   shutdown?: (code?: number) => Promise<void> | void;
+  /** Host-supplied message bus. Forwarded via `PluginContext.messages`. */
+  messages?: MessageBus;
+}
+
+interface RendererEntry {
+  plugin: string;
+  customType: string;
+  renderer: MessageRenderer;
+}
+
+interface ShortcutEntry {
+  plugin: string;
+  key: string;
+  handler: ShortcutHandler;
+}
+
+interface MentionEntry {
+  plugin: string;
+  trigger: string;
+  provider: MentionProvider;
 }
 
 /**
@@ -34,6 +58,12 @@ export class PluginRegistry {
   private context: PluginContext;
   private statusSegmentsByPlugin: Map<string, StatusSegment[]> = new Map();
   private statusListeners: Set<StatusListener> = new Set();
+  private renderers: RendererEntry[] = [];
+  private shortcuts: ShortcutEntry[] = [];
+  private mentions: MentionEntry[] = [];
+  private rendererListeners: Set<() => void> = new Set();
+  private shortcutListeners: Set<() => void> = new Set();
+  private mentionListeners: Set<() => void> = new Set();
 
   constructor(options: PluginRegistryOptions) {
     this.context = {
@@ -41,6 +71,7 @@ export class PluginRegistry {
       config: options.config,
       ui: options.ui,
       shutdown: options.shutdown,
+      messages: options.messages,
       getPlugin: <T extends Plugin>(name: string) => this.plugins.get(name) as T | undefined,
     };
   }
@@ -51,13 +82,7 @@ export class PluginRegistry {
     }
     this.plugins.set(plugin.name, plugin);
     if (plugin.activate) {
-      // Per-plugin context with a setStatusLine bound to this plugin's name so
-      // segments from one plugin can never overwrite another's.
-      const pluginContext: PluginContext = {
-        ...this.context,
-        setStatusLine: (segments) => this.setStatusLine(plugin.name, segments),
-      };
-      await plugin.activate(pluginContext);
+      await plugin.activate(this.buildPluginContext(plugin.name));
     }
   }
 
@@ -73,6 +98,7 @@ export class PluginRegistry {
     if (this.statusSegmentsByPlugin.delete(name)) {
       this.emitStatus();
     }
+    this.dropPluginRegistrations(name);
   }
 
   getPlugin<T extends Plugin>(name: string): T | undefined {
@@ -91,6 +117,21 @@ export class PluginRegistry {
       }
     }
     return tools;
+  }
+
+  /**
+   * Return the tool set after every `filterTools` hook has narrowed it.
+   * Hooks compose by passing each plugin's output as the next input, so the
+   * effective set is the intersection of every plugin's allowed tools.
+   */
+  async getFilteredTools(): Promise<PluginTool[]> {
+    let current = this.getTools();
+    for (const plugin of this.plugins.values()) {
+      const hook = plugin.hooks?.filterTools;
+      if (!hook) continue;
+      current = await hook(current);
+    }
+    return current;
   }
 
   getToolDefinitions(): ToolDefinition[] {
@@ -122,6 +163,17 @@ export class PluginRegistry {
       }
     }
     return prompts;
+  }
+
+  /** Run every `transformSystemPrompt` hook in registration order. */
+  async applySystemPromptTransforms(prompt: string): Promise<string> {
+    let current = prompt;
+    for (const plugin of this.plugins.values()) {
+      const hook = plugin.hooks?.transformSystemPrompt;
+      if (!hook) continue;
+      current = await hook(current);
+    }
+    return current;
   }
 
   getHooks(): LifecycleHooks[] {
@@ -176,10 +228,76 @@ export class PluginRegistry {
     return undefined;
   }
 
+  // ─── Renderer / Shortcut / Mention registries ─────────────────────────────
+
+  /** Renderer for `customType`. The first match wins (registration order). */
+  getRenderer(customType: string): MessageRenderer | undefined {
+    return this.renderers.find((r) => r.customType === customType)?.renderer;
+  }
+
+  /** Snapshot of every registered `customType → renderer`. First registration wins. */
+  getRenderers(): Map<string, MessageRenderer> {
+    const out = new Map<string, MessageRenderer>();
+    for (const entry of this.renderers) {
+      if (!out.has(entry.customType)) {
+        out.set(entry.customType, entry.renderer);
+      }
+    }
+    return out;
+  }
+
+  onRenderersChange(listener: () => void): () => void {
+    this.rendererListeners.add(listener);
+    return () => {
+      this.rendererListeners.delete(listener);
+    };
+  }
+
+  getShortcuts(): ReadonlyArray<{ key: string; handler: ShortcutHandler; plugin: string }> {
+    return this.shortcuts;
+  }
+
+  onShortcutsChange(listener: () => void): () => void {
+    this.shortcutListeners.add(listener);
+    return () => {
+      this.shortcutListeners.delete(listener);
+    };
+  }
+
+  getMentionProviders(): ReadonlyArray<{ trigger: string; provider: MentionProvider; plugin: string }> {
+    return this.mentions;
+  }
+
+  onMentionProvidersChange(listener: () => void): () => void {
+    this.mentionListeners.add(listener);
+    return () => {
+      this.mentionListeners.delete(listener);
+    };
+  }
+
   async shutdown(): Promise<void> {
     for (const name of Array.from(this.plugins.keys()).reverse()) {
       await this.unregister(name);
     }
+  }
+
+  // ─── Internal ─────────────────────────────────────────────────────────────
+
+  private buildPluginContext(pluginName: string): PluginContext {
+    return {
+      ...this.context,
+      registry: {
+        getTools: () => this.getTools(),
+        getFilteredTools: () => this.getFilteredTools(),
+        getHooks: () => this.getHooks(),
+        getSystemPrompts: () => this.getSystemPrompts(),
+        applySystemPromptTransforms: (prompt) => this.applySystemPromptTransforms(prompt),
+      },
+      setStatusLine: (segments) => this.setStatusLine(pluginName, segments),
+      registerMessageRenderer: (customType, renderer) => this.addRenderer(pluginName, customType, renderer),
+      registerShortcut: (key, handler) => this.addShortcut(pluginName, key, handler),
+      registerMentionProvider: (trigger, provider) => this.addMention(pluginName, trigger, provider),
+    };
   }
 
   private setStatusLine(pluginName: string, segments: StatusSegment[]): void {
@@ -200,6 +318,69 @@ export class PluginRegistry {
     for (const listener of this.statusListeners) {
       listener();
     }
+  }
+
+  private addRenderer(plugin: string, customType: string, renderer: MessageRenderer): () => void {
+    const entry: RendererEntry = { plugin, customType, renderer };
+    this.renderers.push(entry);
+    this.emitRenderers();
+    return () => {
+      const idx = this.renderers.indexOf(entry);
+      if (idx >= 0) {
+        this.renderers.splice(idx, 1);
+        this.emitRenderers();
+      }
+    };
+  }
+
+  private addShortcut(plugin: string, key: string, handler: ShortcutHandler): () => void {
+    const entry: ShortcutEntry = { plugin, key, handler };
+    this.shortcuts.push(entry);
+    this.emitShortcuts();
+    return () => {
+      const idx = this.shortcuts.indexOf(entry);
+      if (idx >= 0) {
+        this.shortcuts.splice(idx, 1);
+        this.emitShortcuts();
+      }
+    };
+  }
+
+  private addMention(plugin: string, trigger: string, provider: MentionProvider): () => void {
+    const entry: MentionEntry = { plugin, trigger, provider };
+    this.mentions.push(entry);
+    this.emitMentions();
+    return () => {
+      const idx = this.mentions.indexOf(entry);
+      if (idx >= 0) {
+        this.mentions.splice(idx, 1);
+        this.emitMentions();
+      }
+    };
+  }
+
+  private dropPluginRegistrations(plugin: string): void {
+    const beforeR = this.renderers.length;
+    this.renderers = this.renderers.filter((r) => r.plugin !== plugin);
+    if (this.renderers.length !== beforeR) this.emitRenderers();
+
+    const beforeS = this.shortcuts.length;
+    this.shortcuts = this.shortcuts.filter((s) => s.plugin !== plugin);
+    if (this.shortcuts.length !== beforeS) this.emitShortcuts();
+
+    const beforeM = this.mentions.length;
+    this.mentions = this.mentions.filter((m) => m.plugin !== plugin);
+    if (this.mentions.length !== beforeM) this.emitMentions();
+  }
+
+  private emitRenderers(): void {
+    for (const fn of this.rendererListeners) fn();
+  }
+  private emitShortcuts(): void {
+    for (const fn of this.shortcutListeners) fn();
+  }
+  private emitMentions(): void {
+    for (const fn of this.mentionListeners) fn();
   }
 }
 

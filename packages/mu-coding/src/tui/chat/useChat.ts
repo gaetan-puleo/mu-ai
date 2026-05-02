@@ -3,6 +3,7 @@ import type { PluginRegistry } from 'mu-agents';
 import type { ChatMessage, ProviderConfig } from 'mu-provider';
 import { useEffect, useRef, useState } from 'react';
 import type { ShutdownFn } from '../../app/shutdown';
+import type { HostMessageBus } from '../../runtime/messageBus';
 import { listSessionsAsync, type SessionInfo } from '../../sessions/index';
 import type { InkUIService } from '../plugins/InkUIService';
 import { type AbortState, useAbort } from './useAbort';
@@ -22,6 +23,7 @@ export interface ChatContextValue {
   sessions: SessionInfo[];
   registry: PluginRegistry;
   uiService?: InkUIService;
+  messageBus?: HostMessageBus;
 }
 
 export function useChat(
@@ -30,6 +32,7 @@ export function useChat(
   initialMessages?: ChatMessage[],
   shutdown?: ShutdownFn,
   uiService?: InkUIService,
+  messageBus?: HostMessageBus,
 ): ChatContextValue {
   const { exit } = useApp();
   const controllerRef = useRef<AbortController | null>(null);
@@ -43,6 +46,7 @@ export function useChat(
     controllerRef,
     initialMessages,
     registry,
+    messageBus,
   });
   const abort = useAbort(session.streaming, controllerRef, exit, ABORT_TIMEOUT_MS, shutdown);
 
@@ -78,5 +82,6 @@ export function useChat(
     sessions,
     registry,
     uiService,
+    messageBus,
   };
 }

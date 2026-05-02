@@ -55,6 +55,7 @@ async function* streamTurn(
   model: string,
   signal: AbortSignal,
   registry: PluginRegistry,
+  toolDefs: PluginTool[],
 ): AsyncGenerator<AgentEvent, TurnResult> {
   let content = '';
   let reasoning = '';
@@ -64,7 +65,7 @@ async function* streamTurn(
 
   const hooks = registry.getHooks();
   const hookedMessages = await runBeforeLlmHooks(hooks, messages, config);
-  const toolDefinitions = registry.getToolDefinitions();
+  const toolDefinitions = toolDefs.map((t) => t.definition);
 
   for await (const chunk of streamChat(hookedMessages, config, model, {
     signal,
@@ -92,38 +93,62 @@ async function* streamTurn(
   return await runAfterLlmHooks(hooks, result);
 }
 
+async function executeOneToolCall(
+  tc: ToolCall,
+  tools: PluginTool[],
+  signal: AbortSignal,
+  registry: PluginRegistry,
+): Promise<ChatMessage> {
+  const hooks = registry.getHooks();
+  const hookOutcome = await runBeforeToolExecHook(hooks, tc);
+
+  if ('blocked' in hookOutcome) {
+    const content = await runAfterToolExecHook(hooks, tc, hookOutcome.content);
+    return {
+      role: 'tool',
+      content,
+      toolCallId: tc.id,
+      toolResult: { name: tc.function.name, content, error: hookOutcome.error ?? true },
+      toolCallArgs: { [tc.function.name]: tc.function.arguments },
+    };
+  }
+
+  const result = await executeTool(hookOutcome, tools, signal);
+  const content = await runAfterToolExecHook(hooks, hookOutcome, result.content);
+  return {
+    role: 'tool',
+    content,
+    toolCallId: result.tool_call_id,
+    toolResult: { name: result.name, content, error: result.error },
+    toolCallArgs: { [result.name]: tc.function.arguments },
+  };
+}
+
 async function* executeToolCalls(
   calls: ToolCall[],
   start: ChatMessage[],
   signal: AbortSignal,
   registry: PluginRegistry,
+  tools: PluginTool[],
 ): AsyncGenerator<AgentEvent, ChatMessage[]> {
   let current = start;
-  const tools = registry.getTools();
-  const hooks = registry.getHooks();
 
   for (const tc of calls) {
     if (signal.aborted) break;
-
-    const hookedCall = await runBeforeToolExecHook(hooks, tc);
-    const result = await executeTool(hookedCall, tools, signal);
-
+    const toolMessage = await executeOneToolCall(tc, tools, signal, registry);
     if (signal.aborted) break;
-
-    result.content = await runAfterToolExecHook(hooks, hookedCall, result.content);
-
-    const toolMessage: ChatMessage = {
-      role: 'tool',
-      content: result.content,
-      toolCallId: result.tool_call_id,
-      toolResult: { name: result.name, content: result.content, error: result.error },
-      toolCallArgs: { [result.name]: tc.function.arguments },
-    };
-
     current = [...current, toolMessage];
     yield { type: 'messages', messages: current };
   }
   return current;
+}
+
+async function buildMergedConfig(config: ProviderConfig, registry: PluginRegistry): Promise<ProviderConfig> {
+  const pluginPrompts = await registry.getSystemPrompts();
+  const merged = [config.systemPrompt, ...pluginPrompts].filter(Boolean).join('\n\n');
+  const transformed = await registry.applySystemPromptTransforms(merged);
+  if (!transformed) return config;
+  return { ...config, systemPrompt: transformed };
 }
 
 export async function* runAgent(
@@ -133,35 +158,33 @@ export async function* runAgent(
   signal: AbortSignal,
   registry: PluginRegistry,
 ): AsyncGenerator<AgentEvent> {
-  // Merge plugin system prompts into config
-  const pluginPrompts = await registry.getSystemPrompts();
-  const mergedConfig: ProviderConfig =
-    pluginPrompts.length > 0
-      ? { ...config, systemPrompt: [config.systemPrompt, ...pluginPrompts].filter(Boolean).join('\n\n') }
-      : config;
-
+  const mergedConfig = await buildMergedConfig(config, registry);
   const hooks = registry.getHooks();
+
   // Wrap the body in try/finally so `afterAgentRun` fires exactly once per
   // `runAgent` call, regardless of how it terminates: normal completion (LLM
   // produced a final response), abort via `signal.aborted`, or generator
   // cancellation by the consumer (Ink unmount, manual `.return()`).
   try {
-    // Check if a plugin provides a custom agent loop
     const customLoop = registry.getAgentLoop();
     if (customLoop) {
-      yield* customLoop.run(initialMessages, mergedConfig, model, signal, registry.getTools(), hooks);
+      const filtered = await registry.getFilteredTools();
+      yield* customLoop.run(initialMessages, mergedConfig, model, signal, filtered, hooks);
       return;
     }
 
     let current = initialMessages;
 
     while (!signal.aborted) {
+      // Re-evaluate every turn so per-turn agent switches are honoured.
+      const tools = await registry.getFilteredTools();
       const { content, reasoning, toolCalls, usage, cachedPromptTokens } = yield* streamTurn(
         current,
         mergedConfig,
         model,
         signal,
         registry,
+        tools,
       );
 
       if (usage > 0) {
@@ -181,7 +204,7 @@ export async function* runAgent(
 
       current = [...current, { ...assistant, toolCalls }];
       yield { type: 'messages', messages: current };
-      current = yield* executeToolCalls(toolCalls, current, signal, registry);
+      current = yield* executeToolCalls(toolCalls, current, signal, registry, tools);
       yield { type: 'turn_end' };
     }
   } finally {

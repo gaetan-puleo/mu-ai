@@ -1,4 +1,5 @@
 import { type Key, useInput, useStdin } from 'ink';
+import type { ShortcutHandler } from 'mu-agents';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { matchCommands, type SlashCommand } from './commands';
 import {
@@ -45,6 +46,21 @@ interface InputState {
   isCommandMode: boolean;
 }
 
+/**
+ * Optional mention-picker controls. When `active`, navigation keys (↑/↓) and
+ * accept keys (Tab / Enter) are routed through this handle instead of the
+ * default editing bindings. Read via a ref so the dispatch closure always
+ * sees the latest snapshot without forcing a hook re-call.
+ */
+export interface MentionMode {
+  active: boolean;
+  count: number;
+  selectedIndex: number;
+  next: () => void;
+  prev: () => void;
+  accept: () => void;
+}
+
 interface UseInputHandlerOptions {
   isActive: boolean;
   streaming: boolean;
@@ -53,6 +69,20 @@ interface UseInputHandlerOptions {
   onSubmit: (text: string) => void;
   availableCommands: SlashCommand[];
   onCommand: (command: SlashCommand, args: string) => void;
+  /**
+   * Plugin-registered keyboard shortcuts. Consulted before the built-in
+   * BINDINGS table; whenever a handler is registered for the pressed key id
+   * the default editor binding is skipped entirely. Handlers are fire-and-
+   * forget so the input loop never blocks on plugin work.
+   */
+  pluginShortcuts?: Map<string, ShortcutHandler>;
+  /**
+   * Ref to the current mention-mode controls. The picker state is computed
+   * by the caller (which depends on `value`/`cursor` from this hook) and
+   * pushed into the ref every render; the dispatch closure reads it at key
+   * time. Avoids calling `useInputHandler` twice to break the dependency.
+   */
+  mentionRef?: React.RefObject<MentionMode | null>;
 }
 
 // Build a stable key identifier from an Ink key event. The id is a flat
@@ -160,6 +190,11 @@ interface BindingCtx {
   isCommandMode: boolean;
   commands: SlashCommand[];
   actions: InputActions;
+  mentionRef?: React.RefObject<MentionMode | null>;
+}
+
+function getMention(c: BindingCtx): MentionMode | null {
+  return c.mentionRef?.current ?? null;
 }
 
 type Binding = (ctx: BindingCtx) => void;
@@ -171,6 +206,11 @@ type Binding = (ctx: BindingCtx) => void;
 // Mirroring fish/zsh's behaviour. Same for ↓ on the last row.
 
 function handleUp(c: BindingCtx): void {
+  const m = getMention(c);
+  if (m?.active && m.count > 0) {
+    m.prev();
+    return;
+  }
   if (c.isCommandMode) {
     c.setCmdIndex((i) => (i > 0 ? i - 1 : c.commands.length - 1));
     return;
@@ -188,6 +228,11 @@ function handleUp(c: BindingCtx): void {
 }
 
 function handleDown(c: BindingCtx): void {
+  const m = getMention(c);
+  if (m?.active && m.count > 0) {
+    m.next();
+    return;
+  }
   if (c.isCommandMode) {
     c.setCmdIndex((i) => (i < c.commands.length - 1 ? i + 1 : 0));
     return;
@@ -203,6 +248,24 @@ function handleDown(c: BindingCtx): void {
   c.desiredColumn.current = null;
   const r = c.nav.down();
   if (r !== null) c.setState({ value: r, cursor: r.length });
+}
+
+function handleTab(c: BindingCtx): void {
+  const m = getMention(c);
+  if (m?.active && m.count > 0) {
+    m.accept();
+    return;
+  }
+  c.setState((s) => insertAt(s, '  '));
+}
+
+function handleReturn(c: BindingCtx): void {
+  const m = getMention(c);
+  if (m?.active && m.count > 0) {
+    m.accept();
+    return;
+  }
+  c.submit();
 }
 
 // ─── Bindings ────────────────────────────────────────────────────────────────
@@ -234,8 +297,8 @@ const BINDINGS: Record<string, Binding> = {
   pageup: (c) => c.actions.onScrollUp?.(),
   pagedown: (c) => c.actions.onScrollDown?.(),
   'shift+return': (c) => c.setState((s) => insertAt(s, '\n')),
-  return: (c) => c.submit(),
-  tab: (c) => c.setState((s) => insertAt(s, '  ')),
+  return: handleReturn,
+  tab: handleTab,
   up: handleUp,
   down: handleDown,
   left: (c) => c.setState((s) => moveLeft(s)),
@@ -265,12 +328,20 @@ function handleInsert(input: string, c: BindingCtx): void {
   c.nav.reset();
 }
 
-export function useInputHandler(options: UseInputHandlerOptions): InputState {
-  const { isActive, streaming, history, actions, onSubmit, availableCommands, onCommand } = options;
+export function useInputHandler(
+  options: UseInputHandlerOptions,
+): InputState & { setBuffer: (value: string, cursor: number) => void } {
+  const { isActive, streaming, history, actions, onSubmit, availableCommands, onCommand, pluginShortcuts, mentionRef } =
+    options;
   const [state, setState] = useState<BufferState>({ value: '', cursor: 0 });
   const [cmdIndex, setCmdIndex] = useState(0);
   const desiredColumn = useRef<number | null>(null);
   const nav = useHistoryNavigation(state, history);
+  // Keep the latest map in a ref so the dispatchKey closure (created once
+  // per `useInput` call) always sees the freshest handlers without forcing
+  // a re-subscribe.
+  const pluginShortcutsRef = useRef(pluginShortcuts);
+  pluginShortcutsRef.current = pluginShortcuts;
 
   const onRawBackspace = useCallback(() => {
     setState((s) => deleteBackward(s));
@@ -312,16 +383,43 @@ export function useInputHandler(options: UseInputHandlerOptions): InputState {
       isCommandMode,
       commands,
       actions,
+      mentionRef,
       backspaceHandledRef,
+      pluginShortcutsRef,
     }),
     { isActive },
   );
 
-  return { value: state.value, cursor: state.cursor, commands, cmdIndex, isCommandMode };
+  const setBuffer = useCallback(
+    (value: string, cursor: number) => {
+      setState({ value, cursor });
+      nav.reset();
+    },
+    [nav],
+  );
+
+  return { value: state.value, cursor: state.cursor, commands, cmdIndex, isCommandMode, setBuffer };
 }
 
 interface DispatchOptions extends BindingCtx {
   backspaceHandledRef: React.MutableRefObject<boolean>;
+  pluginShortcutsRef: React.MutableRefObject<Map<string, ShortcutHandler> | undefined>;
+}
+
+/**
+ * Try to dispatch a key id to a plugin-registered handler. Returns `true` when
+ * the key was claimed (so the default binding shouldn't fire). The async
+ * handler is fire-and-forget: plugins typically mutate their own state and
+ * surface results via `MessageBus.append`, so we don't need to await here.
+ */
+function tryPluginShortcut(id: string, opts: DispatchOptions): boolean {
+  const handlers = opts.pluginShortcutsRef.current;
+  const handler = handlers?.get(id);
+  if (!handler) return false;
+  void Promise.resolve(handler()).catch(() => {
+    /* swallow handler errors so a misbehaving plugin can't kill the input loop */
+  });
+  return true;
 }
 
 /**
@@ -341,6 +439,9 @@ function dispatchKey(opts: DispatchOptions): (input: string, key: Key) => void {
     if (id === 'backspace') {
       if (!alreadyHandled) applyBackspace(opts);
       else opts.nav.reset();
+      return;
+    }
+    if (id && tryPluginShortcut(id, opts)) {
       return;
     }
     if (id && BINDINGS[id]) {

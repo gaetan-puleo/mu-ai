@@ -1,9 +1,11 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { useChatContext } from '../chat/ChatContext';
 import { dumpContext } from './dumpContext';
 import type { InputBoxViewProps } from './InputBoxView';
 import { useCommandExecutor } from './useCommandExecutor';
-import { type InputActions, useInputHandler } from './useInputHandler';
+import { type InputActions, type MentionMode, useInputHandler } from './useInputHandler';
+import { type MentionPickerState, useMentionPicker } from './useMentionPicker';
+import { usePluginShortcuts } from './usePluginShortcuts';
 
 export interface InputBoxProps {
   onSubmit: (text: string) => void;
@@ -14,29 +16,75 @@ export interface InputBoxProps {
   history?: string[];
 }
 
-export function useInputBox({
-  onSubmit,
-  onScrollUp,
-  onScrollDown,
-  isActive = true,
-  model = '',
-  history = [],
-}: InputBoxProps): InputBoxViewProps {
-  const { config, session, toggles, attachment, models, abort, registry, uiService } = useChatContext();
+interface BufferDraft {
+  value: string;
+  cursor: number;
+}
 
-  const onShowContext = useCallback(async () => {
-    try {
-      const path = await dumpContext(config, session.messages, registry);
-      uiService?.notify(`Context written to ${path}`, 'success');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      uiService?.notify(`Failed to dump context: ${msg}`, 'error');
-    }
-  }, [config, session.messages, registry, uiService]);
+/**
+ * Replace `[triggerStart, cursor)` (the `<trigger><partial>` token) with the
+ * chosen completion value plus a trailing space, so the user is left in a
+ * sensible position for further input.
+ */
+function applyMention(
+  value: string,
+  triggerStart: number,
+  cursor: number,
+  trigger: string,
+  completion: string,
+): BufferDraft {
+  const before = value.slice(0, triggerStart);
+  const after = value.slice(cursor);
+  const insertion = `${trigger}${completion} `;
+  return { value: before + insertion + after, cursor: triggerStart + insertion.length };
+}
 
-  // Stable references prevent downstream `useMemo`s (e.g. inside
-  // `useCommandExecutor`) from being invalidated on every render.
-  const actions: InputActions = useMemo(
+interface InputHandle {
+  value: string;
+  cursor: number;
+  setBuffer: (value: string, cursor: number) => void;
+}
+
+/**
+ * Build the mention-mode controls for the picker that the input handler
+ * consumes via a ref. Returns `null` when no completions are available so
+ * the handler skips the override and runs the default editing bindings.
+ */
+function buildMentionMode(mentions: MentionPickerState, input: InputHandle): MentionMode | null {
+  if (!mentions.trigger || mentions.completions.length === 0) return null;
+  return {
+    active: true,
+    count: mentions.completions.length,
+    selectedIndex: mentions.selectedIndex,
+    next: () => mentions.setSelectedIndex((mentions.selectedIndex + 1) % mentions.completions.length),
+    prev: () =>
+      mentions.setSelectedIndex(
+        mentions.selectedIndex === 0 ? mentions.completions.length - 1 : mentions.selectedIndex - 1,
+      ),
+    accept: () => {
+      const completion = mentions.completions[mentions.selectedIndex];
+      const trig = mentions.trigger;
+      if (!(completion && trig)) return;
+      const draft = applyMention(input.value, mentions.triggerStart, input.cursor, trig, completion.value);
+      input.setBuffer(draft.value, draft.cursor);
+    },
+  };
+}
+
+interface ActionDeps {
+  abort: ReturnType<typeof useChatContext>['abort'];
+  attachment: ReturnType<typeof useChatContext>['attachment'];
+  session: ReturnType<typeof useChatContext>['session'];
+  models: ReturnType<typeof useChatContext>['models'];
+  toggles: ReturnType<typeof useChatContext>['toggles'];
+  onShowContext: () => Promise<void>;
+  onScrollUp?: () => void;
+  onScrollDown?: () => void;
+}
+
+function useInputActions(deps: ActionDeps): InputActions {
+  const { abort, attachment, session, models, toggles, onShowContext, onScrollUp, onScrollDown } = deps;
+  return useMemo<InputActions>(
     () => ({
       onCtrlC: abort.onCtrlC,
       onEsc: abort.onEsc,
@@ -64,6 +112,43 @@ export function useInputBox({
       onScrollDown,
     ],
   );
+}
+
+export function useInputBox({
+  onSubmit,
+  onScrollUp,
+  onScrollDown,
+  isActive = true,
+  model = '',
+  history = [],
+}: InputBoxProps): InputBoxViewProps {
+  const { config, session, toggles, attachment, models, abort, registry, uiService } = useChatContext();
+  // Ref pattern: the mention controls depend on the input handler's
+  // `value`/`cursor`, but the handler also needs to reach the controls at key
+  // dispatch time. Pushing the latest snapshot into a ref every render lets
+  // both directions flow without re-calling hooks.
+  const mentionRef = useRef<MentionMode | null>(null);
+
+  const onShowContext = useCallback(async () => {
+    try {
+      const path = await dumpContext(config, session.messages, registry);
+      uiService?.notify(`Context written to ${path}`, 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      uiService?.notify(`Failed to dump context: ${msg}`, 'error');
+    }
+  }, [config, session.messages, registry, uiService]);
+
+  const actions = useInputActions({
+    abort,
+    attachment,
+    session,
+    models,
+    toggles,
+    onShowContext,
+    onScrollUp,
+    onScrollDown,
+  });
 
   const commandContext = useMemo(
     () => ({ messages: session.messages, cwd: process.cwd(), config }),
@@ -80,6 +165,8 @@ export function useInputBox({
     pluginCommands,
   });
 
+  const { handlers: pluginShortcuts } = usePluginShortcuts(registry);
+
   const input = useInputHandler({
     isActive,
     streaming: session.streaming,
@@ -88,7 +175,14 @@ export function useInputBox({
     onSubmit,
     availableCommands: commandExecutor.commands,
     onCommand: commandExecutor.execute,
+    pluginShortcuts,
+    mentionRef,
   });
+
+  const mentions = useMentionPicker(registry, input.value, input.cursor);
+
+  // Update the ref every render so the dispatch closure sees the latest.
+  mentionRef.current = buildMentionMode(mentions, input);
 
   return {
     value: input.value,
@@ -101,5 +195,13 @@ export function useInputBox({
     model,
     attachmentName: attachment.attachment?.name ?? null,
     attachmentError: attachment.attachmentError,
+    mentions:
+      mentions.completions.length > 0
+        ? {
+            completions: mentions.completions,
+            selectedIndex: mentions.selectedIndex,
+            partial: mentions.partial,
+          }
+        : null,
   };
 }

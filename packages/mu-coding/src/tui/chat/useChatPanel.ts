@@ -3,6 +3,7 @@ import type { PluginRegistry } from 'mu-agents';
 import type { ChatMessage, ProviderConfig } from 'mu-provider';
 import { useEffect, useMemo, useRef } from 'react';
 import type { ShutdownFn } from '../../app/shutdown';
+import type { HostMessageBus } from '../../runtime/messageBus';
 import type { ChatPanelBodyProps } from '../components/chat/ChatPanelBody';
 import { useToast } from '../components/primitives/toast';
 import { useScroll } from '../hooks/useScroll';
@@ -23,13 +24,14 @@ interface UseChatPanelOptions {
   config: ProviderConfig;
   initialMessages?: ChatMessage[];
   registry: PluginRegistry;
+  messageBus?: HostMessageBus;
   uiService?: InkUIService;
   shutdown?: ShutdownFn;
 }
 
 export function useChatPanel(options: UseChatPanelOptions) {
-  const { config, initialMessages, registry, uiService, shutdown } = options;
-  const ctx = useChat(config, registry, initialMessages, shutdown, uiService);
+  const { config, initialMessages, registry, messageBus, uiService, shutdown } = options;
+  const ctx = useChat(config, registry, initialMessages, shutdown, uiService, messageBus);
   const { width, height } = useTerminalSize();
   const viewRef = useRef<InkDOMElement>(null);
   const contentRef = useRef<InkDOMElement>(null);

@@ -4,6 +4,7 @@ export type {
   ApiModel,
   ChatMessage,
   ImageAttachment,
+  MessageDisplay,
   ProviderConfig,
   ToolCall,
   ToolDefinition,

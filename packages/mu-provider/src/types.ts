@@ -46,6 +46,23 @@ export interface ToolResultInfo {
   error?: boolean;
 }
 
+/**
+ * Optional rendering hints carried alongside a ChatMessage. Lets plugins (and
+ * the host) tweak how a message is presented without committing to a fully
+ * custom renderer:
+ *  - `color` overrides the role-default text/border color (e.g. agent color)
+ *  - `prefix` is rendered inline before the content (e.g. `│ ` colored bar)
+ *  - `badge` is shown in a small box before the body (e.g. agent name)
+ *  - `hidden` keeps the message in the transcript (sent to the LLM) but skips
+ *    its on-screen rendering — useful for system reminders.
+ */
+export interface MessageDisplay {
+  color?: string;
+  prefix?: string;
+  badge?: string;
+  hidden?: boolean;
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
@@ -55,6 +72,16 @@ export interface ChatMessage {
   toolCallId?: string;
   toolResult?: ToolResultInfo;
   toolCallArgs?: Record<string, string>;
+  /**
+   * Tag used by plugins to route this message to a custom renderer registered
+   * with `PluginContext.ui.registerMessageRenderer`. When set and the renderer
+   * is found, the renderer takes precedence over the role-default renderer.
+   */
+  customType?: string;
+  /** Free-form bag for plugin-private state (e.g. agent name, sub-agent id). */
+  meta?: Record<string, unknown>;
+  /** Lightweight display tweaks; see `MessageDisplay`. */
+  display?: MessageDisplay;
 }
 
 export type StreamChunk =

@@ -4,6 +4,9 @@ import { useTheme } from '../../context/ThemeContext';
 
 export function UserMessage({ msg }: { msg: ChatMessage }) {
   const theme = useTheme();
+  const borderColor = msg.display?.color ?? theme.user.border;
+  const badge = msg.display?.badge;
+  const prefix = msg.display?.prefix;
   return (
     <Box
       flexDirection="column"
@@ -16,16 +19,26 @@ export function UserMessage({ msg }: { msg: ChatMessage }) {
       borderTop={false}
       borderBottom={false}
       borderRight={false}
-      borderColor={theme.user.border}
+      borderColor={borderColor}
       borderStyle="single"
     >
+      {badge && (
+        <Box marginBottom={1}>
+          <Text color={msg.display?.color} bold={true}>
+            [{badge}]
+          </Text>
+        </Box>
+      )}
       {msg.images && msg.images.length > 0 && (
         <Box>
           <Text color={theme.user.attachment}>📷 </Text>
           <Text color={theme.user.attachment}>{msg.images.map((img) => img.name).join(', ')}</Text>
         </Box>
       )}
-      <Text wrap="wrap">{msg.content}</Text>
+      <Text wrap="wrap">
+        {prefix && <Text color={msg.display?.color}>{prefix}</Text>}
+        {msg.content}
+      </Text>
     </Box>
   );
 }

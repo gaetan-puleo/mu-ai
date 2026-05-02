@@ -1,7 +1,94 @@
 import type { ChatMessage, ProviderConfig, ToolCall, ToolDefinition } from 'mu-provider';
 import type { UIService } from './ui';
 
-export interface PluginContext {
+/**
+ * MessageBus lets plugins inject synthetic messages into the live chat
+ * transcript without participating in the LLM streaming loop.
+ *
+ *   - `append(msg)` pushes a message into the **on-screen** transcript right
+ *     now. The host preserves it across subsequent agent `messages` events
+ *     when the message looks plugin-synthetic (carries `customType`, `meta`,
+ *     or `display.hidden`). The LLM does NOT see appended entries — it only
+ *     sees what was sent in the most recent turn. Use for banners / status
+ *     entries that should persist in the UI but not influence the model.
+ *   - `injectNext(msg)` queues a message that's spliced in alongside the
+ *     *next* user turn. The message reaches the LLM and is persisted with
+ *     the rest of the transcript. Use for "system reminder" injections that
+ *     should travel with the user's next message.
+ *   - `subscribe(fn)` notifies on any transcript change. The listener fires
+ *     once on subscribe with the current snapshot.
+ */
+export interface MessageBus {
+  append: (message: ChatMessage) => void;
+  injectNext: (message: ChatMessage) => void;
+  drainNext: () => ChatMessage[];
+  subscribe: (listener: (messages: ChatMessage[]) => void) => () => void;
+  get: () => ChatMessage[];
+}
+
+/**
+ * Renderer signature used by `registerMessageRenderer`. The host calls
+ * `render(message)` whenever it encounters a message whose `customType`
+ * matches the registered key. The return value is renderer-defined — for the
+ * mu-coding host, it is a React element; renderer-agnostic hosts may use a
+ * different shape.
+ */
+export type MessageRenderer = (message: ChatMessage) => unknown;
+
+/**
+ * Handler for plugin-registered keyboard shortcuts. Registering a handler
+ * always consumes the key for that frame — the default editor binding is
+ * skipped. Async handlers fire-and-forget; the input loop does not await.
+ */
+export type ShortcutHandler = () => void | Promise<void>;
+
+export interface MentionCompletion {
+  /** Value inserted into the input (replaces `@partial`). */
+  value: string;
+  /** Display label in the picker. Defaults to `value`. */
+  label?: string;
+  /** Secondary text shown dimly in the picker. */
+  description?: string;
+}
+
+export type MentionProvider = (partial: string) => MentionCompletion[] | Promise<MentionCompletion[]>;
+
+/**
+ * Side-channel registries the host exposes to plugins. None are guaranteed —
+ * plugins should null-check before calling so they degrade gracefully on
+ * non-TUI hosts (single-shot CLI, tests).
+ */
+export interface PluginExtras {
+  /** Inject / observe synthetic chat messages. */
+  messages?: MessageBus;
+  /** Register a custom renderer for `ChatMessage.customType`. */
+  registerMessageRenderer?: (customType: string, renderer: MessageRenderer) => () => void;
+  /**
+   * Claim a key combo. The id mirrors the input handler's internal key ids
+   * (`tab`, `escape`, `ctrl+t`, ...). Returns an unregister fn.
+   */
+  registerShortcut?: (key: string, handler: ShortcutHandler) => () => void;
+  /**
+   * Provide @mention completions. Trigger char defaults to `@`. Returning an
+   * empty array hides the picker for that prefix.
+   */
+  registerMentionProvider?: (trigger: string, provider: MentionProvider) => () => void;
+}
+
+/**
+ * Read-only registry surface exposed to plugins via `PluginContext.registry`.
+ * Lets a plugin enumerate tools or hand them off to a nested run (e.g. a
+ * subagent loop) without circular type imports.
+ */
+export interface PluginRegistryView {
+  getTools: () => PluginTool[];
+  getFilteredTools: () => Promise<PluginTool[]>;
+  getHooks: () => LifecycleHooks[];
+  getSystemPrompts: () => Promise<string[]>;
+  applySystemPromptTransforms: (prompt: string) => Promise<string>;
+}
+
+export interface PluginContext extends PluginExtras {
   cwd: string;
   config: Record<string, unknown>;
   /**
@@ -10,6 +97,13 @@ export interface PluginContext {
    */
   ui?: UIService;
   getPlugin?: <T extends Plugin>(name: string) => T | undefined;
+  /**
+   * Read-only handle to the live registry. Plugins use this for advanced
+   * scenarios — e.g. running subagent loops via `runAgent` over a custom
+   * tool subset. Most plugins should rely on hooks + their own `tools`
+   * field instead.
+   */
+  registry?: PluginRegistryView;
   /**
    * Push status segments for this plugin into the registry. Replaces the older
    * polling-based `Plugin.statusLine()` getter. Pass `[]` to clear.
@@ -87,11 +181,55 @@ export interface TurnResult {
 
 export type AgentEndReason = 'complete' | 'aborted';
 
+/**
+ * Result a `beforeToolExec` hook may return. Either:
+ *   - a `ToolCall` (possibly mutated) — execution proceeds normally
+ *   - a `ToolBlock` — the host short-circuits execution and uses the
+ *     supplied content as the tool result (rendered as if the tool ran).
+ *     Lets policy plugins reject calls without throwing.
+ */
+export interface ToolBlock {
+  blocked: true;
+  content: string;
+  error?: boolean;
+}
+
+export type BeforeToolExecResult = ToolCall | ToolBlock;
+
+/**
+ * Result a `transformUserInput` hook may return.
+ *   - `pass` (or `undefined`)  — leave the user's text untouched
+ *   - `transform` — replace the text but still send it as a user message
+ *   - `intercept` — suppress the input entirely; the host should not call the
+ *     LLM. Plugins typically pair this with `MessageBus.append` to surface a
+ *     reply or status entry.
+ */
+export type UserInputTransform = { kind: 'pass' } | { kind: 'transform'; text: string } | { kind: 'intercept' };
+
 export interface LifecycleHooks {
   beforeLlmCall?: (messages: ChatMessage[], config: ProviderConfig) => ChatMessage[] | Promise<ChatMessage[]>;
   afterLlmCall?: (result: TurnResult) => TurnResult | Promise<TurnResult>;
-  beforeToolExec?: (toolCall: ToolCall) => ToolCall | Promise<ToolCall>;
+  beforeToolExec?: (toolCall: ToolCall) => BeforeToolExecResult | Promise<BeforeToolExecResult>;
   afterToolExec?: (toolCall: ToolCall, result: string) => string | Promise<string>;
+  /**
+   * Restrict the tool set the LLM can see for the next turn. Plugins return
+   * the subset of tools they want exposed. Multiple plugins compose by
+   * intersection — each hook narrows the previous result.
+   */
+  filterTools?: (tools: PluginTool[]) => PluginTool[] | Promise<PluginTool[]>;
+  /**
+   * Mutate the merged system prompt right before it goes to the provider.
+   * Composes left-to-right; later plugins see the prior plugin's output.
+   * Useful for per-agent prompt wrapping.
+   */
+  transformSystemPrompt?: (prompt: string) => string | Promise<string>;
+  /**
+   * Inspect / transform / intercept user input on submit. Composes by
+   * threading the current text through each plugin; an `intercept` short-
+   * circuits and stops the chain. Hosts call this before constructing the
+   * user `ChatMessage`.
+   */
+  transformUserInput?: (text: string) => UserInputTransform | Promise<UserInputTransform>;
   /**
    * Fires once per `runAgent` invocation, after the loop exits — whether the
    * agent finished normally (LLM produced a final response with no tool calls)

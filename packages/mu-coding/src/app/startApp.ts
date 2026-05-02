@@ -20,13 +20,14 @@ async function runApp(): Promise<void> {
   let registryRef: PluginRegistry | null = null;
   const shutdown = registerShutdown(() => registryRef);
 
-  const registry = await createRegistry({ cwd: process.cwd(), config, uiService, shutdown });
+  const { registry, messageBus } = await createRegistry({ cwd: process.cwd(), config, uiService, shutdown });
   registryRef = registry;
 
   renderApp({
     config,
     initialMessages: resolveInitialMessages(cliArgs),
     registry,
+    messageBus,
     uiService,
     shutdown,
   });

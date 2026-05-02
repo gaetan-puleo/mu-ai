@@ -1,7 +1,14 @@
 import { Box, Text } from 'ink';
+import type { MentionCompletion } from 'mu-agents';
 import { useTheme } from '../context/ThemeContext';
 import type { Theme } from '../theme/types';
 import type { SlashCommand } from './commands';
+
+interface MentionPickerView {
+  completions: MentionCompletion[];
+  selectedIndex: number;
+  partial: string;
+}
 
 export interface InputBoxViewProps {
   value: string;
@@ -14,6 +21,7 @@ export interface InputBoxViewProps {
   model: string;
   attachmentName: string | null;
   attachmentError: string | null;
+  mentions: MentionPickerView | null;
 }
 
 function CommandHints({
@@ -43,12 +51,35 @@ function CommandHints({
   );
 }
 
+function MentionHints({ mentions, theme }: { mentions: MentionPickerView; theme: Theme }) {
+  if (!mentions.completions.length) {
+    return null;
+  }
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      {mentions.completions.map((c, i) => (
+        <Box key={c.value} paddingX={1}>
+          <Text
+            color={i === mentions.selectedIndex ? theme.input.commandHighlight : undefined}
+            bold={i === mentions.selectedIndex}
+          >
+            {i === mentions.selectedIndex ? '▸ @' : '  @'}
+            {c.label ?? c.value}
+          </Text>
+          {c.description && <Text dimColor={true}> {c.description}</Text>}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
 function InputFooter({
   model,
   attachmentName,
   attachmentError,
   hasContent,
   isCommandMode,
+  hasMentions,
   theme,
 }: {
   model: string;
@@ -56,13 +87,16 @@ function InputFooter({
   attachmentError: string | null;
   hasContent: boolean;
   isCommandMode: boolean;
+  hasMentions: boolean;
   theme: Theme;
 }) {
-  const hint = hasContent
-    ? isCommandMode
-      ? '↑↓ select · Enter execute'
-      : 'Enter to send · Shift+Enter for newline · ←→ move'
-    : 'Type / for commands';
+  const hint = hasMentions
+    ? '↑↓ select · Tab/Enter accept'
+    : hasContent
+      ? isCommandMode
+        ? '↑↓ select · Enter execute'
+        : 'Enter to send · Shift+Enter for newline · ←→ move'
+      : 'Type / for commands · @ for mentions';
 
   return (
     <Box justifyContent="space-between">
@@ -178,6 +212,7 @@ export function InputBoxView(props: InputBoxViewProps) {
       marginTop={1}
     >
       {props.isCommandMode && <CommandHints commands={props.commands} selectedIndex={props.cmdIndex} theme={theme} />}
+      {props.mentions && <MentionHints mentions={props.mentions} theme={theme} />}
       <Box flexDirection="column" minHeight={2}>
         <InputDisplay
           value={props.value}
@@ -194,6 +229,7 @@ export function InputBoxView(props: InputBoxViewProps) {
         attachmentError={props.attachmentError}
         hasContent={props.value.length > 0}
         isCommandMode={props.isCommandMode}
+        hasMentions={Boolean(props.mentions)}
         theme={theme}
       />
     </Box>

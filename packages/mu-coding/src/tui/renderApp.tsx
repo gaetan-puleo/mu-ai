@@ -3,6 +3,7 @@ import type { PluginRegistry } from 'mu-agents';
 import type { ChatMessage } from 'mu-provider';
 import type { ShutdownFn } from '../app/shutdown';
 import type { AppConfig } from '../config/index';
+import type { HostMessageBus } from '../runtime/messageBus';
 import { ChatPanel } from './components/chat/ChatPanel';
 import { ThemeProvider } from './context/ThemeContext';
 import type { InkUIService } from './plugins/InkUIService';
@@ -12,6 +13,7 @@ interface RenderAppOptions {
   config: AppConfig;
   initialMessages?: ChatMessage[];
   registry: PluginRegistry;
+  messageBus: HostMessageBus;
   uiService: InkUIService;
   shutdown: ShutdownFn;
 }
@@ -24,6 +26,7 @@ export function renderApp(options: RenderAppOptions): void {
         config={options.config}
         initialMessages={options.initialMessages}
         registry={options.registry}
+        messageBus={options.messageBus}
         uiService={options.uiService}
         shutdown={options.shutdown}
       />
