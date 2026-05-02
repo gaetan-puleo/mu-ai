@@ -93,11 +93,31 @@ function resolveSgBin(): string {
   );
 }
 
+/**
+ * Run `sg` and resolve with stdout. ast-grep follows ripgrep/grep semantics
+ * and exits **1 when no matches were found**; only exit codes ≥ 2 indicate a
+ * real failure. We unwrap that here so callers don't have to special-case the
+ * empty-result path (which would otherwise blow up loudly any time a single
+ * `DECL_PATTERNS` entry — say `enum $NAME` in a JS-only project — yielded no
+ * hits, or when scanning a config dir with no source files at all).
+ */
 function runSg(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(resolveSgBin(), args, { maxBuffer: 20 * 1024 * 1024 }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve(stdout);
+      if (!err) {
+        resolve(stdout);
+        return;
+      }
+      // execFile callback errors carry the process exit code as `.code`
+      // (number) — distinct from the typed `NodeJS.ErrnoException.code`
+      // (string ENOENT/EACCES/…) used for spawn failures.
+      const code = (err as { code?: number | string }).code;
+      if (code === 1) {
+        // "no matches" — return whatever stdout we got (typically `[]`).
+        resolve(stdout);
+        return;
+      }
+      reject(err);
     });
   });
 }
