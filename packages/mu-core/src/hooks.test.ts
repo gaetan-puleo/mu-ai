@@ -73,4 +73,33 @@ describe('runTransformUserInputHooks', () => {
     expect(result.kind).toBe('intercept');
     expect(secondCalled).toBe(false);
   });
+
+  it('propagates continue to the caller', async () => {
+    // Regression: the composer used to silently drop `continue`, falling
+    // back to `pass`. That made the host re-push the user message on top
+    // of the one a plugin (mu-agents @-mention dispatch) had already
+    // appended, producing a duplicate user bubble in the transcript.
+    const hooks: LifecycleHooks[] = [{ transformUserInput: () => ({ kind: 'continue' }) }];
+    const result = await runTransformUserInputHooks(hooks, 'X');
+    expect(result.kind).toBe('continue');
+  });
+
+  it('continue short-circuits the chain', async () => {
+    // Once a plugin has appended the user message itself, downstream
+    // hooks can't safely transform absent text — same chain-termination
+    // semantics as `intercept`.
+    let secondCalled = false;
+    const hooks: LifecycleHooks[] = [
+      { transformUserInput: () => ({ kind: 'continue' }) },
+      {
+        transformUserInput: () => {
+          secondCalled = true;
+          return { kind: 'transform', text: 'should-not-apply' };
+        },
+      },
+    ];
+    const result = await runTransformUserInputHooks(hooks, 'X');
+    expect(result.kind).toBe('continue');
+    expect(secondCalled).toBe(false);
+  });
 });

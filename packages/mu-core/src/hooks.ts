@@ -85,7 +85,11 @@ export async function runAfterAgentRunHooks(hooks: LifecycleHooks[], reason: Age
 /**
  * Compose every `transformUserInput` hook. Earlier hooks see the raw text;
  * each subsequent hook sees the (possibly rewritten) text emitted by the
- * previous one. The first `intercept` short-circuits the chain.
+ * previous one. The first `intercept` or `continue` short-circuits the chain
+ * — once a plugin has either suppressed the input or appended the user
+ * message itself, downstream hooks can't safely keep transforming absent
+ * text, and the host needs to see the terminating signal verbatim so it
+ * skips its own user-message push (see `useOnSend`).
  */
 export async function runTransformUserInputHooks(hooks: LifecycleHooks[], text: string): Promise<UserInputTransform> {
   let current: UserInputTransform = { kind: 'pass' };
@@ -94,6 +98,9 @@ export async function runTransformUserInputHooks(hooks: LifecycleHooks[], text: 
     if (!hook.transformUserInput) continue;
     const next = await hook.transformUserInput(working);
     if (next.kind === 'intercept') {
+      return next;
+    }
+    if (next.kind === 'continue') {
       return next;
     }
     if (next.kind === 'transform') {
