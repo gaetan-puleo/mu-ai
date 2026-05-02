@@ -44,6 +44,7 @@ function splitTableRow(line: string): string[] {
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: block parsing is dispatch-heavy
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: single parser dispatch loop — every block kind consumed inline keeps the cursor (`i`) local; splitting would scatter it.
 function parseBlocks(input: string): Block[] {
   const lines = input.split('\n');
   const blocks: Block[] = [];
@@ -163,6 +164,7 @@ const INLINE_PATTERNS: { kind: InlineToken['kind']; re: RegExp; capture: number;
   { kind: 'italic', re: /_([^_\n]+)_/, capture: 1 },
 ];
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: greedy inline tokenizer — earliest-match across patterns then advance; the branching is the algorithm.
 function tokenizeInline(input: string): InlineToken[] {
   const out: InlineToken[] = [];
   let cursor = 0;
@@ -321,6 +323,7 @@ function QuoteBlock({ block, theme }: { block: Extract<Block, { type: 'quote' }>
   return (
     <Box flexDirection="column" marginBottom={1}>
       {block.lines.map((ln, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: blockquote lines render in document order and never reorder — index is the only stable identifier.
         <Box key={`${i}-${ln}`}>
           <Text color={theme.markdown.blockquote}> │ </Text>
           <Box flexShrink={1} flexGrow={1}>
@@ -347,6 +350,7 @@ function TableBlock({ block, theme }: { block: Extract<Block, { type: 'table' }>
   const renderRow = (cells: string[], bold: boolean, key: string) => (
     <Box key={key}>
       {Array.from({ length: colCount }, (_, c) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: table columns have fixed positions for the lifetime of the row; reordering is impossible.
         <Box key={c} marginRight={c === colCount - 1 ? 0 : 2}>
           <Text bold={bold}>{(cells[c] ?? '').padEnd(widths[c])}</Text>
         </Box>
@@ -356,6 +360,7 @@ function TableBlock({ block, theme }: { block: Extract<Block, { type: 'table' }>
   const sep = (
     <Box>
       {Array.from({ length: colCount }, (_, c) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: separator cells map 1:1 to columns — column index is the natural key.
         <Box key={c} marginRight={c === colCount - 1 ? 0 : 2}>
           <Text color={theme.markdown.tableBorder}>{'─'.repeat(widths[c])}</Text>
         </Box>

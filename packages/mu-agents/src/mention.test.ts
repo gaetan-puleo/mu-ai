@@ -76,7 +76,7 @@ function settingsPathStub(): string {
   return join(dir, 'state.json');
 }
 
-async function waitForRunStatus(
+async function _waitForRunStatus(
   runs: SubagentRunRegistry,
   predicate: (status: string) => boolean,
   timeoutMs = 1000,
@@ -89,6 +89,7 @@ async function waitForRunStatus(
   }
 }
 
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: scenario test suite — each `it` exercises the full @-mention dispatch flow end-to-end with detailed assertions; splitting would duplicate the elaborate shared setup.
 describe('@<subagent> forced dispatch', () => {
   it('runs the subagent and queues a synthetic tool flow for the parent turn', async () => {
     const settingsPath = settingsPathStub();

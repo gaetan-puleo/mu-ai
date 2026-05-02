@@ -31,6 +31,7 @@ function listGitFiles(cwd: string): string[] | null {
   }
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: iterative FS walker with MAX_FILES early-exit — branching is the algorithm; extracting helpers would scatter the cap check.
 function walkFs(root: string): string[] {
   const out: string[] = [];
   const stack: string[] = [root];

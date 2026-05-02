@@ -56,6 +56,7 @@ const AGENT: AgentDefinition = {
 
 const CONFIG: ProviderConfig = { providerId: 'openai' };
 
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: scenario test suite — each `it` runs `runSubagent` end-to-end with unique fakes; hoisting would lose per-case mutation flexibility.
 describe('runSubagent', () => {
   it('completes via the host provider registry (regression: missing getProviders)', async () => {
     const providers = fakeProviders();

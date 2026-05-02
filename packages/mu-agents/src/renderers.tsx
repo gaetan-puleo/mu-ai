@@ -100,5 +100,3 @@ export function SubagentMessage({ msg }: { msg: ChatMessage }) {
     </Box>
   );
 }
-
-
