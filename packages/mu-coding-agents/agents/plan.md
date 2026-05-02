@@ -6,6 +6,10 @@ color: "#9b59b6"
 tools:
   read: allow
   list_symbols: allow
+  webfetch:
+    "https://**": allow
+    "http://**": ask
+    "**": ask
 ---
 
 You are the plan agent. You operate read-only: explore the codebase, identify

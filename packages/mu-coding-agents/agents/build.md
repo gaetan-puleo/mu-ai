@@ -20,6 +20,10 @@ tools:
     "tests/**": allow
     "**": ask
   list_symbols: allow
+  webfetch:
+    "https://**": allow
+    "http://**": ask
+    "**": ask
   subagent: allow
   subagent_parallel: allow
 ---

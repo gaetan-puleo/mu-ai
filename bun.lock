@@ -14,7 +14,7 @@
     },
     "packages/mu-agents": {
       "name": "mu-agents",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "dependencies": {
         "chokidar": "^5.0.0",
         "mu-core": "0.8.0",
@@ -31,7 +31,7 @@
     },
     "packages/mu-coding": {
       "name": "mu-coding",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "bin": {
         "mu": "./bin/mu.js",
       },
@@ -45,18 +45,18 @@
     },
     "packages/mu-coding-agents": {
       "name": "mu-coding-agents",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "dependencies": {
         "mu-core": "0.5.0",
       },
     },
     "packages/mu-core": {
       "name": "mu-core",
-      "version": "0.8.0",
+      "version": "0.9.0",
     },
     "packages/mu-openai-provider": {
       "name": "mu-openai-provider",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "dependencies": {
         "mu-core": "0.8.0",
         "openai": "^6.35.0",
@@ -64,11 +64,18 @@
     },
     "packages/mu-repomap": {
       "name": "mu-repomap",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "dependencies": {
         "@ast-grep/cli": "^0.42.1",
         "chokidar": "^5.0.0",
         "mu-core": "0.8.0",
+      },
+    },
+    "packages/mu-webfetch": {
+      "name": "mu-webfetch",
+      "version": "0.9.0",
+      "dependencies": {
+        "mu-core": "0.9.0",
       },
     },
   },
@@ -276,6 +283,8 @@
     "mu-openai-provider": ["mu-openai-provider@workspace:packages/mu-openai-provider"],
 
     "mu-repomap": ["mu-repomap@workspace:packages/mu-repomap"],
+
+    "mu-webfetch": ["mu-webfetch@workspace:packages/mu-webfetch"],
 
     "onetime": ["onetime@5.1.2", "", { "dependencies": { "mimic-fn": "^2.1.0" } }, "sha512-kbpaSSGJTWdAY5KPVeMOKXSrPtr8C8C7wodJbcsd51jRnmD+GZu8Y0VoU6Dm5Z4vWr0Ig/1NKuWRKf7j5aaYSg=="],
 

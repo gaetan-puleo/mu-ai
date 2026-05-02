@@ -6,6 +6,10 @@ color: "#1abc9c"
 tools:
   read: allow
   list_symbols: allow
+  webfetch:
+    "https://**": allow
+    "http://**": ask
+    "**": ask
   bash:
     "rm *": deny
     "sudo *": deny
