@@ -1,6 +1,6 @@
 {
   "name": "mu-coding-agents",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Default coding agent definitions (build, plan, explore, review)",
   "type": "module",
   "main": "./src/plugin.ts",
@@ -14,6 +14,6 @@
     "README.md"
   ],
   "dependencies": {
-    "mu-core": "0.9.0"
+    "mu-core": "0.10.0"
   }
 }

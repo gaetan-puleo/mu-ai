@@ -1,6 +1,6 @@
 {
   "name": "mu-openai-provider",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "OpenAI-compatible LLM provider plugin for mu",
   "type": "module",
   "main": "./src/index.ts",
@@ -12,7 +12,7 @@
     "src"
   ],
   "dependencies": {
-    "mu-core": "0.9.0",
+    "mu-core": "0.10.0",
     "openai": "^6.35.0"
   }
 }
