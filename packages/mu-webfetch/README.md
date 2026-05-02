@@ -1,19 +1,44 @@
 # mu-webfetch
 
 Plugin that adds a `webfetch` tool to mu. Fetches the contents of a URL and
-returns it as plain text, with the `<head>…</head>` block stripped from HTML
-responses to keep the LLM's input lean.
+returns it as markdown (default), plain text, or raw HTML — adapted from
+[opencode's `webfetch` tool](https://github.com/sst/opencode/blob/dev/packages/opencode/src/tool/webfetch.ts).
 
-Ported from the
+Originally ported from the
 [`webfetch` pi-coding-agent extension](https://github.com/mariozechner/pi-coding-agent).
 
 ## Tool
 
 - **`webfetch`** — fetch a URL.
-  - Parameter: `url` (string, required) — the URL to fetch (HTTP/HTTPS).
-  - Returns the response body as text. On non-2xx responses or network
-    failures the tool returns an error result containing the status / error
-    message.
+  - `url` (string, required) — fully-formed http(s) URL.
+  - `format` (string, optional) — `markdown` (default), `text`, or `html`.
+    - `markdown` and `text` only transform when the response `Content-Type`
+      is `text/html`; other types are returned as-is.
+  - `timeout` (number, optional) — seconds, capped at 120.
+  - Returns the response body as text. Errors come back as
+    `{ content, error: true }`.
+
+### Image responses
+
+For `image/*` responses (excluding `image/svg+xml` and
+`image/vnd.microsoft.icon`) the tool returns a single string of the form:
+
+```
+[image: <mime>, <byteLength> bytes from <url>]
+data:<mime>;base64,<base64-payload>
+```
+
+Use sparingly — base64 inlining can blow the model's context window.
+
+### Limits
+
+- **Size cap**: responses larger than **5 MB** are rejected (checked against
+  both the `content-length` header and the actual body length).
+- **Timeout**: default **30 s**, max **120 s**. Configurable via the
+  `timeout` parameter.
+- **Cloudflare retry**: a `403 cf-mitigated: challenge` response triggers one
+  retry with `User-Agent: mu` (the first attempt uses a regular browser UA).
+- Aborting the agent (Ctrl-C) cancels in-flight requests via `AbortSignal`.
 
 ## Enable it
 
@@ -43,10 +68,14 @@ permissions:
       - "**"
 ```
 
-## Notes
+Glob matching is keyed solely on the URL — the `format` and `timeout`
+parameters do not participate in permission checks.
 
-- Aborting the agent (Ctrl-C) cancels in-flight requests via `AbortSignal`.
-- The `<head>` strip uses a single non-greedy regex; malformed HTML with
-  nested or unterminated `<head>` tags is left untouched.
-- No size cap: very large pages will be returned verbatim and may overflow
-  the model's context window.
+## Implementation notes
+
+- HTML→markdown conversion uses [turndown](https://github.com/mixmark-io/turndown)
+  with `script`, `style`, `meta`, `link` stripped.
+- HTML→text uses Bun's `HTMLRewriter` when available (mu's primary runtime
+  is Bun); a regex-based tag stripper acts as a fallback for non-Bun hosts.
+- The first request uses a Chrome-like `User-Agent` plus a quality-weighted
+  `Accept` header tuned to the requested format.
