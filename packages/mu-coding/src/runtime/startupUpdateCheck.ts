@@ -7,7 +7,7 @@
  *  - Must never block startup. Caller fire-and-forgets the returned promise.
  *  - Must never crash the host on network / DNS errors. Every probe is wrapped.
  *  - Must not hammer npm on every boot. Results are cached in
- *    `<cacheDir>/update-check.json` for `CACHE_TTL_MS` (24h).
+ *    `<cacheDir>/update-check.json` for `CACHE_TTL_MS` (1h).
  *  - Disable with `MU_NO_UPDATE_CHECK=1` (kill switch for offline / CI / tests).
  *
  * Toasts are routed through the existing `InkUIService.notify` queue, which
@@ -28,7 +28,7 @@ import {
   probeSelfAsync,
 } from './updateCheck';
 
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 h
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 h
 const CACHE_FILENAME = 'update-check.json';
 
 interface CacheShape {
