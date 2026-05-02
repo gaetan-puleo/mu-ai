@@ -11,6 +11,10 @@ export interface Usage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /** Subset of `promptTokens` that hit the prompt cache, when reported by the
+   *  server (OpenAI: `usage.prompt_tokens_details.cached_tokens`; llama.cpp
+   *  newer builds expose the same field). Undefined or 0 when unsupported. */
+  cachedPromptTokens?: number;
 }
 
 export interface ImageAttachment {
@@ -66,5 +70,4 @@ export interface StreamOptions {
 
 export interface ApiModel {
   id: string;
-  name?: string;
 }

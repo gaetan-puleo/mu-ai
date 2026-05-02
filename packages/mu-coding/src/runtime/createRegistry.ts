@@ -9,9 +9,9 @@ interface CreateRegistryOptions {
   config: AppConfig;
   uiService: InkUIService;
   /**
-   * Host shutdown is forwarded to plugins via PluginContext so a plugin (or
-   * Pi extension via mu-pi-compat) calling shutdown gets the same graceful
-   * path as Ctrl+C — terminal restored, plugins deactivated.
+   * Host shutdown is forwarded to plugins via PluginContext so a plugin
+   * calling shutdown gets the same graceful path as Ctrl+C — terminal
+   * restored, plugins deactivated.
    *
    * Optional because some callers (tests, single-shot) don't have one.
    */

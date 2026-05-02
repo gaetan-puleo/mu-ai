@@ -21,6 +21,13 @@ export function createBuiltinPlugin(): Plugin {
       createEditFileTool(getCwd),
       createBashTool(getCwd),
     ],
+    systemPrompt: [
+      'File & shell tools:',
+      '- Prefer `read` over `cat`/`sed`; pass `start`/`end` for large files.',
+      '- Use `edit` for surgical changes; include enough context in `from` to be unique. One `edit` call per change site.',
+      '- Use `write` only for new files or full rewrites.',
+      '- Use `bash` for ops without a dedicated tool (ls, rg, build, tests). Avoid using it to read or rewrite files.',
+    ].join('\n'),
     activate(ctx) {
       pluginCwd = ctx.cwd;
     },

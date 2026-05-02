@@ -1,0 +1,1 @@
+export { resolveTheme } from './merge';

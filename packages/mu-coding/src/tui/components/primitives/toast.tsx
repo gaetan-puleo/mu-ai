@@ -1,5 +1,6 @@
 import { Box, Text, useInput, useStdout } from 'ink';
 import { useCallback, useState } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 
 export interface Toast {
   id: number;
@@ -29,6 +30,7 @@ export function useToast() {
 }
 
 export function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
+  const theme = useTheme();
   const { stdout } = useStdout();
   const columns = stdout.columns;
 
@@ -48,14 +50,14 @@ export function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismi
     <Box position="absolute" top={0} left={0} width={columns} justifyContent="flex-end" paddingX={2} paddingY={1}>
       <Box flexDirection="column" gap={1}>
         {toasts.map((t) => (
-          <Box key={t.id} backgroundColor="#1a1a1a" paddingX={2} paddingY={0} width={maxWidth}>
+          <Box key={t.id} backgroundColor={theme.toast.background} paddingX={2} paddingY={0} width={maxWidth}>
             <Box flexGrow={1} flexShrink={1}>
-              <Text color={t.color ?? 'green'} wrap="wrap">
+              <Text color={t.color ?? theme.toast.defaultColor} wrap="wrap">
                 {t.message}
               </Text>
             </Box>
             <Box marginLeft={1} flexShrink={0}>
-              <Text color="gray" dimColor={true}>
+              <Text color={theme.toast.closeHint} dimColor={true}>
                 [esc]✕
               </Text>
             </Box>

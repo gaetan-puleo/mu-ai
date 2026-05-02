@@ -88,23 +88,24 @@ export function createBashTool(getCwd: () => string): PluginTool {
       function: {
         name: 'bash',
         description:
-          'Execute a bash command and return its output. Use for running commands, installing packages, checking status, etc.',
+          'Run a shell command via bash in the project cwd. Returns stdout+stderr; non-zero exit is an error.',
         parameters: {
           type: 'object',
           properties: {
-            command: { type: 'string', description: 'The bash command to execute' },
+            cmd: { type: 'string' },
           },
-          required: ['command'],
+          required: ['cmd'],
+          additionalProperties: false,
         },
       },
     },
     display: {
       verb: 'running',
       kind: 'shell',
-      fields: { command: 'command' },
+      fields: { command: 'cmd' },
     },
     execute(args, signal) {
-      return executeBash(args.command as string, getCwd(), signal);
+      return executeBash(args.cmd as string, getCwd(), signal);
     },
   };
 }

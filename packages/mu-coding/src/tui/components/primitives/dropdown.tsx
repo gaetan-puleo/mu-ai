@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from 'ink';
 import { useMemo, useState } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 import { sanitizeTerminalInput } from '../../input/sanitize';
 
 interface DropdownItem {
@@ -33,6 +34,7 @@ export function Dropdown({
   onCancel,
   isActive = true,
 }: DropdownProps) {
+  const theme = useTheme();
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
 
@@ -82,7 +84,7 @@ export function Dropdown({
     if (filtered.length === 0) {
       return (
         <Box paddingX={1}>
-          <Text dimColor={true} italic={true}>
+          <Text color={theme.dropdown.empty} italic={true}>
             No results
           </Text>
         </Box>
@@ -90,7 +92,7 @@ export function Dropdown({
     }
     return visibleItems.map((item, i) => {
       const isSel = i === index - visibleStart;
-      const color = isSel ? 'green' : undefined;
+      const color = isSel ? theme.dropdown.selected : undefined;
       return (
         <Box key={item.value} paddingX={1}>
           <Text color={color} bold={isSel}>
@@ -106,9 +108,11 @@ export function Dropdown({
   return (
     <Box flexDirection="column">
       <Box paddingX={1} marginBottom={1}>
-        <Text dimColor={true}>{placeholder} </Text>
+        <Text color={theme.dropdown.placeholder}>{placeholder} </Text>
         <Text>{query}</Text>
-        <Text inverse={true}>▎</Text>
+        <Text color={theme.dropdown.cursor} inverse={true}>
+          ▎
+        </Text>
       </Box>
       {renderResults()}
       {filtered.length > maxVisible && (

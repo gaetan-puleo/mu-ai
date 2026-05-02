@@ -5,7 +5,7 @@
  * this with `InkUIService`; CLI / single-shot hosts can use `ConsoleUIService`.
  *
  * Plugins receive a `UIService` either directly through their own factory
- * config (e.g. `mu-pi-compat`) or via `PluginContext.ui` when one is provided.
+ * config or via `PluginContext.ui` when one is provided.
  */
 export type UINotifyLevel = 'info' | 'success' | 'warning' | 'error';
 

@@ -1,10 +1,13 @@
+import OpenAI from 'openai';
 import type { ApiModel } from './types';
 
 export async function listModels(baseUrl: string): Promise<ApiModel[]> {
   try {
-    const res = await fetch(`${baseUrl}/models`);
-    const data = await res.json();
-    return (data.data ?? []).map((m: { id: string }) => ({ id: m.id }));
+    // Local OpenAI-compatible servers don't enforce auth; a placeholder
+    // apiKey satisfies the SDK without leaking real credentials.
+    const client = new OpenAI({ baseURL: baseUrl, apiKey: 'sk-local' });
+    const list = await client.models.list();
+    return list.data.map((m) => ({ id: m.id }));
   } catch {
     return [];
   }

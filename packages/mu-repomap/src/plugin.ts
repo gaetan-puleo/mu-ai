@@ -16,15 +16,11 @@ function createSearchCodeTool(opts: RepomapOptions, getCwd: () => string): Plugi
       function: {
         name: 'search_code',
         description:
-          'Search project code. Use repomap mode for fast index-based queries (list all functions, find a symbol). Examples: query="useState", query="fn", query="all", query="file:src/utils/p-limit.ts"',
+          'Search the project code index. Query: symbol name, kind ("fn"/"class"/"interface"), "summary"/"tree"/"stats", or a file path. Empty = tree.',
         parameters: {
           type: 'object',
           properties: {
-            query: {
-              type: 'string',
-              description:
-                'Repomap query: symbol name (e.g. "useState"), kind (e.g. "fn", "class"), "all" for summary, or file path',
-            },
+            query: { type: 'string' },
           },
           required: [],
           additionalProperties: false,
@@ -154,8 +150,11 @@ export function createRepomapPlugin(options?: RepomapOptions): Plugin {
     systemPrompt: async (ctx) => {
       const manager = RepomapManager.getInstance(ctx.cwd);
       const map = await manager.getMap();
-      if (!map) return '';
-      return formatSummary(map, { maxFiles: opts.maxFiles ?? 80 });
+      const guidance = 'Use `search_code` (repomap index) for symbol/structural lookups instead of `bash` grep/find.';
+      if (!map) return guidance;
+      // Compact summary for the system prompt; the search_code tool can still
+      // render the full summary on demand via `query: "summary"`.
+      return `${guidance}\n\n${formatSummary(map, { maxFiles: 30 })}`;
     },
 
     commands: [

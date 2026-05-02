@@ -18,7 +18,6 @@
     { "path": "packages/mu-provider" },
     { "path": "packages/mu-agents" },
     { "path": "packages/mu-repomap" },
-    { "path": "packages/mu-pi-compat" },
     { "path": "packages/mu-coding" }
   ]
 }

@@ -29,7 +29,7 @@ interface UseChatPanelOptions {
 
 export function useChatPanel(options: UseChatPanelOptions) {
   const { config, initialMessages, registry, uiService, shutdown } = options;
-  const ctx = useChat(config, registry, initialMessages, shutdown);
+  const ctx = useChat(config, registry, initialMessages, shutdown, uiService);
   const { width, height } = useTerminalSize();
   const viewRef = useRef<InkDOMElement>(null);
   const contentRef = useRef<InkDOMElement>(null);
@@ -64,7 +64,8 @@ export function useChatPanel(options: UseChatPanelOptions) {
     quitWarning: ctx.abort.quitWarning,
     error: ctx.session.error,
     modelError: ctx.models.modelError,
-    tokensPerSecond: ctx.session.stream.tps,
+    totalTokens: ctx.session.stream.totalTokens,
+    cachedTokens: ctx.session.stream.cachedTokens,
     pluginStatus,
   });
 

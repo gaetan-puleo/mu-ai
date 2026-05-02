@@ -9,7 +9,6 @@ packages/
 ├── mu-provider/    # LLM provider abstraction (streaming, model listing)
 ├── mu-agents/      # Agent loop + plugin system (tools, hooks, commands)
 ├── mu-repomap/     # Code indexing plugin (ast-grep based repomap)
-├── mu-pi-compat/   # Pi extension compatibility layer
 └── mu-coding/      # CLI + TUI application
 ```
 
@@ -18,7 +17,6 @@ packages/
 - **Local-first** — works with any OpenAI-compatible API (Ollama, LM Studio, llama-swap, etc.)
 - **Streaming** — real-time token streaming with reasoning content support
 - **Plugin system** — extensible via plugins (tools, lifecycle hooks, commands, custom agent loops)
-- **Pi extension support** — run Pi coding agent extensions through the `mu-pi-compat` layer
 - **Package manager** — install plugins from npm with `mu install npm:<package>`
 - **Code aware** — automatic project indexing via `ast-grep`, search symbols and browse file trees
 - **Session persistence** — conversations auto-saved, resume with `mu -c`
@@ -75,22 +73,6 @@ mu install npm:@some-org/my-plugin
 
 This installs the package to `~/.local/share/mu/node_modules/` and adds it to your config. Packages are referenced with the `npm:` prefix.
 
-For Pi extensions, add them to `mu-pi-compat`'s extensions list:
-
-```json
-{
-  "plugins": [
-    "npm:my-native-plugin",
-    {
-      "name": "mu-pi-compat",
-      "config": {
-        "extensions": ["npm:@some-org/my-pi-extension"]
-      }
-    }
-  ]
-}
-```
-
 ## Packages
 
 ### `mu-provider`
@@ -127,22 +109,6 @@ const myPlugin: Plugin = {
 };
 ```
 
-### `mu-pi-compat`
-
-Compatibility layer for Pi coding agent extensions. Translates Pi's `ExtensionAPI` into mu's plugin system — tools, commands, lifecycle hooks, and events.
-
-```typescript
-import createPiCompatPlugin from 'mu-pi-compat';
-
-const plugin = createPiCompatPlugin({
-  extensions: ['./my-pi-extension.ts', 'npm:@some-org/pi-extension'],
-  ui: uiServiceInstance,
-});
-await registry.register(plugin);
-```
-
-Pi extensions that use `pi.registerTool()`, `pi.registerCommand()`, and `pi.on()` work through this layer. npm packages with a `"pi"` field in their `package.json` are auto-discovered.
-
 ### `mu-repomap`
 
 Code indexing plugin — provides the `search_code` tool and system prompt context.
@@ -168,7 +134,6 @@ Config lives at `~/.config/mu/config.json`:
   "plugins": [
     "mu-repomap",
     "npm:my-native-plugin",
-    { "name": "mu-pi-compat", "config": { "extensions": ["npm:@some-org/my-pi-extension"] } },
     { "name": "./path/to/local/plugin", "config": { "key": "value" } }
   ]
 }

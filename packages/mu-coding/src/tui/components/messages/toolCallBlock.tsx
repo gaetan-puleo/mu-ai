@@ -2,6 +2,7 @@ import { Box, Text } from 'ink';
 import type { ToolDisplayHint } from 'mu-agents';
 import type { ChatMessage } from 'mu-provider';
 import { useToolDisplay } from '../../chat/ToolDisplayContext';
+import { useTheme } from '../../context/ThemeContext';
 import { useSpinner } from '../../hooks/useUI';
 import { EditOutput } from './EditOutput';
 import { ReadOutput } from './ReadOutput';
@@ -90,6 +91,7 @@ interface GenericProps {
 }
 
 function GenericToolOutput({ name, args, content, error, hint }: GenericProps) {
+  const theme = useTheme();
   let summary = '';
   const commandField = hint?.fields?.command;
   if (commandField) {
@@ -104,7 +106,7 @@ function GenericToolOutput({ name, args, content, error, hint }: GenericProps) {
   const preview = content.length > 200 ? `${content.slice(0, 200)}…` : content;
   return (
     <Box flexDirection="column" flexShrink={0}>
-      <Text color={error ? 'red' : 'green'} bold={true}>
+      <Text color={error ? theme.tool.error : theme.tool.success} bold={true}>
         {error ? '✗' : '✓'} {name}
         {summary && (
           <>
@@ -113,8 +115,8 @@ function GenericToolOutput({ name, args, content, error, hint }: GenericProps) {
           </>
         )}
       </Text>
-      <Box flexDirection="column" backgroundColor="#111111" padding={1} marginTop={1}>
-        <Text color="white">{preview}</Text>
+      <Box flexDirection="column" backgroundColor={theme.tool.previewBackground} padding={1} marginTop={1}>
+        <Text color={theme.tool.previewText}>{preview}</Text>
       </Box>
     </Box>
   );

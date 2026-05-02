@@ -7,15 +7,16 @@ export function createWriteFileTool(getCwd: () => string): PluginTool {
     definition: {
       type: 'function',
       function: {
-        name: 'write_file',
-        description: 'Write content to a file, creating it if it does not exist or overwriting if it does.',
+        name: 'write',
+        description: 'Create or overwrite a file. Use `edit` for partial changes to existing files.',
         parameters: {
           type: 'object',
           properties: {
-            path: { type: 'string', description: 'Absolute or relative file path' },
-            content: { type: 'string', description: 'The full content to write' },
+            path: { type: 'string' },
+            content: { type: 'string' },
           },
           required: ['path', 'content'],
+          additionalProperties: false,
         },
       },
     },

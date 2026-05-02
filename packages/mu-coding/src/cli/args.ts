@@ -31,16 +31,19 @@ Config (XDG):
   ~/.cache/mu/repomap/        — code index cache
 
 Keyboard shortcuts (interactive):
-  Ctrl+C  Abort / Quit (press twice)
-  Esc     Stop generation (press twice while streaming)
-  Enter       Send message
-  Shift+Enter New line
-  Ctrl+S      Send message
-  ↑ / ↓   Navigate input history
-  Ctrl+N  New conversation
-  Ctrl+M  Cycle models
-  Ctrl+O  Model picker
-  Ctrl+V  Paste image from clipboard`);
+  Ctrl+C        Abort / Quit (press twice)
+  Esc           Stop generation (press twice while streaming)
+  Enter         Send message
+  Shift+Enter   New line
+  Ctrl+S        Send message
+  ← / →         Move cursor (Ctrl/Alt+arrow: by word)
+  Home/End      Start/end of line (or Ctrl+A / Ctrl+E)
+  ↑ / ↓         Move between lines; navigate history at edges
+  Backspace/Del Delete around cursor (Ctrl+W word, Ctrl+U/K line)
+  Ctrl+N        New conversation
+  Ctrl+M        Cycle models
+  Ctrl+O        Model picker
+  Ctrl+V        Paste image from clipboard`);
   process.exit(0);
 }
 

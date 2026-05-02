@@ -25,7 +25,7 @@ export interface PluginRegistryOptions {
  * Owns plugin lifecycle, dispatch, and aggregated state.
  *
  * Plugin loading from a path is deliberately NOT a registry concern — host
- * applications (mu-coding, mu-pi-compat) implement their own loaders and call
+ * applications (e.g. mu-coding) implement their own loaders and call
  * `register()` directly. This keeps the registry focused on lifecycle/dispatch
  * and free of file-system / module-resolution dependencies.
  */

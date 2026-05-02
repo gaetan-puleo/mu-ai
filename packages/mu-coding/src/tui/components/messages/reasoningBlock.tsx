@@ -1,12 +1,14 @@
 import { Box, Text } from 'ink';
+import { useTheme } from '../../context/ThemeContext';
 
 export function ReasoningBlock({ reasoning }: { reasoning: string }) {
+  const theme = useTheme();
   return (
     <Box flexDirection="column" marginTop={0} marginBottom={1}>
-      <Text color="yellow" italic={true}>
+      <Text color={theme.reasoning.title} italic={true}>
         thinking
       </Text>
-      <Text dimColor={true} italic={true} wrap="wrap">
+      <Text color={theme.reasoning.body} italic={true} wrap="wrap">
         {reasoning}
       </Text>
     </Box>

@@ -1,26 +1,25 @@
+import OpenAI from 'openai';
+import type {
+  ChatCompletionChunk,
+  ChatCompletionContentPart,
+  ChatCompletionCreateParamsStreaming,
+  ChatCompletionMessageParam,
+} from 'openai/resources/chat/completions';
 import type { ChatMessage, ProviderConfig, StreamChunk, StreamOptions, Usage } from './types';
 
-interface OpenAIChunk {
-  choices: Array<{
-    delta?: {
-      content?: string;
-      reasoning_content?: string;
-      reasoning?: string;
-      tool_calls?: Array<{
-        index: number;
-        id?: string;
-        function?: { name?: string; arguments?: string };
-      }>;
-    };
-    finish_reason?: string | null;
-  }>;
-  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
-}
+// Local OpenAI-compatible servers (llama-swap, Ollama, LM Studio, …) often
+// expose reasoning content via non-standard `reasoning_content` / `reasoning`
+// delta fields. The SDK doesn't type these, so we read them via a structural
+// extension and fall back to undefined when absent.
+type DeltaWithReasoning = ChatCompletionChunk.Choice.Delta & {
+  reasoning_content?: string | null;
+  reasoning?: string | null;
+};
 
 // --- Message formatting ---
 
-function buildMessages(messages: ChatMessage[], config: ProviderConfig) {
-  const apiMessages: Record<string, unknown>[] = [];
+function buildMessages(messages: ChatMessage[], config: ProviderConfig): ChatCompletionMessageParam[] {
+  const apiMessages: ChatCompletionMessageParam[] = [];
 
   if (config.systemPrompt) {
     apiMessages.push({ role: 'system', content: config.systemPrompt });
@@ -28,32 +27,36 @@ function buildMessages(messages: ChatMessage[], config: ProviderConfig) {
 
   for (const m of messages) {
     if (m.role === 'user') {
-      let content: unknown = m.content;
       if (m.images?.length) {
-        content = [
+        const parts: ChatCompletionContentPart[] = [
           { type: 'text', text: m.content.trim() || '(image attached)' },
-          ...m.images.map((img) => ({
-            type: 'image_url',
-            image_url: { url: `data:${img.mimeType};base64,${img.data}` },
-          })),
+          ...m.images.map(
+            (img): ChatCompletionContentPart => ({
+              type: 'image_url',
+              image_url: { url: `data:${img.mimeType};base64,${img.data}` },
+            }),
+          ),
         ];
+        apiMessages.push({ role: 'user', content: parts });
+      } else {
+        apiMessages.push({ role: 'user', content: m.content });
       }
-      apiMessages.push({ role: 'user', content });
     } else if (m.role === 'assistant') {
-      const msg: Record<string, unknown> = { role: 'assistant' };
-      if (m.content) {
-        msg.content = m.content;
-      }
       if (m.toolCalls?.length) {
-        msg.tool_calls = m.toolCalls.map((tc) => ({
-          id: tc.id,
-          type: 'function',
-          function: tc.function,
-        }));
+        apiMessages.push({
+          role: 'assistant',
+          content: m.content || null,
+          tool_calls: m.toolCalls.map((tc) => ({
+            id: tc.id,
+            type: 'function',
+            function: tc.function,
+          })),
+        });
+      } else {
+        apiMessages.push({ role: 'assistant', content: m.content });
       }
-      apiMessages.push(msg);
     } else if (m.role === 'tool') {
-      apiMessages.push({ role: 'tool', tool_call_id: m.toolCallId, content: m.content });
+      apiMessages.push({ role: 'tool', tool_call_id: m.toolCallId ?? '', content: m.content });
     } else if (m.role === 'system') {
       // System messages embedded in a transcript (e.g. resumed sessions where
       // an old prompt was persisted, or plugin-injected system context) are
@@ -67,61 +70,13 @@ function buildMessages(messages: ChatMessage[], config: ProviderConfig) {
   return apiMessages;
 }
 
-// --- SSE stream reader ---
-
-async function* readSSEEvents(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  timeoutMs: number,
-): AsyncGenerator<OpenAIChunk> {
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const { done, value } = await Promise.race([
-        reader.read(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(
-            () => reject(new Error(`Stream timed out after ${timeoutMs / 1000}s of inactivity`)),
-            timeoutMs,
-          );
-        }),
-      ]);
-
-      if (done) return;
-
-      buffer += decoder.decode(value, { stream: true });
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith('data:')) continue;
-
-      const payload = trimmed.slice(5).trim();
-      if (payload === '[DONE]') return;
-
-      try {
-        yield JSON.parse(payload);
-      } catch {
-        // Skip malformed JSON
-      }
-    }
-  }
-}
-
 // --- Tool call accumulation ---
 
 type ToolCallAccumulator = Record<number, { id: string; name: string; arguments: string }>;
 
 function accumulateToolCallFragments(
   toolCalls: ToolCallAccumulator,
-  fragments: NonNullable<OpenAIChunk['choices'][0]['delta']>['tool_calls'],
+  fragments: ChatCompletionChunk.Choice.Delta['tool_calls'],
 ): void {
   if (!fragments) return;
   for (const fragment of fragments) {
@@ -145,12 +100,12 @@ function getCompletedToolCalls(toolCalls: ToolCallAccumulator): StreamChunk[] {
   return Object.values(toolCalls)
     .filter((tc) => tc.id && tc.name)
     .map((tc) => ({
-      type: 'tool_call' as const,
+      type: 'tool_call',
       toolCall: { id: tc.id, function: { name: tc.name, arguments: tc.arguments } },
     }));
 }
 
-function processChunkDeltas(delta: NonNullable<OpenAIChunk['choices'][0]['delta']>): StreamChunk[] {
+function processChunkDeltas(delta: DeltaWithReasoning): StreamChunk[] {
   const chunks: StreamChunk[] = [];
   const reasoning = delta.reasoning_content || delta.reasoning;
   if (reasoning) {
@@ -162,6 +117,33 @@ function processChunkDeltas(delta: NonNullable<OpenAIChunk['choices'][0]['delta'
   return chunks;
 }
 
+// --- Inactivity timeout helper ---
+//
+// The OpenAI SDK exposes the streamed chunks as an async iterable but doesn't
+// surface a per-chunk inactivity timeout. We wrap the iterator and race each
+// `next()` against a timer so a stalled connection still raises promptly.
+async function* withInactivityTimeout<T>(iter: AsyncIterable<T>, timeoutMs: number): AsyncGenerator<T> {
+  const iterator = iter[Symbol.asyncIterator]();
+  while (true) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        iterator.next(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`Stream timed out after ${timeoutMs / 1000}s of inactivity`)),
+            timeoutMs,
+          );
+        }),
+      ]);
+      if (result.done) return;
+      yield result.value;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+}
+
 // --- Main entry point ---
 
 export async function* streamChat(
@@ -170,41 +152,40 @@ export async function* streamChat(
   model: string,
   options?: StreamOptions,
 ): AsyncGenerator<StreamChunk, void, unknown> {
-  const body: Record<string, unknown> = {
+  // The SDK requires an apiKey to construct, but local OpenAI-compatible
+  // servers (llama-swap, Ollama, LM Studio) don't enforce auth. A placeholder
+  // satisfies the SDK without leaking real credentials.
+  const client = new OpenAI({ baseURL: config.baseUrl, apiKey: 'sk-local' });
+
+  // `cache_prompt` is a llama.cpp/llama-server extension (default: true) that
+  // we expose explicitly for robustness — some proxies disable it. The OpenAI
+  // hosted API ignores unknown fields, so this stays safe across providers.
+  const params: ChatCompletionCreateParamsStreaming & { cache_prompt?: boolean } = {
     model,
     messages: buildMessages(messages, config),
     max_tokens: config.maxTokens,
     temperature: config.temperature,
     stream: true,
     stream_options: { include_usage: true },
+    cache_prompt: true,
   };
 
   if (options?.tools?.length) {
-    body.tools = options.tools;
+    params.tools = options.tools.map((t) => ({
+      type: 'function',
+      function: t.function,
+    }));
   }
 
-  const res = await fetch(`${config.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+  const stream = await client.chat.completions.create(params, {
     signal: options?.signal,
   });
 
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`API error ${res.status}: ${errorText.slice(0, 500)}`);
-  }
-
-  const reader = res.body?.getReader();
-  if (!reader) {
-    throw new Error('No response body from API');
-  }
-
-  yield* processStream(reader, config.streamTimeoutMs, options);
+  yield* processStream(stream, config.streamTimeoutMs, options);
 }
 
 async function* processStream(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
+  stream: AsyncIterable<ChatCompletionChunk>,
   timeoutMs: number,
   options?: StreamOptions,
 ): AsyncGenerator<StreamChunk> {
@@ -213,16 +194,24 @@ async function* processStream(
   let toolCallsEmitted = false;
 
   try {
-    for await (const event of readSSEEvents(reader, timeoutMs)) {
+    for await (const event of withInactivityTimeout(stream, timeoutMs)) {
       if (event.usage) {
+        // `prompt_tokens_details.cached_tokens` is reported by OpenAI's hosted
+        // API and recent llama.cpp/llama-server builds. Older servers omit it;
+        // we fall back to 0 so consumers can render `(N cached)` only when
+        // meaningful without crashing on missing fields.
+        const cachedTokens =
+          (event.usage as { prompt_tokens_details?: { cached_tokens?: number } }).prompt_tokens_details
+            ?.cached_tokens ?? 0;
         usage = {
           promptTokens: event.usage.prompt_tokens ?? 0,
           completionTokens: event.usage.completion_tokens ?? 0,
           totalTokens: event.usage.total_tokens ?? 0,
+          cachedPromptTokens: cachedTokens,
         };
       }
 
-      const delta = event.choices?.[0]?.delta;
+      const delta = event.choices?.[0]?.delta as DeltaWithReasoning | undefined;
       if (!delta) continue;
 
       yield* processChunkDeltas(delta);
@@ -246,7 +235,6 @@ async function* processStream(
       yield* getCompletedToolCalls(toolCalls);
     }
   } finally {
-    reader.releaseLock();
     if (usage && options?.onUsage) {
       options.onUsage(usage);
     }

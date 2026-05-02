@@ -10,12 +10,20 @@ interface StatusSegmentOptions {
   quitWarning: boolean;
   error: string | null;
   modelError: string | null;
-  tokensPerSecond: number;
+  totalTokens: number;
+  /** Tokens served from server-side prompt cache. Rendered as `(N cached)`
+   *  next to the total when > 0. Omit (or pass 0) to hide the suffix. */
+  cachedTokens?: number;
   pluginStatus?: StatusSegment[];
 }
 
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+const tokenFormatter = new Intl.NumberFormat('en-US');
+function formatTokens(n: number): string {
+  return tokenFormatter.format(n);
 }
 
 export function useStatusSegments(options: StatusSegmentOptions): StatusBarSegment[] {
@@ -25,8 +33,13 @@ export function useStatusSegments(options: StatusSegmentOptions): StatusBarSegme
   if (options.streaming) {
     segments.push({ text: `${spinner} generating`, color: 'yellow' });
   }
-  if (options.tokensPerSecond > 0) {
-    segments.push({ text: `${options.tokensPerSecond} tok/s`, dim: true });
+  if (options.totalTokens > 0) {
+    const cached = options.cachedTokens ?? 0;
+    const label =
+      cached > 0
+        ? `${formatTokens(options.totalTokens)} tokens (${formatTokens(cached)} cached)`
+        : `${formatTokens(options.totalTokens)} tokens`;
+    segments.push({ text: label, dim: true });
   }
   if (options.abortWarning) {
     segments.push({ text: 'Esc again to stop', color: 'yellow' });

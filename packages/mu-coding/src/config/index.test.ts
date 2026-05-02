@@ -49,3 +49,29 @@ describe('saveConfig', () => {
     expect('model' in persisted).toBe(false);
   });
 });
+
+describe('loadConfig theme', () => {
+  it('reads the theme field from config.json', async () => {
+    const { loadConfig } = await import('./index');
+    writeFileSync(
+      configPath,
+      JSON.stringify({ baseUrl: 'http://x', theme: { preset: 'light', input: { cursor: '#abcdef' } } }),
+    );
+    const cfg = loadConfig();
+    expect(cfg.theme).toEqual({ preset: 'light', input: { cursor: '#abcdef' } });
+  });
+
+  it('accepts a preset name string', async () => {
+    const { loadConfig } = await import('./index');
+    writeFileSync(configPath, JSON.stringify({ baseUrl: 'http://x', theme: 'solarized-dark' }));
+    const cfg = loadConfig();
+    expect(cfg.theme).toBe('solarized-dark');
+  });
+
+  it('omits theme when not present', async () => {
+    const { loadConfig } = await import('./index');
+    writeFileSync(configPath, JSON.stringify({ baseUrl: 'http://x' }));
+    const cfg = loadConfig();
+    expect(cfg.theme).toBeUndefined();
+  });
+});

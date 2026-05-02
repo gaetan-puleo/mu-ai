@@ -40,16 +40,61 @@ Config files follow XDG conventions:
 }
 ```
 
+### Theming
+
+The `theme` field selects the UI palette. Either name a built-in preset:
+
+```json
+{ "theme": "solarized-dark" }
+```
+
+Built-in presets: `dark` (default), `light`, `solarized-dark`, `monochrome`.
+
+Or pass an object to override individual leaves on top of a preset:
+
+```json
+{
+  "theme": {
+    "preset": "dark",
+    "input":  { "background": "#1e1e2e", "cursor": "#f5c2e7" },
+    "user":   { "border": "magenta" },
+    "common": { "accent": "#89dceb" }
+  }
+}
+```
+
+Color values accept Ink's named colors (`red`, `green`, `cyan`, `yellow`,
+`magenta`, `blue`, `white`, `black`, `gray`) or hex strings (`#1a1a1a`).
+
+Sections available: `input`, `user`, `assistant`, `tool`, `reasoning`,
+`modal`, `toast`, `dropdown`, `dialog`, `diff`, `status`, `common`. See
+`src/tui/theme/types.ts` for the full leaf list.
+
 ## Keyboard Shortcuts
+
+### Input editing
+
+| Key | Action |
+|-----|--------|
+| `←` / `→` | Move cursor one character |
+| `Ctrl+←` / `Ctrl+→` (or `Alt+←/→`) | Move cursor by word |
+| `Home` / `End` (or `Ctrl+A` / `Ctrl+E`) | Jump to start / end of line |
+| `↑` / `↓` | Move cursor between lines (multi-line buffer); navigate history at edges |
+| `Backspace` | Delete char before cursor |
+| `Delete` | Delete char under cursor |
+| `Ctrl+W` | Delete previous word |
+| `Ctrl+U` | Delete from start of line to cursor |
+| `Ctrl+K` | Delete from cursor to end of line |
+
+### Submission & app
 
 | Key | Action |
 |-----|--------|
 | `Enter` | Send message |
-| `Shift+Enter` | New line |
+| `Shift+Enter` (or `Ctrl+J`) | New line |
 | `Ctrl+S` | Send message |
 | `Ctrl+C` | Abort / Quit (press twice) |
 | `Esc` | Stop generation (press twice) |
-| `↑` / `↓` | Navigate input history |
 | `Ctrl+N` | New conversation |
 | `Ctrl+M` | Cycle models |
 | `Ctrl+O` | Model picker |

@@ -5,10 +5,7 @@ export type {
   ChatMessage,
   ImageAttachment,
   ProviderConfig,
-  StreamChunk,
-  StreamOptions,
   ToolCall,
   ToolDefinition,
   ToolResultInfo,
-  Usage,
 } from './types';

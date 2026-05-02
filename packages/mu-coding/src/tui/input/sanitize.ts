@@ -3,7 +3,7 @@
 //   - M = press / motion
 //   - m = release
 // Examples: "[<0;126;31M", "[<32;36;51M", "[<0;31;51m"
-export const SGR_MOUSE_RE = /\[<\d+;\d+;\d+[Mm]/g;
+const SGR_MOUSE_RE = /\[<\d+;\d+;\d+[Mm]/g;
 
 const SGR_MOUSE_EXACT_RE = /^\[<\d+;\d+;\d+[Mm]$/;
 

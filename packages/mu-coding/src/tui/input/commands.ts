@@ -20,6 +20,11 @@ export const BUILTIN_COMMANDS: SlashCommand[] = [
   { name: '/model', description: 'Select a model', invoke: (a) => a.onTogglePicker?.() },
   { name: '/sessions', description: 'List project sessions', invoke: (a) => a.onToggleSessionPicker?.() },
   { name: '/new', description: 'New conversation', invoke: (a) => a.onNew?.() },
+  {
+    name: '/context',
+    description: 'Show the LLM context (system prompt, messages, tools) as plain text',
+    invoke: (a) => a.onShowContext?.(),
+  },
 ];
 
 export function fromPluginCommand(command: PluginSlashCommand, context: CommandContext): SlashCommand {

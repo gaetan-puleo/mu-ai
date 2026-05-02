@@ -1,6 +1,7 @@
 import { Box, Text } from 'ink';
 import type { ToolDisplayHint } from 'mu-agents';
 import { computeDiff, renderDiff } from '../../../utils/diff';
+import { useTheme } from '../../context/ThemeContext';
 import { ToolHeader } from './ToolHeader';
 
 interface EditOutputProps {
@@ -41,6 +42,7 @@ function parseEditArgs(args: string, hint: ToolDisplayHint | undefined): ParsedE
 }
 
 export function EditOutput({ args, content, error, hint }: EditOutputProps) {
+  const theme = useTheme();
   const { path, before, after } = parseEditArgs(args, hint);
   const verb = hint?.verb ?? 'edit_file';
 
@@ -60,7 +62,7 @@ export function EditOutput({ args, content, error, hint }: EditOutputProps) {
   if (diff.lines.length === 0 && diff.totalOldLines > 0 && diff.totalNewLines > 0) {
     return (
       <Box flexDirection="column" flexShrink={0} marginBottom={1}>
-        <Text color="yellow" bold={true}>
+        <Text color={theme.diff.warning} bold={true}>
           ! {verb}
         </Text>
         <Text dimColor={true}> {path}</Text>
@@ -88,8 +90,8 @@ export function EditOutput({ args, content, error, hint }: EditOutputProps) {
       <Box flexDirection="column" flexShrink={0}>
         {lines.map((line, i) => {
           let color: string | undefined;
-          if (line.startsWith('-')) color = 'red';
-          else if (line.startsWith('+')) color = 'green';
+          if (line.startsWith('-')) color = theme.diff.removed;
+          else if (line.startsWith('+')) color = theme.diff.added;
           return (
             // biome-ignore lint/suspicious/noArrayIndexKey: diff lines may repeat (blank lines, braces); index disambiguates
             <Text key={`${i}-${line}`} color={color} dimColor={color === undefined} wrap="wrap">

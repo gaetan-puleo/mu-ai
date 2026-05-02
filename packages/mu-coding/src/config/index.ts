@@ -1,7 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ProviderConfig } from 'mu-provider';
+import type { ThemeConfig } from '../tui/theme/types';
 
 // ─── XDG Path Helpers ─────────────────────────────────────────────────────────
 //
@@ -9,9 +11,6 @@ import type { ProviderConfig } from 'mu-provider';
 // "where do mu's files live?" question end-to-end (config.json, SYSTEM.md,
 // sessions, plugin caches). Resolved lazily so tests can stub the env after
 // module import; production callers pay only one `process.env` lookup per call.
-//
-// Other workspace packages (e.g. `mu-pi-compat`) import these via the
-// `mu-coding/config` subpath export — see `mu-coding/package.json`.
 
 const HOME = homedir();
 
@@ -73,6 +72,11 @@ export function canonicalNpmSpecifier(bare: string): string {
 
 export interface AppConfig extends ProviderConfig {
   plugins?: Array<string | { name: string; config?: Record<string, unknown> }>;
+  /**
+   * Optional per-leaf overrides on top of the built-in theme. See
+   * `tui/theme/types.ts` for the available sections and color leaves.
+   */
+  theme?: ThemeConfig;
 }
 
 /**
@@ -87,8 +91,8 @@ const CONFIG_FILE_KEYS = [
   'maxTokens',
   'temperature',
   'streamTimeoutMs',
-  'systemPrompt',
   'plugins',
+  'theme',
 ] as const;
 
 function configPath(): string {
@@ -97,6 +101,19 @@ function configPath(): string {
 
 function systemPromptPath(): string {
   return join(getConfigDir(), 'SYSTEM.md');
+}
+
+/**
+ * Path to the SYSTEM.md bundled with mu-coding. Used as the lowest-priority
+ * fallback when no user override is configured. Resolved from this module's
+ * location so it works both from `src/` (dev via bun) and any compiled layout
+ * that preserves the `prompts/` sibling of `src/` or `dist/`.
+ */
+function bundledSystemPromptPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  // src/config/index.ts → ../../prompts/SYSTEM.md
+  // dist/config/index.js → ../../prompts/SYSTEM.md
+  return join(here, '..', '..', 'prompts', 'SYSTEM.md');
 }
 
 function tryRead(path: string): string | undefined {
@@ -146,8 +163,9 @@ export function loadConfig(cliModel?: string): AppConfig {
     maxTokens: envInt('MU_MAX_TOKENS') ?? file.maxTokens ?? 4096,
     temperature: envFloat('MU_TEMPERATURE') ?? file.temperature ?? 0.7,
     streamTimeoutMs: envInt('MU_STREAM_TIMEOUT') ?? file.streamTimeoutMs ?? 60_000,
-    systemPrompt: process.env.MU_SYSTEM_PROMPT || file.systemPrompt || tryRead(systemPromptPath()),
+    systemPrompt: tryRead(systemPromptPath()) || tryRead(bundledSystemPromptPath()),
     plugins: file.plugins,
+    theme: file.theme,
   };
 
   if (!existsSync(path)) {

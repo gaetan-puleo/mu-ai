@@ -194,7 +194,37 @@ describe('streamChat usage reporting', () => {
       }),
     );
     expect(seen).toHaveLength(1);
-    expect(seen[0]).toEqual({ promptTokens: 12, completionTokens: 3, totalTokens: 15 });
+    expect(seen[0]).toEqual({ promptTokens: 12, completionTokens: 3, totalTokens: 15, cachedPromptTokens: 0 });
+  });
+
+  it('extracts prompt_tokens_details.cached_tokens when present', async () => {
+    stubFetch(
+      sseStream([
+        JSON.stringify({ choices: [{ delta: { content: 'hi' } }] }),
+        JSON.stringify({
+          choices: [{ delta: {}, finish_reason: 'stop' }],
+          usage: {
+            prompt_tokens: 100,
+            completion_tokens: 5,
+            total_tokens: 105,
+            prompt_tokens_details: { cached_tokens: 64 },
+          },
+        }),
+      ]),
+    );
+    const seen: Usage[] = [];
+    await collect(
+      streamChat([{ role: 'user', content: 'x' }], baseConfig, 'm', {
+        onUsage: (u) => seen.push(u),
+      }),
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toEqual({
+      promptTokens: 100,
+      completionTokens: 5,
+      totalTokens: 105,
+      cachedPromptTokens: 64,
+    });
   });
 });
 
@@ -212,8 +242,10 @@ describe('streamChat error handling', () => {
         { status: 429 },
       )) as typeof fetch;
 
+    // The OpenAI SDK formats non-2xx responses as `<status> <body>` and throws
+    // an `APIError` subclass.
     await expect(collect(streamChat([{ role: 'user', content: 'x' }], baseConfig, 'm'))).rejects.toThrow(
-      /API error 429.*rate limited/,
+      /429.*rate limited/,
     );
   });
 });

@@ -5,11 +5,13 @@ import { useCallback, useState } from 'react';
 export interface StreamState {
   text: string;
   reasoning: string;
-  tps: number;
+  totalTokens: number;
+  /** Cumulative tokens served from the server's prompt cache across the
+   *  session. 0 when the server doesn't report cache hits. */
+  cachedTokens: number;
 }
 
-const EMPTY_STREAM: StreamState = { text: '', reasoning: '', tps: 0 };
-const TPS_WARMUP_SEC = 0.5;
+const EMPTY_STREAM: StreamState = { text: '', reasoning: '', totalTokens: 0, cachedTokens: 0 };
 
 export interface StreamConsumerState {
   streaming: boolean;
@@ -29,14 +31,21 @@ export interface StreamConsumerState {
     onMessages: (messages: ChatMessage[]) => void,
   ) => Promise<ChatMessage[] | null>;
   resetError: () => void;
+  resetSession: () => void;
 }
 
-function applyEvent(prev: StreamState, event: AgentEvent, tps: number): StreamState {
+function applyEvent(prev: StreamState, event: AgentEvent): StreamState {
   switch (event.type) {
     case 'content':
-      return { ...prev, text: event.text, tps };
+      return { ...prev, text: event.text };
     case 'reasoning':
-      return { ...prev, reasoning: event.text, tps };
+      return { ...prev, reasoning: event.text };
+    case 'usage':
+      return {
+        ...prev,
+        totalTokens: prev.totalTokens + event.totalTokens,
+        cachedTokens: prev.cachedTokens + (event.cachedTokens ?? 0),
+      };
     case 'turn_end':
       return { ...prev, text: '', reasoning: '' };
     default:
@@ -50,20 +59,13 @@ async function consumeAgent(
   onMessages: (messages: ChatMessage[]) => void,
 ): Promise<ChatMessage[] | null> {
   let final: ChatMessage[] | null = null;
-  const start = Date.now();
-  let tokenCount = 0;
 
   for await (const event of events) {
-    if (event.type === 'content' || event.type === 'reasoning') {
-      tokenCount++;
-      const elapsed = (Date.now() - start) / 1000;
-      const tps = elapsed > TPS_WARMUP_SEC ? Math.round(tokenCount / elapsed) : 0;
-      onStream((prev) => applyEvent(prev, event, tps));
-    } else if (event.type === 'messages') {
+    if (event.type === 'messages') {
       final = event.messages;
       onMessages(event.messages);
     } else {
-      onStream((prev) => applyEvent(prev, event, 0));
+      onStream((prev) => applyEvent(prev, event));
     }
   }
   return final;
@@ -71,7 +73,7 @@ async function consumeAgent(
 
 /**
  * Owns the in-flight streaming view: which tokens have been received, the
- * tokens-per-second meter, error text, and the streaming flag. Decoupled
+ * cumulative token counter, error text, and the streaming flag. Decoupled
  * from message persistence so it can be reused by single-shot agents or
  * test harnesses.
  */
@@ -81,6 +83,10 @@ export function useStreamConsumer(): StreamConsumerState {
   const [stream, setStream] = useState<StreamState>(EMPTY_STREAM);
 
   const resetError = useCallback(() => setError(null), []);
+  const resetSession = useCallback(() => {
+    setError(null);
+    setStream(EMPTY_STREAM);
+  }, []);
 
   const runStream = useCallback(
     async (
@@ -91,7 +97,8 @@ export function useStreamConsumer(): StreamConsumerState {
       registry: PluginRegistry,
       onMessages: (messages: ChatMessage[]) => void,
     ): Promise<ChatMessage[] | null> => {
-      setStream(EMPTY_STREAM);
+      // Clear partial buffers but preserve cumulative `totalTokens` across sends.
+      setStream((s) => ({ ...s, text: '', reasoning: '' }));
       setError(null);
       setStreaming(true);
       try {
@@ -114,5 +121,5 @@ export function useStreamConsumer(): StreamConsumerState {
     [],
   );
 
-  return { streaming, error, stream, runStream, resetError };
+  return { streaming, error, stream, runStream, resetError, resetSession };
 }

@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from 'ink';
 import { useCallback, useEffect, useState } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 import { sanitizeTerminalInput } from '../../input/sanitize';
 import type { DialogRequest, InkUIService } from '../../plugins/InkUIService';
 import { Dropdown } from '../primitives/dropdown';
@@ -16,6 +17,7 @@ function ConfirmDialog({
   onResolve: (value: unknown) => void;
   onCancel: () => void;
 }) {
+  const theme = useTheme();
   const [selected, setSelected] = useState(0);
 
   useInput((input, key) => {
@@ -42,15 +44,15 @@ function ConfirmDialog({
         </Box>
       )}
       <Box gap={2}>
-        <Text color={selected === 0 ? 'green' : undefined} bold={selected === 0}>
+        <Text color={selected === 0 ? theme.dialog.confirmYes : undefined} bold={selected === 0}>
           {selected === 0 ? '▸ ' : '  '}Yes
         </Text>
-        <Text color={selected === 1 ? 'red' : undefined} bold={selected === 1}>
+        <Text color={selected === 1 ? theme.dialog.confirmNo : undefined} bold={selected === 1}>
           {selected === 1 ? '▸ ' : '  '}No
         </Text>
       </Box>
       <Box marginTop={1}>
-        <Text dimColor={true}>y/n · Enter to confirm · Esc to cancel</Text>
+        <Text color={theme.dialog.hint}>y/n · Enter to confirm · Esc to cancel</Text>
       </Box>
     </Modal>
   );
@@ -96,6 +98,7 @@ function InputDialog({
   onResolve: (value: unknown) => void;
   onCancel: () => void;
 }) {
+  const theme = useTheme();
   const [value, setValue] = useState('');
 
   useInput((input, key) => {
@@ -121,12 +124,14 @@ function InputDialog({
     <Modal visible={true} title={dialog.title}>
       <Box flexDirection="column">
         <Box paddingX={1} marginBottom={1}>
-          {!value && dialog.placeholder && <Text dimColor={true}>{dialog.placeholder}</Text>}
+          {!value && dialog.placeholder && <Text color={theme.dialog.placeholder}>{dialog.placeholder}</Text>}
           {value && <Text>{value}</Text>}
-          <Text inverse={true}>▎</Text>
+          <Text color={theme.dialog.cursor} inverse={true}>
+            ▎
+          </Text>
         </Box>
         <Box>
-          <Text dimColor={true}>Enter to submit · Esc to cancel</Text>
+          <Text color={theme.dialog.hint}>Enter to submit · Esc to cancel</Text>
         </Box>
       </Box>
     </Modal>

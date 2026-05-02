@@ -30,7 +30,7 @@ interface SessionDeps {
 /**
  * Top-level chat-session hook. Composes:
  *  - `useSessionPersistence` — transcript, history, save path
- *  - `useStreamConsumer`     — in-flight tokens, tps, error
+ *  - `useStreamConsumer`     — in-flight tokens, usage totals, error
  *
  * Provides the `onSend` glue that wires user input through the agent.
  */
@@ -90,16 +90,16 @@ export function useChatSession(deps: SessionDeps): ChatSessionState {
 
   const onNew = useCallback(() => {
     persistence.onNew();
-    consumer.resetError();
+    consumer.resetSession();
     attachment.clear();
-  }, [persistence.onNew, consumer.resetError, attachment]);
+  }, [persistence.onNew, consumer.resetSession, attachment]);
 
   const onLoadSession = useCallback(
     (path: string) => {
       persistence.onLoadSession(path);
-      consumer.resetError();
+      consumer.resetSession();
     },
-    [persistence.onLoadSession, consumer.resetError],
+    [persistence.onLoadSession, consumer.resetSession],
   );
 
   return {

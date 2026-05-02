@@ -23,7 +23,8 @@ describe('BUILTIN_COMMANDS', () => {
     const onTogglePicker = mock(() => undefined);
     const onToggleSessionPicker = mock(() => undefined);
     const onNew = mock(() => undefined);
-    const actions: InputActions = { onTogglePicker, onToggleSessionPicker, onNew };
+    const onShowContext = mock(() => undefined);
+    const actions: InputActions = { onTogglePicker, onToggleSessionPicker, onNew, onShowContext };
 
     for (const cmd of BUILTIN_COMMANDS) {
       cmd.invoke?.(actions);
@@ -32,6 +33,7 @@ describe('BUILTIN_COMMANDS', () => {
     expect(onTogglePicker).toHaveBeenCalledTimes(1);
     expect(onToggleSessionPicker).toHaveBeenCalledTimes(1);
     expect(onNew).toHaveBeenCalledTimes(1);
+    expect(onShowContext).toHaveBeenCalledTimes(1);
   });
 });
 

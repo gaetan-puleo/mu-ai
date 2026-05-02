@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useChatContext } from '../chat/ChatContext';
+import { dumpContext } from './dumpContext';
 import type { InputBoxViewProps } from './InputBoxView';
 import { useCommandExecutor } from './useCommandExecutor';
 import { type InputActions, useInputHandler } from './useInputHandler';
@@ -21,7 +22,17 @@ export function useInputBox({
   model = '',
   history = [],
 }: InputBoxProps): InputBoxViewProps {
-  const { config, session, toggles, attachment, models, abort, registry } = useChatContext();
+  const { config, session, toggles, attachment, models, abort, registry, uiService } = useChatContext();
+
+  const onShowContext = useCallback(async () => {
+    try {
+      const path = await dumpContext(config, session.messages, registry);
+      uiService?.notify(`Context written to ${path}`, 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      uiService?.notify(`Failed to dump context: ${msg}`, 'error');
+    }
+  }, [config, session.messages, registry, uiService]);
 
   // Stable references prevent downstream `useMemo`s (e.g. inside
   // `useCommandExecutor`) from being invalidated on every render.
@@ -34,6 +45,7 @@ export function useInputBox({
       onCycleModel: models.cycleModel,
       onTogglePicker: toggles.onTogglePicker,
       onToggleSessionPicker: toggles.onToggleSessionPicker,
+      onShowContext,
       onScrollUp,
       onScrollDown,
       modelCount: models.models.length,
@@ -47,6 +59,7 @@ export function useInputBox({
       models.models.length,
       toggles.onTogglePicker,
       toggles.onToggleSessionPicker,
+      onShowContext,
       onScrollUp,
       onScrollDown,
     ],
@@ -78,7 +91,11 @@ export function useInputBox({
   });
 
   return {
-    ...input,
+    value: input.value,
+    cursor: input.cursor,
+    commands: input.commands,
+    cmdIndex: input.cmdIndex,
+    isCommandMode: input.isCommandMode,
     streaming: session.streaming,
     isActive,
     model,

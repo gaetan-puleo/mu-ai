@@ -58,7 +58,7 @@ export interface ToolDisplayHint {
    *  'file-read' | 'file-write' | 'diff' | 'shell'. */
   kind?: string;
   /** Semantic field mapping from rendering concepts to actual JSON arg names.
-   *  Examples: { path: 'path' }, { from: 'old_string', to: 'new_string' }. */
+   *  Examples: { path: 'path' }, { from: 'from', to: 'to' }. */
   fields?: Record<string, string>;
 }
 
@@ -80,6 +80,9 @@ export interface TurnResult {
   reasoning: string;
   toolCalls: ToolCall[];
   usage: number;
+  /** Subset of prompt tokens served from the server's prompt cache, when
+   *  reported. 0 when unsupported or no cache hit. */
+  cachedPromptTokens?: number;
 }
 
 export type AgentEndReason = 'complete' | 'aborted';
@@ -113,7 +116,7 @@ export interface SlashCommand {
 export type AgentEvent =
   | { type: 'content'; text: string }
   | { type: 'reasoning'; text: string }
-  | { type: 'usage'; totalTokens: number }
+  | { type: 'usage'; totalTokens: number; cachedTokens?: number }
   | { type: 'messages'; messages: ChatMessage[] }
   | { type: 'turn_end' };
 

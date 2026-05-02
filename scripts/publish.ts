@@ -6,12 +6,11 @@ import { execSync } from "node:child_process";
 const ROOT = resolve(import.meta.dirname, "..");
 
 // Publish order respects the dependency graph:
-//   mu-provider → mu-agents → mu-repomap, mu-pi-compat, mu-coding
+//   mu-provider → mu-agents → mu-repomap, mu-coding
 const PACKAGES = [
   "mu-provider",
   "mu-agents",
   "mu-repomap",
-  "mu-pi-compat",
   "mu-coding",
 ] as const;
 

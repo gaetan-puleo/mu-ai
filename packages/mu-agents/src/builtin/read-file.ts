@@ -36,29 +36,17 @@ export function createReadFileTool(getCwd: () => string): PluginTool {
     definition: {
       type: 'function',
       function: {
-        name: 'read_file',
-        description:
-          'Read one or more files. When reading multiple files, pass an array of paths instead of separate calls. Always specify start/end line numbers when you can to minimize token consumption.',
+        name: 'read',
+        description: 'Read text file(s) with line numbers. `path` may be a single path or array.',
         parameters: {
           type: 'object',
           properties: {
-            path: {
-              oneOf: [
-                { type: 'string', description: 'Absolute or relative file path' },
-                {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'Array of absolute or relative file paths',
-                },
-              ],
-            },
-            start: {
-              type: 'integer',
-              description: 'Start line number (1-indexed, inclusive). Omit to read from the beginning.',
-            },
-            end: { type: 'integer', description: 'End line number (1-indexed, inclusive). Omit to read to the end.' },
+            path: { type: ['string', 'array'], items: { type: 'string' } },
+            start: { type: 'integer', description: '1-indexed first line, inclusive.' },
+            end: { type: 'integer', description: '1-indexed last line, inclusive.' },
           },
           required: ['path'],
+          additionalProperties: false,
         },
       },
     },

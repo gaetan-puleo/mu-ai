@@ -1,4 +1,5 @@
 import { Text } from 'ink';
+import { useTheme } from '../../context/ThemeContext';
 import { Dropdown } from './dropdown';
 import { Modal } from './modal';
 
@@ -25,10 +26,11 @@ export function PickerModal({
   onSelect: (value: string) => void;
   onCancel?: () => void;
 }) {
+  const theme = useTheme();
   return (
     <Modal visible={visible} title={title}>
       {items.length === 0 && emptyMessage ? (
-        <Text dimColor={true} italic={true}>
+        <Text color={theme.dropdown.empty} italic={true}>
           {emptyMessage}
         </Text>
       ) : (

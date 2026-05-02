@@ -1,12 +1,15 @@
 import { render } from 'ink';
 import type { PluginRegistry } from 'mu-agents';
-import type { ChatMessage, ProviderConfig } from 'mu-provider';
+import type { ChatMessage } from 'mu-provider';
 import type { ShutdownFn } from '../app/shutdown';
+import type { AppConfig } from '../config/index';
 import { ChatPanel } from './components/chat/ChatPanel';
+import { ThemeProvider } from './context/ThemeContext';
 import type { InkUIService } from './plugins/InkUIService';
+import { resolveTheme } from './theme';
 
 interface RenderAppOptions {
-  config: ProviderConfig;
+  config: AppConfig;
   initialMessages?: ChatMessage[];
   registry: PluginRegistry;
   uiService: InkUIService;
@@ -14,14 +17,17 @@ interface RenderAppOptions {
 }
 
 export function renderApp(options: RenderAppOptions): void {
+  const theme = resolveTheme(options.config.theme);
   render(
-    <ChatPanel
-      config={options.config}
-      initialMessages={options.initialMessages}
-      registry={options.registry}
-      uiService={options.uiService}
-      shutdown={options.shutdown}
-    />,
+    <ThemeProvider theme={theme}>
+      <ChatPanel
+        config={options.config}
+        initialMessages={options.initialMessages}
+        registry={options.registry}
+        uiService={options.uiService}
+        shutdown={options.shutdown}
+      />
+    </ThemeProvider>,
     {
       exitOnCtrlC: false,
       kittyKeyboard: { mode: 'enabled' },

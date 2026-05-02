@@ -1,4 +1,4 @@
-import { createReadStream, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createReadStream, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -180,11 +180,4 @@ export async function listSessionsAsync(): Promise<SessionInfo[]> {
   );
 
   return results.filter((s): s is SessionInfo => s !== null);
-}
-
-// Sync helper preserved for legacy/test callers — wraps the same data path
-// without the streaming optimization. New code should prefer `listSessionsAsync`.
-export function saveSessionSync(path: string, messages: ChatMessage[]): void {
-  const content = messages.length > 0 ? `${messages.map((m) => JSON.stringify(m)).join('\n')}\n` : '';
-  writeFileSync(path, content, 'utf-8');
 }

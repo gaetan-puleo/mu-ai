@@ -3,6 +3,7 @@ import { Box, Text } from 'ink';
 import type { ChatMessage } from 'mu-provider';
 import { type RefObject, useMemo } from 'react';
 import type { StreamState } from '../chat/useChatSession';
+import { useTheme } from '../context/ThemeContext';
 import { MessageItem } from './messages/messageItem';
 import { StreamingOutput } from './messages/streamingOutput';
 import { Scrollbar } from './primitives/scrollbar';
@@ -50,6 +51,7 @@ export function MessageView({
   viewHeight: number;
   contentHeight: number;
 }) {
+  const theme = useTheme();
   const toolMessageIndex = useMemo(() => indexToolMessages(messages), [messages]);
 
   return (
@@ -61,7 +63,7 @@ export function MessageView({
             <MessageItem key={i} msg={msg} toolMessages={toolMessageIndex.get(i)} />
           ))}
           {streaming && <StreamingOutput currentText={stream.text} currentReasoning={stream.reasoning} />}
-          {error && <Text color="red">Error: {error}</Text>}
+          {error && <Text color={theme.common.error}>Error: {error}</Text>}
         </Box>
       </Box>
       <Scrollbar viewHeight={viewHeight} contentHeight={contentHeight} scrollOffset={scrollOffset} />
