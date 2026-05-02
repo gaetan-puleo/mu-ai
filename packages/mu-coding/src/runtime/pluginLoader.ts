@@ -37,8 +37,7 @@ function formatPluginError(name: string, err: unknown): string {
  *
  * If the package isn't installed yet, runs `bun add <spec>` against the mu
  * data dir and retries — so users can list a plugin in `config.plugins`
- * without having to invoke `mu install` first. Set `MU_NO_AUTOINSTALL=1`
- * to opt out (useful on metered networks or in offline CI).
+ * without having to invoke `mu install` first.
  *
  * `uiService` is optional: when provided, surface "Installing …" / failure
  * messages through the TUI; otherwise fall back to stderr so the host's
@@ -52,11 +51,7 @@ async function resolveNpmPlugin(specifier: string, uiService?: InkUIService): Pr
 
   try {
     return require.resolve(name);
-  } catch (firstErr) {
-    if (process.env.MU_NO_AUTOINSTALL) {
-      throw new Error(`Cannot resolve "${name}" from ${dataDir}/node_modules — is it installed?`, { cause: firstErr });
-    }
-
+  } catch (_firstErr) {
     const installMsg = `Installing ${name}…`;
     if (uiService) uiService.notify(installMsg, 'info');
     else console.error(`[mu] ${installMsg}`);
