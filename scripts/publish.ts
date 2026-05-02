@@ -5,16 +5,23 @@ import { execSync } from "node:child_process";
 
 const ROOT = resolve(import.meta.dirname, "..");
 
-// Publish order respects the dependency graph:
-//   mu-core → {mu-openai-provider, mu-agents} → {mu-repomap, mu-coding-agents, mu-coding}
-// mu-repomap and mu-coding-agents are optional/opt-in plugins (not depended on
-// by mu-coding) but are still published so users can `mu install` them.
+// Publish order is a topological sort of the internal dependency graph.
+// Tier 0 (no internal deps):       mu-core
+// Tier 1 (depend on mu-core only): mu-openai-provider, mu-agents,
+//                                  mu-repomap, mu-coding-agents
+// Tier 2 (depend on tier 1):       mu-coding (→ mu-agents, mu-openai-provider)
+//
+// mu-repomap and mu-coding-agents are opt-in plugins (not depended on by
+// mu-coding) but are still published so users can `mu install` them.
 const PACKAGES = [
+  // tier 0
   "mu-core",
+  // tier 1
   "mu-openai-provider",
   "mu-agents",
   "mu-repomap",
   "mu-coding-agents",
+  // tier 2
   "mu-coding",
 ] as const;
 
