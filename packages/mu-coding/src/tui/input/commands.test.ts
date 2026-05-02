@@ -23,17 +23,37 @@ describe('BUILTIN_COMMANDS', () => {
     const onTogglePicker = mock(() => undefined);
     const onToggleSessionPicker = mock(() => undefined);
     const onNew = mock(() => undefined);
+    const onCompact = mock(() => undefined);
     const onShowContext = mock(() => undefined);
-    const actions: InputActions = { onTogglePicker, onToggleSessionPicker, onNew, onShowContext };
+    const onUpdate = mock(() => undefined);
+    const actions: InputActions = {
+      onTogglePicker,
+      onToggleSessionPicker,
+      onNew,
+      onCompact,
+      onShowContext,
+      onUpdate,
+    };
 
     for (const cmd of BUILTIN_COMMANDS) {
-      cmd.invoke?.(actions);
+      cmd.invoke?.(actions, '');
     }
 
     expect(onTogglePicker).toHaveBeenCalledTimes(1);
     expect(onToggleSessionPicker).toHaveBeenCalledTimes(1);
     expect(onNew).toHaveBeenCalledTimes(1);
+    expect(onCompact).toHaveBeenCalledTimes(1);
     expect(onShowContext).toHaveBeenCalledTimes(1);
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('/update forwards args to onUpdate', () => {
+    const onUpdate = mock(() => undefined);
+    const actions: InputActions = { onUpdate };
+    const cmd = BUILTIN_COMMANDS.find((c) => c.name === '/update');
+    expect(cmd).toBeDefined();
+    cmd?.invoke?.(actions, 'plugins');
+    expect(onUpdate).toHaveBeenCalledWith('plugins');
   });
 });
 

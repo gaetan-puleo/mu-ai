@@ -16,7 +16,7 @@
  * the alert still surfaces.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getCacheDir, getDataDir } from '../config/index';
 import type { InkUIService } from '../tui/plugins/InkUIService';
@@ -58,6 +58,19 @@ function writeCache(cache: CacheShape): void {
     writeFileSync(cachePath(), JSON.stringify(cache), 'utf-8');
   } catch {
     // Cache writes are best-effort; ignore disk errors.
+  }
+}
+
+/**
+ * Discard the cached probe result. Called after a `/update` so the next
+ * boot re-probes against fresh registry data instead of replaying the
+ * pre-update state from cache.
+ */
+export function invalidateUpdateCheckCache(): void {
+  try {
+    rmSync(cachePath(), { force: true });
+  } catch {
+    // best-effort
   }
 }
 

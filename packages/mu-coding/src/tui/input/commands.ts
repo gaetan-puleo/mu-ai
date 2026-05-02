@@ -3,7 +3,8 @@ import type { InputActions } from './useInputHandler';
 
 /**
  * A slash command can either:
- *  - run via `invoke(actions)` — for builtins that just toggle UI state, or
+ *  - run via `invoke(actions, args)` — for builtins that just toggle UI state
+ *    (most ignore `args`), or
  *  - run via `execute(args)` — for plugin-supplied commands that produce
  *    side-effects through the agent runtime.
  *
@@ -12,7 +13,7 @@ import type { InputActions } from './useInputHandler';
 export interface SlashCommand {
   name: string;
   description: string;
-  invoke?: (actions: InputActions) => void;
+  invoke?: (actions: InputActions, args: string) => void;
   execute?: (args: string) => Promise<string | undefined>;
 }
 
@@ -29,6 +30,11 @@ export const BUILTIN_COMMANDS: SlashCommand[] = [
     name: '/context',
     description: 'Show the LLM context (system prompt, messages, tools) as plain text',
     invoke: (a) => a.onShowContext?.(),
+  },
+  {
+    name: '/update',
+    description: 'Update mu and installed npm plugins. Args: "plugins" | "self" (default: all)',
+    invoke: (a, args) => a.onUpdate?.(args),
   },
 ];
 

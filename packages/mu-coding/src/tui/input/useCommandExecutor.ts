@@ -23,7 +23,7 @@ export function useCommandExecutor(options: CommandExecutorOptions) {
         void command.execute(args);
         return;
       }
-      command.invoke?.(actions);
+      command.invoke?.(actions, args);
     },
     [actions],
   );

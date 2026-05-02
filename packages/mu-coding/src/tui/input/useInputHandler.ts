@@ -36,6 +36,7 @@ export interface InputActions {
   onEsc?: () => void;
   onScrollUp?: () => void;
   onScrollDown?: () => void;
+  onUpdate?: (args: string) => void;
   modelCount?: number;
 }
 

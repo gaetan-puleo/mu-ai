@@ -1,12 +1,22 @@
 import type { InputInfoSegment } from 'mu-core';
 import { useCallback, useMemo, useRef } from 'react';
 import { useChatContext } from '../chat/ChatContext';
+import type { InkUIService } from '../plugins/InkUIService';
+import { runUpdateInTui, type UpdateScope } from '../update/runUpdateInTui';
 import { dumpContext } from './dumpContext';
 import type { InputBoxViewProps } from './InputBoxView';
 import { useCommandExecutor } from './useCommandExecutor';
 import { type InputActions, type MentionMode, useInputHandler } from './useInputHandler';
 import { type MentionPickerState, useMentionPicker } from './useMentionPicker';
 import { usePluginShortcuts } from './usePluginShortcuts';
+
+function parseUpdateScope(args: string): UpdateScope | null {
+  const trimmed = args.trim().toLowerCase();
+  if (trimmed === '' || trimmed === 'all') return 'all';
+  if (trimmed === 'plugins') return 'plugins';
+  if (trimmed === 'self' || trimmed === 'mu') return 'self';
+  return null;
+}
 
 export interface InputBoxProps {
   onSubmit: (text: string) => void;
@@ -96,12 +106,13 @@ interface ActionDeps {
   models: ReturnType<typeof useChatContext>['models'];
   toggles: ReturnType<typeof useChatContext>['toggles'];
   onShowContext: () => Promise<void>;
+  onUpdate: (args: string) => void;
   onScrollUp?: () => void;
   onScrollDown?: () => void;
 }
 
 function useInputActions(deps: ActionDeps): InputActions {
-  const { abort, attachment, session, models, toggles, onShowContext, onScrollUp, onScrollDown } = deps;
+  const { abort, attachment, session, models, toggles, onShowContext, onUpdate, onScrollUp, onScrollDown } = deps;
   return useMemo<InputActions>(
     () => ({
       onCtrlC: abort.onCtrlC,
@@ -115,6 +126,7 @@ function useInputActions(deps: ActionDeps): InputActions {
       onTogglePicker: toggles.onTogglePicker,
       onToggleSessionPicker: toggles.onToggleSessionPicker,
       onShowContext,
+      onUpdate,
       onScrollUp,
       onScrollDown,
       modelCount: models.models.length,
@@ -130,9 +142,26 @@ function useInputActions(deps: ActionDeps): InputActions {
       toggles.onTogglePicker,
       toggles.onToggleSessionPicker,
       onShowContext,
+      onUpdate,
       onScrollUp,
       onScrollDown,
     ],
+  );
+}
+
+function useOnUpdate(uiService: InkUIService | undefined) {
+  return useCallback(
+    (args: string) => {
+      if (!uiService) return;
+      const scope = parseUpdateScope(args);
+      if (!scope) {
+        uiService.notify('Usage: /update [plugins|self|all]', 'warning');
+        return;
+      }
+      uiService.notify(scope === 'all' ? 'Starting update…' : `Starting ${scope} update…`, 'info');
+      void runUpdateInTui(scope, uiService);
+    },
+    [uiService],
   );
 }
 
@@ -164,6 +193,8 @@ export function useInputBox({
     }
   }, [config, session.messages, registry, uiService]);
 
+  const onUpdate = useOnUpdate(uiService);
+
   const actions = useInputActions({
     abort,
     attachment,
@@ -171,6 +202,7 @@ export function useInputBox({
     models,
     toggles,
     onShowContext,
+    onUpdate,
     onScrollUp,
     onScrollDown,
   });
