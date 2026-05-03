@@ -18,7 +18,7 @@ export type SessionEvent =
   | { type: 'stream_partial'; text: string; reasoning?: string }
   | { type: 'stream_started' }
   | { type: 'stream_ended' }
-  | { type: 'usage'; totalTokens: number; cachedTokens: number }
+  | { type: 'usage'; totalTokens: number; promptTokens: number; cachedTokens: number }
   | { type: 'error'; message: string };
 
 export interface RunTurnOptions {
@@ -164,7 +164,12 @@ class SessionImpl implements Session {
         final = this.messages.slice();
         this.emit({ type: 'messages_changed', messages: this.messages.slice() });
       } else if (e.type === 'usage') {
-        this.emit({ type: 'usage', totalTokens: e.totalTokens, cachedTokens: e.cachedTokens ?? 0 });
+        this.emit({
+          type: 'usage',
+          totalTokens: e.totalTokens,
+          promptTokens: e.promptTokens,
+          cachedTokens: e.cachedTokens ?? 0,
+        });
       } else if (e.type === 'turn_end') {
         // Clear the locally-tracked partial buffers AND notify subscribers,
         // otherwise the host's `stream` state still holds the previous step's

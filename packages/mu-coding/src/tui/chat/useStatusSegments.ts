@@ -11,6 +11,9 @@ interface StatusSegmentOptions {
   error: string | null;
   modelError: string | null;
   totalTokens: number;
+  /** Input tokens sent to the model for the current turn (prompt size). Used
+   *  for the context window percentage calculation. */
+  promptTokens: number;
   /** Tokens served from server-side prompt cache. Rendered as `(N cached)`
    *  next to the total when > 0. Omit (or pass 0) to hide the suffix. */
   cachedTokens?: number;
@@ -46,10 +49,10 @@ export function useStatusSegments(options: StatusSegmentOptions): StatusBarSegme
   }
   if (options.totalTokens > 0) {
     const cached = options.cachedTokens ?? 0;
-    const used = formatTokens(options.totalTokens);
+    const used = formatTokens(options.promptTokens);
     let head: string;
     if (options.contextLimit) {
-      const pct = (options.totalTokens / options.contextLimit) * 100;
+      const pct = (options.promptTokens / options.contextLimit) * 100;
       const pctStr = pct >= 10 ? pct.toFixed(0) : pct.toFixed(1);
       head = `${used} (${pctStr}%)`;
     } else {

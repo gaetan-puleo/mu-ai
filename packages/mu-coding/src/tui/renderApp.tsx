@@ -59,6 +59,8 @@ export function renderApp(options: RenderAppOptions): Instance {
     {
       exitOnCtrlC: false,
       kittyKeyboard: { mode: 'enabled' },
+      maxFps: 60,
+      incrementalRendering: true,
     },
   );
 }

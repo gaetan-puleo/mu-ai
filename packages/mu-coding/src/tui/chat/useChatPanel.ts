@@ -83,6 +83,7 @@ export function useChatPanel(options: UseChatPanelOptions) {
     error: ctx.session.error,
     modelError: ctx.models.modelError,
     totalTokens: ctx.session.stream.totalTokens,
+    promptTokens: ctx.session.stream.promptTokens,
     cachedTokens: ctx.session.stream.cachedTokens,
     contextLimit,
     pluginStatus,

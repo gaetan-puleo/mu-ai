@@ -1,7 +1,9 @@
 {
   "name": "mu-workspace",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "bun --watch packages/mu-coding/bin/mu.js",
     "start": "bun packages/mu-coding/bin/mu.js",

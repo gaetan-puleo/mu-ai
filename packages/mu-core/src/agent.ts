@@ -87,6 +87,7 @@ async function* streamTurn(
   let reasoning = '';
   let usage = 0;
   let cachedPromptTokens = 0;
+  let promptTokens = 0;
   const toolCalls: ToolCall[] = [];
 
   const hooks = registry.getHooks();
@@ -104,6 +105,7 @@ async function* streamTurn(
     tools: toolDefinitions,
     onUsage: (u) => {
       usage = u.totalTokens;
+      promptTokens = u.promptTokens;
       cachedPromptTokens = u.cachedPromptTokens ?? 0;
     },
   })) {
@@ -121,7 +123,7 @@ async function* streamTurn(
     }
   }
 
-  const result: TurnResult = { content, reasoning, toolCalls, usage, cachedPromptTokens };
+  const result: TurnResult = { content, reasoning, toolCalls, usage, promptTokens, cachedPromptTokens };
   return await runAfterLlmHooks(hooks, result);
 }
 
@@ -210,7 +212,7 @@ export async function* runAgent(
     while (!signal.aborted) {
       // Re-evaluate every turn so per-turn agent switches are honoured.
       const tools = await registry.getFilteredTools();
-      const { content, reasoning, toolCalls, usage, cachedPromptTokens } = yield* streamTurn(
+      const { content, reasoning, toolCalls, usage, promptTokens, cachedPromptTokens } = yield* streamTurn(
         current,
         mergedConfig,
         model,
@@ -220,7 +222,7 @@ export async function* runAgent(
       );
 
       if (usage > 0) {
-        yield { type: 'usage', totalTokens: usage, cachedTokens: cachedPromptTokens };
+        yield { type: 'usage', totalTokens: usage, promptTokens, cachedTokens: cachedPromptTokens };
       }
       if (signal.aborted) {
         break;

@@ -10,10 +10,11 @@ export interface StreamState {
   text: string;
   reasoning: string;
   totalTokens: number;
+  promptTokens: number;
   cachedTokens: number;
 }
 
-const EMPTY_STREAM: StreamState = { text: '', reasoning: '', totalTokens: 0, cachedTokens: 0 };
+const EMPTY_STREAM: StreamState = { text: '', reasoning: '', totalTokens: 0, promptTokens: 0, cachedTokens: 0 };
 
 export interface ChatSessionState {
   messages: ChatMessage[];
@@ -121,8 +122,9 @@ function makeSessionEventHandler(
     if (event.type === 'usage') {
       setStream((s) => ({
         ...s,
-        totalTokens: s.totalTokens + event.totalTokens,
-        cachedTokens: s.cachedTokens + event.cachedTokens,
+        totalTokens: event.totalTokens,
+        promptTokens: event.promptTokens,
+        cachedTokens: event.cachedTokens,
       }));
       return;
     }

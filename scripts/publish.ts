@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
-import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { execSync } from "node:child_process";
+import { execSync } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
-const ROOT = resolve(import.meta.dirname, "..");
+const ROOT = resolve(import.meta.dirname, '..');
 
 // Publish order is a topological sort of the internal dependency graph.
 // Tier 0 (no internal deps):       mu-core
@@ -15,14 +15,14 @@ const ROOT = resolve(import.meta.dirname, "..");
 // mu-coding) but are still published so users can `mu install` them.
 const PACKAGES = [
   // tier 0
-  "mu-core",
+  'mu-core',
   // tier 1
-  "mu-openai-provider",
-  "mu-agents",
-  "mu-repomap",
-  "mu-coding-agents",
+  'mu-openai-provider',
+  'mu-agents',
+  'mu-repomap',
+  'mu-coding-agents',
   // tier 2
-  "mu-coding",
+  'mu-coding',
 ] as const;
 
 const INTERNAL_NAMES = new Set<string>(PACKAGES);
@@ -33,31 +33,25 @@ const INTERNAL_NAMES = new Set<string>(PACKAGES);
 
 function run(cmd: string, cwd = ROOT) {
   console.log(`\n$ ${cmd}`);
-  execSync(cmd, { cwd, stdio: "inherit" });
+  execSync(cmd, { cwd, stdio: 'inherit' });
 }
 
 function readPkg(dir: string) {
-  return JSON.parse(readFileSync(resolve(dir, "package.json"), "utf-8"));
+  return JSON.parse(readFileSync(resolve(dir, 'package.json'), 'utf-8'));
 }
 
 function writePkg(dir: string, data: Record<string, unknown>) {
-  writeFileSync(
-    resolve(dir, "package.json"),
-    `${JSON.stringify(data, null, 2)}\n`,
-  );
+  writeFileSync(resolve(dir, 'package.json'), `${JSON.stringify(data, null, 2)}\n`);
 }
 
-function bumpVersion(
-  current: string,
-  bump: "patch" | "minor" | "major",
-): string {
-  const [major, minor, patch] = current.split(".").map(Number);
+function bumpVersion(current: string, bump: 'patch' | 'minor' | 'major'): string {
+  const [major, minor, patch] = current.split('.').map(Number);
   switch (bump) {
-    case "major":
+    case 'major':
       return `${major + 1}.0.0`;
-    case "minor":
+    case 'minor':
       return `${major}.${minor + 1}.0`;
-    case "patch":
+    case 'patch':
       return `${major}.${minor}.${patch + 1}`;
   }
 }
@@ -85,21 +79,19 @@ Examples:
 const args = process.argv.slice(2);
 if (args.length === 0) usage();
 
-const dryRun = args.includes("--dry-run");
-const tagIdx = args.indexOf("--tag");
-const tag = tagIdx !== -1 ? args[tagIdx + 1] : "latest";
-const versionArg = args.find((a) => !a.startsWith("--"));
+const dryRun = args.includes('--dry-run');
+const tagIdx = args.indexOf('--tag');
+const tag = tagIdx !== -1 ? args[tagIdx + 1] : 'latest';
+const versionArg = args.find((a) => !a.startsWith('--'));
 
 if (!versionArg) usage();
 
 // Resolve the target version
-const currentVersion = readPkg(
-  resolve(ROOT, "packages", PACKAGES[0]),
-).version as string;
-const BUMP_TYPES = new Set(["patch", "minor", "major"]);
+const currentVersion = readPkg(resolve(ROOT, 'packages', PACKAGES[0])).version as string;
+const BUMP_TYPES = new Set(['patch', 'minor', 'major']);
 
 const nextVersion = BUMP_TYPES.has(versionArg)
-  ? bumpVersion(currentVersion, versionArg as "patch" | "minor" | "major")
+  ? bumpVersion(currentVersion, versionArg as 'patch' | 'minor' | 'major')
   : versionArg;
 
 if (!/^\d+\.\d+\.\d+$/.test(nextVersion)) {
@@ -108,19 +100,19 @@ if (!/^\d+\.\d+\.\d+$/.test(nextVersion)) {
 }
 
 console.log(`\nVersion: ${currentVersion} → ${nextVersion}`);
-if (dryRun) console.log("(dry-run — no changes will be made)\n");
+if (dryRun) console.log('(dry-run — no changes will be made)\n');
 
 // ---------------------------------------------------------------------------
 // 1. Update versions in every package.json
 // ---------------------------------------------------------------------------
 
 for (const name of PACKAGES) {
-  const dir = resolve(ROOT, "packages", name);
+  const dir = resolve(ROOT, 'packages', name);
   const pkg = readPkg(dir);
   pkg.version = nextVersion;
 
   // Update internal dependency references
-  for (const depField of ["dependencies", "devDependencies", "peerDependencies"]) {
+  for (const depField of ['dependencies', 'devDependencies', 'peerDependencies']) {
     const deps = pkg[depField] as Record<string, string> | undefined;
     if (!deps) continue;
     for (const dep of Object.keys(deps)) {
@@ -142,10 +134,10 @@ for (const name of PACKAGES) {
 // 2. Publish packages in dependency order
 // ---------------------------------------------------------------------------
 
-console.log("\nPublishing packages…");
+console.log('\nPublishing packages…');
 
 for (const name of PACKAGES) {
-  const dir = resolve(ROOT, "packages", name);
+  const dir = resolve(ROOT, 'packages', name);
   const cmd = `npm publish --access public --tag ${tag}`;
   if (dryRun) {
     console.log(`  (would publish) ${name}@${nextVersion}  [${cmd}]`);
@@ -164,8 +156,8 @@ if (dryRun) {
   console.log(`\n  (would tag) ${gitTag}`);
 } else {
   console.log(`\nCreating git tag ${gitTag}…`);
-  run(`git add -A`);
+  run('git add -A');
   run(`git commit -m "release: ${gitTag}"`);
   run(`git tag ${gitTag}`);
-  console.log(`\nDone! Run \`git push && git push --tags\` to push the release.`);
+  console.log('\nDone! Run `git push && git push --tags` to push the release.');
 }

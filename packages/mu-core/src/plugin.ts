@@ -232,6 +232,8 @@ export interface TurnResult {
   reasoning: string;
   toolCalls: ToolCall[];
   usage: number;
+  /** Input tokens sent to the model for this turn (prompt size). */
+  promptTokens: number;
   /** Subset of prompt tokens served from the server's prompt cache, when
    *  reported. 0 when unsupported or no cache hit. */
   cachedPromptTokens?: number;
@@ -330,7 +332,7 @@ export interface SlashCommand {
 export type AgentEvent =
   | { type: 'content'; text: string }
   | { type: 'reasoning'; text: string }
-  | { type: 'usage'; totalTokens: number; cachedTokens?: number }
+  | { type: 'usage'; totalTokens: number; promptTokens: number; cachedTokens?: number }
   | { type: 'messages'; messages: ChatMessage[] }
   | { type: 'turn_end' };
 
