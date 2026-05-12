@@ -24,12 +24,12 @@
 
 import { runDecorateMessageHooks, runTransformUserInputHooks } from '../hooks';
 import type { MessageBusRouter } from '../messageBus/sessionScoped';
-import type { MessageBus, Plugin } from '../plugin';
+import type { MessageBus } from '../plugin';
 import type { PluginRegistry } from '../registry';
 import type { Session } from '../session';
 import type { ChatMessage, ProviderConfig } from '../types/llm';
 
-export interface RunHostTurnInput {
+interface RunHostTurnInput {
   /** Target Session — the turn runs against this transcript. */
   session: Session;
   /** Live plugin registry — hooks are pulled from here at call time. */
@@ -64,18 +64,13 @@ export interface RunHostTurnInput {
  * What happened during the turn. Hosts use this to decide whether to
  * also push their own "user message" event (skip on `continued`).
  */
-export type RunHostTurnOutcome =
-  | { kind: 'ran' }
-  | { kind: 'intercepted' }
-  | { kind: 'continued' };
+export type RunHostTurnOutcome = { kind: 'ran' } | { kind: 'intercepted' } | { kind: 'continued' };
 
 function isRouter(bus: MessageBus | MessageBusRouter | undefined): bus is MessageBusRouter {
   return !!bus && typeof (bus as MessageBusRouter).setCurrentSession === 'function';
 }
 
-export async function runHostTurn(
-  input: RunHostTurnInput,
-): Promise<RunHostTurnOutcome> {
+export async function runHostTurn(input: RunHostTurnInput): Promise<RunHostTurnOutcome> {
   const sessionId = input.session.id;
   const bus = input.messageBus;
   const router = isRouter(bus) ? bus : undefined;
@@ -93,8 +88,7 @@ export async function runHostTurn(
     }
 
     const isContinue = transform.kind === 'continue';
-    const finalText =
-      transform.kind === 'transform' ? transform.text : input.userText;
+    const finalText = transform.kind === 'transform' ? transform.text : input.userText;
 
     let userMessage: ChatMessage | undefined;
     if (!isContinue) {
@@ -132,7 +126,3 @@ export async function runHostTurn(
   }
 }
 
-// `Plugin` is imported solely for typedoc references in this module.
-// Re-export here so consumers can `import type { Plugin } from 'mu-core/host/runHostTurn'`
-// even though they get it via the main barrel too.
-export type { Plugin };

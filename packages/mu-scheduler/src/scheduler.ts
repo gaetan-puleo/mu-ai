@@ -1,16 +1,12 @@
 /**
- * mu-scheduler — YAML-driven (or inline) cron task runner for mu hosts.
+ * mu-scheduler — YAML-driven cron task runner for mu hosts.
  *
- * Each task is mapped to a mu-core Session via `SessionManager.getOrCreate`.
- * Output is observed two ways:
- *  - `session.submit({ sendText })` for streamed text (forwarded as
- *    `kind:'output'` events),
- *  - host-side via the session subscribe machinery if the host needs
- *    fine-grained access.
+ * Each task fires `submitText({ sessionId, text: task.prompt })` through
+ * the host-provided callback (typically `runtime.submitText`). This is
+ * the same canonical turn path every other channel uses.
  *
  * Lifecycle events (`started`/`completed`/`failed`) go through
- * `onTaskEvent` so the host decides where to route them (logs, WS push,
- * Telegram, etc.). Defaults to a no-op for embed-friendliness.
+ * `onTaskEvent` so the host decides where to route them.
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -42,10 +38,6 @@ function loadTasksFromDir(tasksDir: string): ScheduledTask[] {
   return out;
 }
 
-function defaultSystemPrompt(task: ScheduledTask): string {
-  return `You are a task agent for mu-scheduler. Task: ${task.id}`;
-}
-
 function scheduleTask(
   task: ScheduledTask,
   opts: SchedulerOptions,
@@ -57,21 +49,7 @@ function scheduleTask(
       const sessionId = newTaskSessionId(task.id);
       emit({ kind: 'started', taskId: task.id, sessionId, at: nowMs() });
       try {
-        const systemPrompt = (opts.systemPromptFor ?? defaultSystemPrompt)(task);
-        const session = opts.sessions.getOrCreate(sessionId, { systemPrompt });
-
-        const inbound = {
-          kind: 'text' as const,
-          channelId: task.channel ?? 'scheduler',
-          sessionId,
-          text: task.prompt,
-        };
-
-        await session.submit(inbound, {
-          sendText: async (text) => {
-            emit({ kind: 'output', taskId: task.id, sessionId, text });
-          },
-        });
+        await opts.submitText({ sessionId, text: task.prompt });
         emit({ kind: 'completed', taskId: task.id, sessionId, at: nowMs() });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

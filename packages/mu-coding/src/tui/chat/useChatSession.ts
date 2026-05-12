@@ -1,10 +1,6 @@
-import type { ChatMessage, ProviderConfig, Session } from 'mu-core';
-import { type PluginRegistry, runDecorateMessageHooks, runTransformUserInputHooks } from 'mu-core';
+import type { ChatMessage, ProviderConfig, Session, SubmitTextInput, SubmitTextResult } from 'mu-core';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { SessionPathHolder } from '../../runtime/createRegistry';
-import type { HostMessageBus } from '../../runtime/messageBus';
 import type { AttachmentState } from './useAttachment';
-import { useSessionPersistence } from './useSessionPersistence';
 
 export interface StreamState {
   text: string;
@@ -23,153 +19,98 @@ export interface ChatSessionState {
   stream: StreamState;
   inputHistory: string[];
   onSend: (text: string) => Promise<void>;
+  /** Called by useChat for /new — resets local state. */
+  resetMessages: () => void;
   onNew: () => void;
-  onLoadSession: (path: string) => void;
-  /**
-   * Compact the current transcript: ask the model to summarize the entire
-   * conversation, then replace the transcript with `[user marker, assistant
-   * summary]`. Frees context while keeping intent + key decisions in scope.
-   */
+  onLoadSession: (sessionId: string) => void;
   onCompact: () => Promise<void>;
 }
 
 interface SessionDeps {
-  /**
-   * mu-core Session instance owned by the host. Authoritative for the
-   * transcript — this hook only mirrors it into React state and writes
-   * persistence on each message_changed event.
-   */
   session: Session;
-  /** Provider config used as `runTurn` override (model lookup happens here). */
   config: ProviderConfig;
-  /** Currently selected model id (may shift across sends). */
   currentModel: string;
   attachment: AttachmentState;
-  controllerRef: React.RefObject<AbortController | null>;
+  submitText: (input: SubmitTextInput) => Promise<SubmitTextResult>;
   initialMessages?: ChatMessage[];
-  registry: PluginRegistry;
-  messageBus?: HostMessageBus;
-  sessionPathHolder?: SessionPathHolder;
 }
 
-/**
- * Wire the host MessageBus to the Session: bus.append flows through
- * `session.appendSynthetic` so every subscriber (TUI, broadcaster) sees the
- * same change. `bus.get()` mirrors the live transcript.
- */
-function useMessageBusWiring(messageBus: HostMessageBus | undefined, messages: ChatMessage[], session: Session): void {
-  useEffect(() => {
-    messageBus?.setMessages(messages);
-  }, [messageBus, messages]);
+// ─── Session event subscription ─────────────────────────────────────────────
 
+function useSessionSubscription(
+  session: Session,
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
+  setStream: React.Dispatch<React.SetStateAction<StreamState>>,
+  setStreaming: React.Dispatch<React.SetStateAction<boolean>>,
+  setError: React.Dispatch<React.SetStateAction<string | null>>,
+): void {
   useEffect(() => {
-    if (!messageBus) return;
-    messageBus.setAppender((message) => {
-      session.appendSynthetic(message);
+    return session.subscribe((event) => {
+      if (event.type === 'messages_changed') {
+        setMessages(event.messages);
+        return;
+      }
+      if (event.type === 'stream_partial') {
+        setStream((s) => ({ ...s, text: event.text, reasoning: event.reasoning ?? '' }));
+        return;
+      }
+      if (event.type === 'stream_started') {
+        setStreaming(true);
+        setError(null);
+        return;
+      }
+      if (event.type === 'stream_ended') {
+        setStreaming(false);
+        setStream((s) => ({ ...s, text: '', reasoning: '' }));
+        return;
+      }
+      if (event.type === 'usage') {
+        setStream((s) => ({
+          ...s,
+          totalTokens: event.totalTokens,
+          promptTokens: event.promptTokens,
+          cachedTokens: event.cachedTokens,
+        }));
+        return;
+      }
+      if (event.type === 'error') {
+        setError(event.message);
+      }
     });
-    return () => {
-      messageBus.setAppender(null);
-    };
-  }, [messageBus, session]);
+  }, [session, setMessages, setStream, setStreaming, setError]);
 }
 
-interface SubscriptionDeps {
-  session: Session;
-  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  setStream: React.Dispatch<React.SetStateAction<StreamState>>;
-  setStreaming: React.Dispatch<React.SetStateAction<boolean>>;
-  setError: React.Dispatch<React.SetStateAction<string | null>>;
-  saveCurrent: (messages: ChatMessage[]) => void;
+// ─── onSend ─────────────────────────────────────────────────────────────────
+
+function useOnSend(
+  session: Session,
+  attachment: AttachmentState,
+  submitText: (input: SubmitTextInput) => Promise<SubmitTextResult>,
+  currentModel: string,
+  appendHistory: (text: string) => void,
+  streaming: boolean,
+): (text: string) => Promise<void> {
+  return useCallback(
+    async (text: string) => {
+      if (streaming) return;
+      appendHistory(text);
+      const currentAttachment = attachment.attachment;
+      attachment.clear();
+
+      await submitText({
+        sessionId: session.id,
+        text,
+        model: currentModel,
+        decorateUserMessage: currentAttachment
+          ? (msg: ChatMessage) => ({ ...msg, images: [currentAttachment] })
+          : undefined,
+      });
+    },
+    [streaming, session.id, attachment, submitText, currentModel, appendHistory],
+  );
 }
 
-/**
- * Subscribe React state to mu-core Session events. Session is authoritative;
- * this hook only mirrors. Persistence is driven from the same stream so disk
- * writes are guaranteed to match what the user sees, but writes are
- * coalesced to once per `stream_ended` to keep tool-heavy turns light on I/O.
- */
-/**
- * Build the event handler. Extracted so the cognitive complexity of the
- * dispatch lives outside the React effect closure (the effect itself is
- * just `session.subscribe(handler)`).
- */
-function makeSessionEventHandler(
-  deps: SubscriptionDeps,
-  lastMessagesRef: React.MutableRefObject<ChatMessage[]>,
-): (event: import('mu-core').SessionEvent) => void {
-  const { setMessages, setStream, setStreaming, setError, saveCurrent } = deps;
-  return (event) => {
-    if (event.type === 'messages_changed') {
-      lastMessagesRef.current = event.messages;
-      setMessages(event.messages);
-      return;
-    }
-    if (event.type === 'stream_partial') {
-      setStream((s) => ({ ...s, text: event.text, reasoning: event.reasoning ?? '' }));
-      return;
-    }
-    if (event.type === 'stream_started') {
-      setStreaming(true);
-      setError(null);
-      return;
-    }
-    if (event.type === 'stream_ended') {
-      setStreaming(false);
-      setStream((s) => ({ ...s, text: '', reasoning: '' }));
-      if (lastMessagesRef.current.length > 0) saveCurrent(lastMessagesRef.current);
-      return;
-    }
-    if (event.type === 'usage') {
-      setStream((s) => ({
-        ...s,
-        totalTokens: event.totalTokens,
-        promptTokens: event.promptTokens,
-        cachedTokens: event.cachedTokens,
-      }));
-      return;
-    }
-    if (event.type === 'error') {
-      setError(event.message);
-    }
-  };
-}
-
-function useSessionSubscription(deps: SubscriptionDeps): void {
-  const { session, setMessages, setStream, setStreaming, setError, saveCurrent } = deps;
-  // The "last completed transcript" buffer survives effect re-subscriptions
-  // (e.g. if `saveCurrent` identity ever changes mid-stream). Without a ref
-  // we'd lose the in-flight save target on the next deps change.
-  const lastMessagesRef = useRef<ChatMessage[]>([]);
-  useEffect(() => {
-    const handler = makeSessionEventHandler(
-      { session, setMessages, setStream, setStreaming, setError, saveCurrent },
-      lastMessagesRef,
-    );
-    return session.subscribe(handler);
-  }, [session, setMessages, setStream, setStreaming, setError, saveCurrent]);
-}
-
-interface OnSendDeps {
-  session: Session;
-  config: ProviderConfig;
-  currentModel: string;
-  attachment: AttachmentState;
-  controllerRef: React.RefObject<AbortController | null>;
-  registry: PluginRegistry;
-  messageBus?: HostMessageBus;
-  appendHistory: (text: string) => void;
-  streaming: boolean;
-}
-
-interface OnCompactDeps {
-  streaming: boolean;
-  session: Session;
-  config: ProviderConfig;
-  currentModel: string;
-  registry: PluginRegistry;
-  controllerRef: React.RefObject<AbortController | null>;
-  saveCurrent: (messages: ChatMessage[]) => void;
-}
+// ─── onCompact ──────────────────────────────────────────────────────────────
 
 const COMPACT_INSTRUCTION =
   'Compact this conversation. Produce ONE concise summary that captures: ' +
@@ -178,11 +119,6 @@ const COMPACT_INSTRUCTION =
   '5) any important context the assistant should retain. Output ONLY the ' +
   'summary text — no preface, no markdown headers.';
 
-/**
- * Walk a transcript backwards starting at `fromIndex` and return the first
- * assistant message with non-empty content. Used by the compact flow to
- * locate the summary the LLM produced for the freshly-injected request.
- */
 function findLatestAssistantContent(messages: ChatMessage[], fromIndex: number): string {
   for (let i = messages.length - 1; i >= fromIndex; i--) {
     const m = messages[i];
@@ -193,114 +129,52 @@ function findLatestAssistantContent(messages: ChatMessage[], fromIndex: number):
   return '';
 }
 
-function useOnCompact(deps: OnCompactDeps): () => Promise<void> {
-  const { streaming, session, config, currentModel, registry, controllerRef, saveCurrent } = deps;
+function useOnCompact(
+  streaming: boolean,
+  session: Session,
+  submitText: (input: SubmitTextInput) => Promise<SubmitTextResult>,
+  currentModel: string,
+): () => Promise<void> {
   return useCallback(async () => {
     if (streaming) return;
     const before = session.getMessages();
     if (before.length === 0) return;
     const beforeCount = before.length;
 
-    // Hide the summarization instruction from the on-screen transcript
-    // (`display.hidden`) but keep it in the LLM payload. Once the run
-    // completes we replace the entire transcript anyway.
-    const summaryInstruction: ChatMessage = {
-      role: 'user',
-      content: COMPACT_INSTRUCTION,
-      display: { hidden: true },
-    };
-    const controller = new AbortController();
-    controllerRef.current = controller;
-    controller.signal.addEventListener('abort', () => session.abort(), { once: true });
-    try {
-      await session.runTurn({ userMessage: summaryInstruction, config, model: currentModel, registry });
-      const summary = findLatestAssistantContent(session.getMessages(), beforeCount);
-      if (!summary) return;
-      // Replace the entire history with a single user marker + the assistant
-      // summary. The next turn runs with a tiny context, "resumed" from
-      // the compacted state.
-      const compacted: ChatMessage[] = [
-        { role: 'user', content: '[Conversation compacted — context below preserves prior intent and decisions]' },
-        { role: 'assistant', content: summary },
-      ];
-      session.setMessages(compacted);
-      saveCurrent(compacted);
-    } finally {
-      controllerRef.current = null;
-    }
-  }, [streaming, session, config, currentModel, registry, controllerRef, saveCurrent]);
+    // Submit the compact instruction through the canonical path.
+    // The instruction is hidden from the UI (display.hidden) but
+    // reaches the LLM via submitText → runHostTurn → runTurn.
+    await submitText({
+      sessionId: session.id,
+      text: COMPACT_INSTRUCTION,
+      model: currentModel,
+      decorateUserMessage: (msg) => ({ ...msg, display: { hidden: true } }),
+    });
+    const summary = findLatestAssistantContent(session.getMessages(), beforeCount);
+    if (!summary) return;
+    session.setMessages([
+      { role: 'user', content: '[Conversation compacted — context below preserves prior intent and decisions]' },
+      { role: 'assistant', content: summary },
+    ]);
+  }, [streaming, session, submitText, currentModel]);
 }
 
-function useOnSend(deps: OnSendDeps): (text: string) => Promise<void> {
-  const { session, config, currentModel, attachment, controllerRef, registry, messageBus, appendHistory, streaming } =
-    deps;
-  return useCallback(
-    async (text: string) => {
-      if (streaming) return;
+// ─── Main hook ──────────────────────────────────────────────────────────────
 
-      const transform = await runTransformUserInputHooks(registry.getHooks(), text);
-      if (transform.kind === 'intercept') return;
-
-      // `continue` signals the hook handled the user message itself
-      // (e.g. mu-agents' @-mention dispatch path appends the user msg
-      // live, runs the subagent live, and queues the synthetic tool
-      // flow for the upcoming turn). We skip the userMessage push but
-      // still drain the queue and stream the LLM follow-up.
-      const isContinue = transform.kind === 'continue';
-      const finalText = transform.kind === 'transform' ? transform.text : text;
-
-      const userMsg: ChatMessage | undefined = isContinue
-        ? undefined
-        : await runDecorateMessageHooks(registry.getHooks(), {
-            role: 'user',
-            content: finalText,
-            ...(attachment.attachment ? { images: [attachment.attachment] } : {}),
-          });
-
-      const injections = messageBus?.drainNext() ?? [];
-      for (const inj of injections) session.queueForNextTurn(inj);
-
-      appendHistory(text);
-      attachment.clear();
-
-      const controller = new AbortController();
-      controllerRef.current = controller;
-      controller.signal.addEventListener('abort', () => session.abort(), { once: true });
-
-      try {
-        await session.runTurn({
-          userMessage: userMsg,
-          config,
-          model: currentModel,
-          registry,
-        });
-      } finally {
-        controllerRef.current = null;
-      }
-    },
-    [streaming, session, config, currentModel, attachment, controllerRef, registry, messageBus, appendHistory],
-  );
-}
-
-/**
- * Top-level chat-session hook. Composes:
- *  - mu-core `Session` — single source of truth for the transcript
- *  - `useSessionPersistence` — disk write + history + session paths
- *
- * The hook is purely reactive: it subscribes to session events and exposes
- * the resulting state, plus thin wrappers around `session.runTurn` /
- * `session.setMessages` for user actions.
- */
 export function useChatSession(deps: SessionDeps): ChatSessionState {
-  const { session, config, currentModel, attachment, controllerRef, initialMessages, registry, messageBus } = deps;
-  const persistence = useSessionPersistence(initialMessages, deps.sessionPathHolder);
-  const { appendHistory, saveCurrent, resetForNew, loadFromPath } = persistence;
+  const { session, config, currentModel, attachment, submitText, initialMessages } = deps;
 
-  // Initial seed: feed any persisted messages into the session once.
-  // The session subscription below will then mirror them into React state.
+  // Input history — user prompts for the up-arrow recall.
+  const [inputHistory, setInputHistory] = useState<string[]>(() =>
+    (initialMessages ?? []).filter((m) => m.role === 'user').map((m) => m.content),
+  );
+  const appendHistory = useCallback((text: string) => {
+    setInputHistory((prev) => [...prev, text]);
+  }, []);
+
+  // Seed session with initial messages once.
   useEffect(() => {
     if (initialMessages?.length) session.setMessages(initialMessages);
-    // Run once per session instance.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, initialMessages?.length, initialMessages]);
 
@@ -309,76 +183,30 @@ export function useChatSession(deps: SessionDeps): ChatSessionState {
   const [error, setError] = useState<string | null>(null);
   const [stream, setStream] = useState<StreamState>(EMPTY_STREAM);
 
-  useMessageBusWiring(messageBus, messages, session);
-  useSessionSubscription({ session, setMessages, setStream, setStreaming, setError, saveCurrent });
+  useSessionSubscription(session, setMessages, setStream, setStreaming, setError);
 
-  const onSend = useOnSend({
-    session,
-    config,
-    currentModel,
-    attachment,
-    controllerRef,
-    registry,
-    messageBus,
-    appendHistory,
-    streaming,
-  });
+  const onSend = useOnSend(session, attachment, submitText, currentModel, appendHistory, streaming);
+  const onCompact = useOnCompact(streaming, session, submitText, currentModel);
 
-  const onNew = useCallback(() => {
-    // Abort any in-flight turn *before* rotating the session path.
-    // Without this, the streaming `runTurn` keeps emitting `messages_changed`
-    // events that are saved to the newly-rotated path via `stream_ended`,
-    // mixing the old transcript into the brand-new file.
-    if (controllerRef.current) {
-      controllerRef.current.abort();
-      controllerRef.current = null;
-    }
-    resetForNew();
-    // `session.setMessages([])` emits `messages_changed` which the
-    // subscription mirrors into React state, so we don't double-write here.
+  const resetMessages = useCallback(() => {
     session.setMessages([]);
     setStream(EMPTY_STREAM);
     setError(null);
+    setInputHistory([]);
     attachment.clear();
-  }, [resetForNew, session, attachment, controllerRef]);
-
-  const onCompact = useOnCompact({
-    streaming,
-    session,
-    config,
-    currentModel,
-    registry,
-    controllerRef,
-    saveCurrent,
-  });
-
-  const onLoadSession = useCallback(
-    (path: string) => {
-      const loaded = loadFromPath(path);
-      if (loaded.length === 0) return;
-      // Abort any in-flight turn before replacing the transcript, for the
-      // same reason as onNew above.
-      if (controllerRef.current) {
-        controllerRef.current.abort();
-        controllerRef.current = null;
-      }
-      // setMessages emits messages_changed → React state mirrors it.
-      session.setMessages(loaded);
-      setStream(EMPTY_STREAM);
-      setError(null);
-    },
-    [loadFromPath, session, controllerRef],
-  );
+  }, [session, attachment]);
 
   return {
     messages,
     streaming,
     error,
     stream,
-    inputHistory: persistence.inputHistory,
+    inputHistory,
     onSend,
-    onNew,
-    onLoadSession,
+    resetMessages,
+    // Placeholders — useChat overwrites these with session-id-aware versions.
+    onNew: resetMessages,
+    onLoadSession: () => {},
     onCompact,
   };
 }

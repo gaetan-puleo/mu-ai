@@ -126,15 +126,6 @@ function newSession(id: string, title?: string): StoredSession {
   };
 }
 
-function nextTitle(existing: StoredSession, msg: ChatMessage): string {
-  const isFirstUserMsg = msg.role === 'user' && !existing.messages.some((m) => m.role === 'user');
-  if (!isFirstUserMsg) return existing.title;
-  if (existing.title === 'New session' || !existing.title) {
-    return deriveTitleFromText(msg.content);
-  }
-  return existing.title;
-}
-
 function listFromDir(dir: string): SessionSummary[] {
   let entries: string[];
   try {
@@ -152,11 +143,19 @@ function listFromDir(dir: string): SessionSummary[] {
   return out;
 }
 
-export function createJSONLSessionStore(opts: CreateJSONLSessionStoreOptions): SessionStore {
-  const { dir } = opts;
-  mkdirSync(dir, { recursive: true });
+interface StoreContext {
+  dir: string;
+  listeners: Set<SessionChangeListener>;
+  pathFor: (id: string) => string;
+  readOne: (id: string) => StoredSession | null;
+  emit: (id: string, kind: SessionChangeKind) => void;
+}
 
+function createStoreContext(dir: string): StoreContext {
+  mkdirSync(dir, { recursive: true });
   const listeners = new Set<SessionChangeListener>();
+  const pathFor = (id: string): string => join(dir, `${fileSafeId(id)}.jsonl`);
+  const readOne = (id: string): StoredSession | null => readSessionFile(pathFor(id));
   const emit = (id: string, kind: SessionChangeKind): void => {
     for (const l of listeners) {
       try {
@@ -166,9 +165,12 @@ export function createJSONLSessionStore(opts: CreateJSONLSessionStoreOptions): S
       }
     }
   };
+  return { dir, listeners, pathFor, readOne, emit };
+}
 
-  const pathFor = (id: string): string => join(dir, `${fileSafeId(id)}.jsonl`);
-  const readOne = (id: string): StoredSession | null => readSessionFile(pathFor(id));
+export function createJSONLSessionStore(opts: CreateJSONLSessionStoreOptions): SessionStore {
+  const ctx = createStoreContext(opts.dir);
+  const { listeners, pathFor, readOne, emit } = ctx;
 
   const create = (o: { id?: string; title?: string } = {}): StoredSession => {
     const id = o.id ?? newSessionId();
@@ -201,15 +203,21 @@ export function createJSONLSessionStore(opts: CreateJSONLSessionStoreOptions): S
     return next;
   };
 
-  const appendMessage = (id: string, msg: ChatMessage): StoredSession => {
+  const saveTranscript = (id: string, messages: ChatMessage[]): StoredSession => {
     const existing = readOne(id);
     const isNew = existing === null;
     const base = existing ?? newSession(id);
+    // Derive title from first user message if still default.
+    const firstUser = messages.find((m) => m.role === 'user');
+    let title = base.title;
+    if (firstUser && (title === 'New session' || !title)) {
+      title = deriveTitleFromText(firstUser.content);
+    }
     const next: StoredSession = {
       ...base,
-      title: nextTitle(base, msg),
+      title,
       updatedAt: nowMs(),
-      messages: [...base.messages, msg],
+      messages,
     };
     writeSessionFile(pathFor(id), next);
     emit(id, isNew ? 'created' : 'updated');
@@ -217,12 +225,12 @@ export function createJSONLSessionStore(opts: CreateJSONLSessionStoreOptions): S
   };
 
   return {
-    list: () => listFromDir(dir),
+    list: () => listFromDir(ctx.dir),
     get: readOne,
     create,
     delete: remove,
     rename,
-    appendMessage,
+    saveTranscript,
     subscribe(listener: SessionChangeListener): () => void {
       listeners.add(listener);
       return (): void => {

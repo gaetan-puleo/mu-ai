@@ -1,41 +1,13 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { PluginRegistry } from 'mu-core';
-import type { AppConfig } from '../config/index';
-import { InkUIService } from '../tui/plugins/InkUIService';
-import { createRegistry } from './createRegistry';
+import { createAgentsPlugin } from 'mu-agents';
+import { startMu } from 'mu-core';
+import { createOpenAIProviderPlugin } from 'mu-openai-provider';
+import { createMuToolsPlugin } from 'mu-tools';
 
-// ─── renderApp mock ───────────────────────────────────────────────────────────
-// Captures the options renderApp is called with so tests can assert what the
-// TUI actually receives — specifically, that the concrete PluginRegistry (with
-// subscription methods) is passed rather than the narrow PluginRegistryView.
-// This mock must be declared before any test imports createRegistry so Bun's
-// module mock intercepts the import in the plugin chain.
-
-const capturedRenderArgs: Array<{ registry: PluginRegistry }> = [];
-const noop = (): void => {
-  /* stub */
-};
-mock.module('../tui/renderApp', () => ({
-  renderApp: (opts: { registry: PluginRegistry }) => {
-    capturedRenderArgs.push(opts);
-    return {
-      unmount: noop,
-      waitUntilExit: async (): Promise<void> => {
-        /* stub */
-      },
-      rerender: noop,
-      cleanup: noop,
-      clear: noop,
-    };
-  },
-}));
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function fakeConfig(): AppConfig {
+function fakeConfig() {
   return {
     baseUrl: 'http://localhost:0',
     model: 'test-model',
@@ -45,101 +17,77 @@ function fakeConfig(): AppConfig {
   };
 }
 
-/** Methods the TUI subscribes to at runtime (not part of PluginRegistryView). */
-const TUI_REGISTRY_METHODS = [
-  'onStatusChange',
-  'getStatusSegments',
-  'onRenderersChange',
-  'getRenderers',
-  'onShortcutsChange',
-  'getShortcuts',
-  'getCommands',
-] as const;
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
-describe('createRegistry — activation order + plugin propagation', () => {
-  it('registers builtins so coding-agents see ctx.agents', async () => {
+describe('startMu — mu-coding boot', () => {
+  it('registers builtins and exposes registries', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'mu-cr-'));
     try {
-      const ui = new InkUIService();
-      const { registry, channels, providers } = await createRegistry({
+      const runtime = await startMu({
         cwd,
         config: fakeConfig(),
-        uiService: ui,
+        plugins: [
+          createOpenAIProviderPlugin(),
+          createAgentsPlugin({ config: fakeConfig(), model: 'test' }),
+          createMuToolsPlugin(),
+        ],
       });
 
       // Provider registered.
-      expect(providers.list().some((p) => p.id === 'openai')).toBe(true);
+      expect(runtime.providers.list().some((p) => p.id === 'openai')).toBe(true);
 
-      // All builtin plugins loaded in the correct order.
-      const names = registry.getPlugins().map((p) => p.name);
+      // All builtin plugins loaded.
+      const names = runtime.registry.getPlugins().map((p) => p.name);
       expect(names).toContain('mu-openai-provider');
       expect(names).toContain('mu-agents');
-      expect(names).toContain('mu-coding');
-      // mu-coding-agents is opt-in via `config.plugins`, not auto-registered.
-      expect(names).not.toContain('mu-coding-agents');
-
-      // TUI channel registered.
-      expect(channels.list().map((c) => c.id)).toContain('tui');
+      expect(names).toContain('mu-tools');
 
       // mu-agents exposes its approval gateway publicly.
       interface GatewayBearer {
         approvalGateway?: { registerChannel: unknown };
       }
-      const agent = registry.getPlugin<GatewayBearer & { name: string; [k: string]: unknown }>('mu-agents');
+      const agent = runtime.registry.getPlugin<GatewayBearer & { name: string; [k: string]: unknown }>('mu-agents');
       expect(agent?.approvalGateway).toBeDefined();
+
+      // SessionManager works.
+      const session = runtime.sessions.getOrCreate('test');
+      expect(session.id).toBe('test');
+
+      // submitText / submitCommand are callable.
+      expect(typeof runtime.submitText).toBe('function');
+      expect(typeof runtime.submitCommand).toBe('function');
+
+      await runtime.shutdown();
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
   });
 
-  it('TUI channel receives concrete PluginRegistry (not the narrow View)', async () => {
-    // This test is the REAL regression guard: it calls channels.startAll()
-    // which invokes tuiChannel.start() → renderApp(opts). The mock above
-    // captures `opts.registry`. If createCodingPlugin ever reverts to passing
-    // `ctx.registry` (the narrow View), the TUI methods below will be absent
-    // and the test fails — exactly mirroring the runtime crash that would occur.
+  it('submitCommand dispatches to registered slash commands', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'mu-cr-'));
     try {
-      const ui = new InkUIService();
-      capturedRenderArgs.length = 0;
-      const { channels } = await createRegistry({
+      const runtime = await startMu({
         cwd,
         config: fakeConfig(),
-        uiService: ui,
+        plugins: [
+          {
+            name: 'test-cmds',
+            commands: [
+              {
+                name: 'hello',
+                description: 'say hello',
+                execute: async (args) => `hi ${args}`,
+              },
+            ],
+          },
+        ],
       });
 
-      await channels.startAll();
-      await channels.stopAll();
+      const result = await runtime.submitCommand({ sessionId: 's1', commandName: 'hello', args: 'world' });
+      expect(result).toEqual({ kind: 'executed', output: 'hi world' });
 
-      expect(capturedRenderArgs).toHaveLength(1);
-      const reg = capturedRenderArgs[0].registry as unknown as Record<string, unknown>;
-      for (const method of TUI_REGISTRY_METHODS) {
-        expect(typeof reg[method], `registry.${method} should be a function`).toBe('function');
-      }
-    } finally {
-      capturedRenderArgs.length = 0;
-      rmSync(cwd, { recursive: true, force: true });
-    }
-  });
+      const missing = await runtime.submitCommand({ sessionId: 's1', commandName: 'nope', args: '' });
+      expect(missing).toEqual({ kind: 'not_found' });
 
-  it('mu-agents contributes per-primary-agent slash commands but no generic /agent', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'mu-cr-'));
-    try {
-      const ui = new InkUIService();
-      const { registry } = await createRegistry({
-        cwd,
-        config: fakeConfig(),
-        uiService: ui,
-      });
-
-      const commandNames = registry.getCommands().map((c) => c.name);
-      // The generic `/agent` command was removed; discoverability is via
-      // the per-agent switch commands and the Tab shortcut.
-      expect(commandNames).not.toContain('agent');
-      // `explore` originates from mu-coding-agents, which is no longer auto-loaded.
-      expect(commandNames).not.toContain('explore');
+      await runtime.shutdown();
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

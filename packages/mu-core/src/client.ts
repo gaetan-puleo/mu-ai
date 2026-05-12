@@ -5,9 +5,6 @@
  * Channel clients (arya-companion, future web frontend) import from
  * `mu-core/client` to get the message projection + utility helpers
  * without dragging the server-only session store / plugin loader.
- *
- * If you add an export here, audit its transitive imports for `node:*`
- * specifiers first.
  */
 
 export { newMessageId, newSessionId, newTaskSessionId, nowMs } from './ids';
@@ -23,14 +20,12 @@ export {
   makeToolMessage,
   makeUserMessage,
 } from './messageFactories';
-// Pure types — no runtime imports.
 export type { ChatMessageMeta } from './messageMeta';
 export { META_KEYS } from './messageMeta';
 export type { MessageDisplayRow } from './projectMessage';
 export { projectMessage } from './projectMessage';
 export type { SessionGroup, SessionGroupLabel } from './sessionStore/grouping';
 export { formatRelativeTime, groupByDate } from './sessionStore/grouping';
-// Session store TYPES (no runtime — types-only, safe to import).
 export type {
   SessionChangeKind,
   SessionChangeListener,

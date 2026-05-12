@@ -7,7 +7,6 @@
     "mu": "./bin/mu.js"
   },
   "exports": {
-    ".": "./src/plugin.ts",
     "./config": "./src/config/index.ts",
     "./loader": "./src/runtime/pluginLoader.ts"
   },

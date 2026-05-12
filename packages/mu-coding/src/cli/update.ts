@@ -83,7 +83,7 @@ function updatePlugin(name: string, dataDir: string): boolean {
   }
 }
 
-export async function runUpdatePlugins(): Promise<{ ok: number; failed: number }> {
+async function runUpdatePlugins(): Promise<{ ok: number; failed: number }> {
   const dataDir = ensureDataDir();
   const names = listConfiguredNpmPlugins();
   if (names.length === 0) {
@@ -140,7 +140,7 @@ function detectSelfInstall(): SelfInstallStrategy {
   return { manager: 'unknown' };
 }
 
-export async function runUpdateSelf(): Promise<boolean> {
+async function runUpdateSelf(): Promise<boolean> {
   const view = probeSelfSync();
   if (view && !view.hasUpdate) {
     console.log(`mu is already up to date (${view.current}).`);

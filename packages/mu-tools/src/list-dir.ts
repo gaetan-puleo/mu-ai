@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { PluginTool } from 'mu-core';
 import { sanitizePath } from './utils';
 
-export interface ListDirToolOptions {
+interface ListDirToolOptions {
   getCwd: () => string;
   restrictToCwd?: boolean;
 }

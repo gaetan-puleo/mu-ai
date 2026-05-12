@@ -1,12 +1,13 @@
 /**
- * Host-UI surface registrations contributed by mu-agents at activate
- * time. Renderer-agnostic — mu-coding/`renderApp.tsx` owns the actual
- * JSX renderer for `AGENT_MESSAGE_TYPES.subagent` and registers it via
- * `ctx.registerMessageRenderer`.
+ * Host-UI surface registrations contributed by mu-agents at activate time.
  *
- *  - `tab` shortcut         → cycle primary agents
+ *  - `tab` shortcut         → cycle primary agents (global default)
  *  - `@` mention provider   → autocomplete subagent names
  *  - input-info indicator   → shows the active agent in the input footer
+ *
+ * All agent reads go through `getActiveFor(null)` (global default) since
+ * these UI surfaces are not session-scoped (they apply to the host's
+ * single visible session in mu-coding, or the global default in arya).
  */
 
 import type { PluginContext } from 'mu-core';
@@ -32,10 +33,7 @@ export function registerMentions(ctx: PluginContext, deps: ActivateUIDeps): void
   if (!ctx.registerMentionProvider) return;
   deps.unregisterFns.push(
     ctx.registerMentionProvider('@', (partial) => {
-      // Don't suggest subagents the active agent can't actually
-      // dispatch — autocomplete for a no-op (the dispatch path itself
-      // is gated in `handleSubagentMention`).
-      const active = deps.manager.getActive();
+      const active = deps.manager.getActiveFor(null);
       if (active && !agentCanDispatchSubagent(active)) return [];
       const lower = partial.toLowerCase();
       return deps.manager
@@ -52,7 +50,7 @@ export function registerMentions(ctx: PluginContext, deps: ActivateUIDeps): void
 }
 
 export function pushIndicator(ctx: PluginContext, manager: AgentManager): void {
-  const agent = manager.getActive();
+  const agent = manager.getActiveFor(null);
   if (!agent) {
     ctx.setInputInfo?.([]);
     return;

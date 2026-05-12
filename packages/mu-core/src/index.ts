@@ -1,14 +1,25 @@
 export type { ActivityBus, ActivityEvent, ActivityKind } from './activity';
 export { createActivityBus } from './activity';
 export { runAgent } from './agent';
-export type { Channel, ChannelRegistry, ChannelResponder, InboundKind, InboundMessage, ResponseMode } from './channel';
+export type { Channel, ChannelRegistry } from './channel';
 export { createChannelRegistry } from './channel';
 export { runDecorateMessageHooks, runTransformUserInputHooks } from './hooks';
-export type { MuConfigShape, MuHandle, StartMuOptions } from './host/index';
+export type {
+  MuConfigShape,
+  MuRuntime,
+  StartMuOptions,
+  SubmitCommandInput,
+  SubmitCommandResult,
+  SubmitTextInput,
+  SubmitTextResult,
+} from './host/index';
 export { startMu } from './host/index';
-export type { RunHostTurnInput, RunHostTurnOutcome } from './host/runHostTurn';
-export { runHostTurn } from './host/runHostTurn';
 export { newMessageId, newSessionId, newTaskSessionId, nowMs } from './ids';
+export type {
+  CreateSessionScopedMessageBusOptions,
+  MessageBusRouter,
+} from './messageBus/sessionScoped';
+export { createSessionScopedMessageBus } from './messageBus/sessionScoped';
 export type {
   AssistantMessageOpts,
   SyntheticMessageOpts,
@@ -21,11 +32,6 @@ export {
   makeToolMessage,
   makeUserMessage,
 } from './messageFactories';
-export type {
-  CreateSessionScopedMessageBusOptions,
-  MessageBusRouter,
-} from './messageBus/sessionScoped';
-export { createSessionScopedMessageBus } from './messageBus/sessionScoped';
 export type { ChatMessageMeta } from './messageMeta';
 export { META_KEYS } from './messageMeta';
 export type {

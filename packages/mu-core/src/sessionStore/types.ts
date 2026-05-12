@@ -28,6 +28,11 @@ export interface SessionStore {
   create: (opts?: { id?: string; title?: string }) => StoredSession;
   delete: (id: string) => boolean;
   rename: (id: string, title: string) => StoredSession | null;
-  appendMessage: (id: string, msg: ChatMessage) => StoredSession;
+  /**
+   * Save the exact transcript. Overwrites the entire session file so the
+   * stored messages match the session's in-memory state 1:1. This is the
+   * canonical persistence path — no reconstruction, no diffing.
+   */
+  saveTranscript: (id: string, messages: ChatMessage[]) => StoredSession;
   subscribe: (listener: SessionChangeListener) => () => void;
 }

@@ -36,22 +36,41 @@ export interface MessageBusRouter extends MessageBus {
    * canonical turn flow.
    */
   setCurrentSession: (sessionId: string | null) => void;
+  /** Read which session is currently pinned (`null` when unpinned). */
+  getCurrentSession: () => string | null;
   /** Per-session drain. Used by `runHostTurn` regardless of pin. */
   drainNextFor: (sessionId: string) => ChatMessage[];
   /** Read a specific session's appended snapshot (host-only, rare). */
   snapshot: (sessionId: string) => ChatMessage[];
+  /**
+   * Replace the `resolveSession` callback after construction. Lets
+   * hosts construct the bus before `startMu` returns the SessionManager
+   * (avoids the mutable-closure dance that channel hosts otherwise
+   * have to do). Pass `null` to clear.
+   */
+  setResolveSession: (fn: ((id: string) => Session | undefined) | null) => void;
+  /**
+   * Replace the `onSyntheticAppend` listener after construction.
+   * Channel hosts use this to wire the bus to a WS push helper that
+   * doesn't exist yet at bus-construction time. Pass `null` to clear.
+   */
+  setSyntheticAppendListener: (fn: ((sessionId: string, message: ChatMessage) => void) | null) => void;
 }
 
 export interface CreateSessionScopedMessageBusOptions {
   /**
    * Resolve a session by id so `bus.append(msg)` can mirror the
    * synthetic message into the session's transcript via
-   * `session.appendSynthetic`.
+   * `session.appendSynthetic`. Optional — hosts that can't supply this
+   * at construction time call `setResolveSession` later. Without one,
+   * `bus.append` skips the session mirror (but still fans out to
+   * `onSyntheticAppend` and subscribers).
    */
-  resolveSession: (id: string) => Session | undefined;
+  resolveSession?: (id: string) => Session | undefined;
   /**
    * Host-side fan-out for synthetic appends. Channel hosts (arya WS)
    * push these over the wire so clients see synthetic messages live.
+   * Late-bindable via `setSyntheticAppendListener`.
    */
   onSyntheticAppend?: (sessionId: string, message: ChatMessage) => void;
 }
@@ -66,11 +85,11 @@ function emptyPerSession(): PerSession {
   return { appended: [], injected: [], subscribers: new Set() };
 }
 
-export function createSessionScopedMessageBus(
-  opts: CreateSessionScopedMessageBusOptions,
-): MessageBusRouter {
+export function createSessionScopedMessageBus(opts: CreateSessionScopedMessageBusOptions = {}): MessageBusRouter {
   const bySession = new Map<string, PerSession>();
   let currentSessionId: string | null = null;
+  let resolveSession: ((id: string) => Session | undefined) | null = opts.resolveSession ?? null;
+  let onSyntheticAppend: ((sessionId: string, message: ChatMessage) => void) | null = opts.onSyntheticAppend ?? null;
 
   function getOrInit(id: string): PerSession {
     let entry = bySession.get(id);
@@ -100,9 +119,9 @@ export function createSessionScopedMessageBus(
       fireSubscribers(entry);
       // Mirror the synthetic message into the session transcript so
       // mu-core's agent loop preserves it across turns.
-      const session = opts.resolveSession(currentSessionId);
+      const session = resolveSession?.(currentSessionId);
       session?.appendSynthetic(message);
-      opts.onSyntheticAppend?.(currentSessionId, message);
+      onSyntheticAppend?.(currentSessionId, message);
     },
 
     injectNext(message) {
@@ -138,6 +157,10 @@ export function createSessionScopedMessageBus(
       currentSessionId = id;
     },
 
+    getCurrentSession() {
+      return currentSessionId;
+    },
+
     drainNextFor(id) {
       const entry = bySession.get(id);
       if (!entry) return [];
@@ -148,6 +171,14 @@ export function createSessionScopedMessageBus(
 
     snapshot(id) {
       return bySession.get(id)?.appended.slice() ?? [];
+    },
+
+    setResolveSession(fn) {
+      resolveSession = fn;
+    },
+
+    setSyntheticAppendListener(fn) {
+      onSyntheticAppend = fn;
     },
   };
 }

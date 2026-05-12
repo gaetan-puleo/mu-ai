@@ -267,7 +267,7 @@ describe('@<subagent> forced dispatch', () => {
       } as unknown as PluginContext);
 
       // Switch to the read-only `plan` agent before sending the mention.
-      const switched = plugin.manager.setActive('plan');
+      const switched = plugin.manager.setActiveFor('plan', null);
       expect(switched).toBe(true);
 
       const transform = await plugin.hooks?.transformUserInput?.('@review please look at the diff');

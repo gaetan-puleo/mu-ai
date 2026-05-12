@@ -217,7 +217,7 @@ async function renderBody(buf: ArrayBuffer, contentType: string, format: WebFetc
 async function executeWebFetch(
   args: Record<string, unknown>,
   signal: AbortSignal | undefined,
-): Promise<string | ToolExecutorResult> {
+): Promise<ToolExecutorResult> {
   const url = typeof args.url === 'string' ? args.url : '';
   if (!url) return err('Error: url is required');
   if (!isHttpUrl(url)) return err('Error: URL must start with http:// or https://');
@@ -241,8 +241,8 @@ async function executeWebFetch(
     const contentType = response.headers.get('content-type') ?? '';
     const mime = (contentType.split(';')[0] ?? '').trim().toLowerCase();
 
-    if (isImageMime(mime)) return imageDataUrl(url, mime, buf);
-    return await renderBody(buf, contentType, format);
+    if (isImageMime(mime)) return { content: imageDataUrl(url, mime, buf) };
+    return { content: await renderBody(buf, contentType, format) };
   } finally {
     cancel();
   }

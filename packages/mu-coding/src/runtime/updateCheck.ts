@@ -22,7 +22,7 @@ export interface NpmRegistryView {
   hasUpdate: boolean;
 }
 
-export function npmViewLatestSync(name: string): string | undefined {
+function npmViewLatestSync(name: string): string | undefined {
   try {
     const out = execFileSync('npm', ['view', name, 'version'], {
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -34,7 +34,7 @@ export function npmViewLatestSync(name: string): string | undefined {
   }
 }
 
-export async function npmViewLatest(name: string, timeoutMs = 8000): Promise<string | undefined> {
+async function npmViewLatest(name: string, timeoutMs = 8000): Promise<string | undefined> {
   try {
     const { stdout } = await execFileAsync('npm', ['view', name, 'version'], {
       timeout: timeoutMs,
@@ -46,7 +46,7 @@ export async function npmViewLatest(name: string, timeoutMs = 8000): Promise<str
   }
 }
 
-export function readInstalledVersion(name: string, cwd: string): string | undefined {
+function readInstalledVersion(name: string, cwd: string): string | undefined {
   try {
     const path = join(cwd, 'node_modules', name, 'package.json');
     const pkg = JSON.parse(readFileSync(path, 'utf-8'));
@@ -56,7 +56,7 @@ export function readInstalledVersion(name: string, cwd: string): string | undefi
   }
 }
 
-export function readSelfVersion(): string | undefined {
+function readSelfVersion(): string | undefined {
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
     join(here, '..', '..', 'package.json'),
@@ -91,7 +91,7 @@ export function listConfiguredNpmPlugins(): string[] {
  * compares numeric segments left-to-right. Returns `true` when `current` is
  * unknown so a missing local install reads as "needs install / update".
  */
-export function isVersionNewer(current: string | undefined, latest: string): boolean {
+function isVersionNewer(current: string | undefined, latest: string): boolean {
   if (!current) return true;
   if (current === latest) return false;
   const cur = current.split(/[.+-]/).map((p) => Number.parseInt(p, 10));

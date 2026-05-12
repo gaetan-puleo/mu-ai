@@ -8,32 +8,24 @@
  *  - `beforeToolExec`       — enforces permission gates (allow/deny/ask)
  *  - `transformUserInput`   — forces `@<subagent>` dispatch + injects
  *                             agent-switch notes
+ *
+ * All hooks that read the active agent use `getActiveFor(sessionId)` so
+ * different sessions can have different agents. The session id comes
+ * from the `MessageBusRouter.getCurrentSession()` pin set by `runHostTurn`.
  */
 
-import type {
-  ChatMessage,
-  LifecycleHooks,
-  PluginContext,
-  PluginRegistryView,
-  ProviderConfig,
-} from 'mu-core';
+import type { ChatMessage, LifecycleHooks, MessageBus, PluginContext, PluginRegistryView, ProviderConfig } from 'mu-core';
+import type { MessageBusRouter } from 'mu-core';
 import { makeSyntheticMessage } from 'mu-core';
 import type { ApprovalGateway } from '../approval';
-import {
-  handleSubagentMention,
-  type MentionDispatchDeps,
-} from '../dispatch/mention';
+import { handleSubagentMention, type MentionDispatchDeps } from '../dispatch/mention';
 import type { AgentManager } from '../manager';
 import { enforceAgentPermissions } from '../permissionGate';
 import type { SubagentRunRegistry } from '../subagentRun';
-import {
-  type AgentSwitchTracker,
-  buildAgentSwitchNote,
-  resetTracker,
-} from '../switchTracker';
+import { type AgentSwitchTracker, buildAgentSwitchNote, resetTracker } from '../switchTracker';
 import type { AgentDefinition } from '../types';
 
-export interface BuildHooksDeps {
+interface BuildHooksDeps {
   manager: AgentManager;
   modelRef: { current: string };
   approvalGateway: ApprovalGateway;
@@ -41,17 +33,11 @@ export interface BuildHooksDeps {
   registryRef: { current: PluginRegistryView | null };
   tracker: AgentSwitchTracker;
   ctxRef: { current: PluginContext | null };
-  /** Provider config + run registry — required for forced @-mention dispatch. */
   config?: ProviderConfig;
   runRegistry: SubagentRunRegistry;
   resolveSubagentSessionPath: (runId: string) => string | undefined;
 }
 
-/**
- * Build the per-agent system prompt the LLM sees. Prepends the agent
- * body with its allowed-tool whitelist plus subagent dispatch
- * instructions when relevant.
- */
 function renderAgentPrompt(agent: AgentDefinition, subagents: AgentDefinition[]): string {
   const tools = agent.tools.length > 0 ? agent.tools.join(', ') : 'none';
   const lines = [
@@ -63,9 +49,7 @@ function renderAgentPrompt(agent: AgentDefinition, subagents: AgentDefinition[])
   ];
 
   const hasSubagent =
-    agent.tools.includes('subagent') ||
-    agent.tools.includes('subagent_parallel') ||
-    agent.tools.includes('*');
+    agent.tools.includes('subagent') || agent.tools.includes('subagent_parallel') || agent.tools.includes('*');
   if (hasSubagent && subagents.length > 0) {
     lines.push('');
     lines.push('### Subagents');
@@ -91,15 +75,31 @@ function renderAgentPrompt(agent: AgentDefinition, subagents: AgentDefinition[])
 }
 
 /**
- * Stamp every freshly-built USER message with the active agent's name +
- * color so per-message attribution survives downstream renderers. We
- * intentionally only stamp user messages: assistant messages come back
- * from the LLM and are attributed at persist time by the host factory.
+ * Read the current session id from the MessageBus. When the bus is a
+ * `MessageBusRouter` (the normal case), it exposes `getCurrentSession()`.
+ * Returns `null` for plain buses or when unpinned.
  */
-function stampActiveAgent(msg: ChatMessage, manager: AgentManager): ChatMessage {
+function readSessionId(bus: MessageBus | null | undefined): string | null {
+  if (!bus) return null;
+  if ('getCurrentSession' in bus && typeof (bus as MessageBusRouter).getCurrentSession === 'function') {
+    return (bus as MessageBusRouter).getCurrentSession();
+  }
+  return null;
+}
+
+/**
+ * Resolve the active agent for the current hook context. Uses the
+ * session-scoped agent when available, falls back to global.
+ */
+function resolveActive(deps: BuildHooksDeps): AgentDefinition | undefined {
+  const sessionId = readSessionId(deps.ctxRef.current?.messages);
+  return deps.manager.getActiveFor(sessionId);
+}
+
+function stampActiveAgent(msg: ChatMessage, deps: BuildHooksDeps): ChatMessage {
   if (msg.display?.hidden) return msg;
   if (msg.role !== 'user') return msg;
-  const agent = manager.getActive();
+  const agent = resolveActive(deps);
   if (!agent) return msg;
   const display = msg.display ?? {};
   const meta = msg.meta ?? {};
@@ -115,7 +115,6 @@ function stampActiveAgent(msg: ChatMessage, manager: AgentManager): ChatMessage 
 }
 
 export function buildHooks(deps: BuildHooksDeps): LifecycleHooks {
-  // The mention dispatcher's deps are a subset of the hook deps.
   const mentionDeps: MentionDispatchDeps = {
     manager: deps.manager,
     modelRef: deps.modelRef,
@@ -129,28 +128,25 @@ export function buildHooks(deps: BuildHooksDeps): LifecycleHooks {
   };
 
   return {
-    // Capture the live model on every LLM call so subagents launched
-    // mid-session use whatever model the user is currently driving the
-    // host with — not the one frozen at plugin construction time.
     beforeLlmCall: (messages, config) => {
       if (config.model) deps.modelRef.current = config.model;
       return messages;
     },
-    decorateMessage: (msg) => stampActiveAgent(msg, deps.manager),
+    decorateMessage: (msg) => stampActiveAgent(msg, deps),
     transformSystemPrompt: (prompt) => {
-      const agent = deps.manager.getActive();
+      const agent = resolveActive(deps);
       if (!agent) return prompt;
       const rendered = renderAgentPrompt(agent, deps.manager.getSubagents());
       return prompt ? `${prompt}\n\n${rendered}` : rendered;
     },
     filterTools: (tools) => {
-      const agent = deps.manager.getActive();
+      const agent = resolveActive(deps);
       if (!agent || agent.tools.includes('*')) return tools;
       const allowed = new Set(agent.tools);
       return tools.filter((t) => allowed.has(t.definition.function.name));
     },
     beforeToolExec: async (call) => {
-      const agent = deps.manager.getActive();
+      const agent = resolveActive(deps);
       if (!agent) return call;
       return enforceAgentPermissions({
         agent,
@@ -163,9 +159,7 @@ export function buildHooks(deps: BuildHooksDeps): LifecycleHooks {
     transformUserInput: async (text) => {
       const handled = await handleSubagentMention(text, mentionDeps);
 
-      const active = deps.manager.getActive();
-      // Seed the tracker with the agent at first send so the very first
-      // user message doesn't trigger a spurious inject.
+      const active = resolveActive(deps);
       if (active && deps.tracker.current === null) {
         deps.tracker.current = active.name;
       }
@@ -182,8 +176,6 @@ export function buildHooks(deps: BuildHooksDeps): LifecycleHooks {
             }),
           );
         }
-        // Reset the traversal so the next inject only fires if the user
-        // switches agents again before the next send.
         resetTracker(deps.tracker, active.name);
       }
 

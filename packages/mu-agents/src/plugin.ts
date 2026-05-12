@@ -36,24 +36,10 @@ import { mergeAgents } from './markdown';
 import { type ToolMatchKeySpec, validatePermissionMap } from './permissions';
 import { type AgentSourceManager, createAgentSourceManager } from './sources';
 import { createSubagentParallelTool, createSubagentTool } from './subagent';
-import {
-  createSubagentRunRegistry,
-  type SessionWriter,
-  type SubagentRunRegistry,
-} from './subagentRun';
-import {
-  type AgentSwitchTracker,
-  createAgentSwitchTracker,
-  recordSwitch,
-  resetTracker,
-} from './switchTracker';
+import { createSubagentRunRegistry, type SessionWriter, type SubagentRunRegistry } from './subagentRun';
+import { type AgentSwitchTracker, createAgentSwitchTracker, recordSwitch, resetTracker } from './switchTracker';
 import type { AgentDefinition } from './types';
-import {
-  type ActivateUIDeps,
-  pushIndicator,
-  registerMentions,
-  registerTabShortcut,
-} from './ui/activateUI';
+import { type ActivateUIDeps, pushIndicator, registerMentions, registerTabShortcut } from './ui/activateUI';
 
 export interface AgentsPluginConfig {
   /** Override the user agents directory (defaults to `~/.config/mu/agents`). */
@@ -164,10 +150,7 @@ function deriveSubagentPath(parentPath: string | undefined, runId: string): stri
  * into the manager. Bound to a context so it can be invoked from
  * chokidar change events and on-demand `registerSource` calls alike.
  */
-function buildAgentRefresher(
-  ctx: PluginContext,
-  internals: PluginInternals,
-): (overrides: AgentDefinition[]) => void {
+function buildAgentRefresher(ctx: PluginContext, internals: PluginInternals): (overrides: AgentDefinition[]) => void {
   return (overrides: AgentDefinition[]) => {
     const merged = mergeAgents([...DEFAULT_PRIMARY_AGENTS, ...DEFAULT_SUB_AGENTS], overrides);
     const knownTools: ToolMatchKeySpec[] = (ctx.registry?.getTools() ?? []).map((t) => ({
@@ -219,17 +202,12 @@ function buildSubagentTools(internals: PluginInternals): PluginTool[] {
     approvalChannelId: internals.approvalChannelId,
     runRegistry: internals.runRegistry,
     messageBusRef: internals.messageBusRef,
-    resolveSessionPath: (runId: string) =>
-      deriveSubagentPath(internals.getParentSessionPath?.(), runId),
+    resolveSessionPath: (runId: string) => deriveSubagentPath(internals.getParentSessionPath?.(), runId),
   };
   return [createSubagentTool(deps), createSubagentParallelTool(deps)];
 }
 
-function activatePlugin(
-  ctx: PluginContext,
-  internals: PluginInternals,
-  unregisterFns: Array<() => void>,
-): void {
+function activatePlugin(ctx: PluginContext, internals: PluginInternals, unregisterFns: Array<() => void>): void {
   internals.ctxRef.current = ctx;
   internals.registryRef.current = ctx.registry ?? null;
   internals.messageBusRef.current = ctx.messages ?? null;
@@ -248,33 +226,34 @@ function activatePlugin(
   pushIndicator(ctx, internals.manager);
 
   unregisterFns.push(
-    internals.manager.onChange((next) => {
+    internals.manager.onChange((next, _sessionId) => {
       pushIndicator(ctx, internals.manager);
       if (next) recordSwitch(internals.tracker, next.name);
     }),
   );
 
-  // Reset traversal state when the session is wiped (e.g. /new). The
-  // host emits an empty `messages` snapshot through the message bus on
-  // session reset; we hook that to forget any pending traversal so the
-  // next first user turn doesn't ship a stale switch note.
-  if (ctx.messages?.subscribe) {
-    let lastLen = ctx.messages.get?.().length ?? 0;
+  // Reset traversal state when any session is wiped (e.g. /new).
+  // We subscribe to every session's events and watch for an empty
+  // `messages_changed` snapshot, which means the host cleared the
+  // transcript.
+  if (ctx.sessions) {
     unregisterFns.push(
-      ctx.messages.subscribe((messages) => {
-        if (messages.length === 0 && lastLen > 0) {
-          resetTracker(internals.tracker, internals.manager.getActive()?.name ?? null);
-        }
-        lastLen = messages.length;
+      ctx.sessions.onSessionCreated((session) => {
+        let lastLen = 0;
+        const off = session.subscribe((event) => {
+          if (event.type !== 'messages_changed') return;
+          if (event.messages.length === 0 && lastLen > 0) {
+            resetTracker(internals.tracker, internals.manager.getActiveFor(null)?.name ?? null);
+          }
+          lastLen = event.messages.length;
+        });
+        unregisterFns.push(off);
       }),
     );
   }
 }
 
-function deactivatePlugin(
-  internals: PluginInternals,
-  unregisterFns: Array<() => void>,
-): void {
+function deactivatePlugin(internals: PluginInternals, unregisterFns: Array<() => void>): void {
   while (unregisterFns.length) {
     const fn = unregisterFns.pop();
     try {
@@ -317,8 +296,7 @@ export function createAgentsPlugin(rawConfig: AgentsPluginConfig = {}): Plugin {
       ctxRef: internals.ctxRef,
       config: internals.config,
       runRegistry: internals.runRegistry,
-      resolveSubagentSessionPath: (runId) =>
-        deriveSubagentPath(internals.getParentSessionPath?.(), runId),
+      resolveSubagentSessionPath: (runId) => deriveSubagentPath(internals.getParentSessionPath?.(), runId),
     }),
     // mu-agents intentionally does NOT contribute slash commands —
     // hosts that want `/agent` etc. build their own plugin reading

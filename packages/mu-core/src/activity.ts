@@ -29,12 +29,7 @@ export interface ActivityEvent {
 
 export interface ActivityBus {
   subscribe: (fn: (e: ActivityEvent) => void) => () => void;
-  emit: (
-    kind: ActivityKind,
-    source: string,
-    summary: string,
-    detail?: Record<string, unknown>,
-  ) => void;
+  emit: (kind: ActivityKind, source: string, summary: string, detail?: Record<string, unknown>) => void;
 }
 
 export function createActivityBus(): ActivityBus {

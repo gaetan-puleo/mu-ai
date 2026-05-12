@@ -1,27 +1,32 @@
 import { loadSettings, saveSettings } from './settings';
 import type { AgentDefinition } from './types';
 
-type Listener = (active: AgentDefinition | undefined) => void;
+type Listener = (active: AgentDefinition | undefined, sessionId: string | null) => void;
+
+type AgentsChangedListener = (snapshot: { primary: AgentDefinition[]; subagent: AgentDefinition[] }) => void;
 
 interface AgentManagerOptions {
-  /** Available primary agents (already merged from defaults + overrides). */
   primary: AgentDefinition[];
-  /** Available subagents. Used by the subagent tools, not by manager state. */
   subagent: AgentDefinition[];
-  /** Path to persist `currentAgent` between sessions. */
   settingsPath: string;
 }
 
 /**
- * Owns the "currently active primary agent" state. UI surfaces (status
- * indicator, system prompt injection, tool filter) subscribe and react.
+ * Owns the active primary agent state. Session-scoped: each session has
+ * its own active agent via `getActiveFor(sessionId)`. The persisted
+ * global default is used as fallback when a session hasn't set one.
+ *
+ * There is no `getActive()` or `setActive()` — all access is
+ * session-scoped. Pass `null` as `sessionId` for the global default.
  */
 export class AgentManager {
   private primary: AgentDefinition[];
   private subagentList: AgentDefinition[];
   private settingsPath: string;
-  private activeName: string;
+  private globalDefault: string;
+  private perSession: Map<string, string> = new Map();
   private listeners: Set<Listener> = new Set();
+  private agentsChangedListeners: Set<AgentsChangedListener> = new Set();
 
   constructor(options: AgentManagerOptions) {
     this.primary = options.primary;
@@ -29,7 +34,7 @@ export class AgentManager {
     this.settingsPath = options.settingsPath;
     const persisted = loadSettings(this.settingsPath).currentAgent;
     const fallback = this.primary[0]?.name ?? '';
-    this.activeName = persisted && this.primary.some((a) => a.name === persisted) ? persisted : fallback;
+    this.globalDefault = persisted && this.primary.some((a) => a.name === persisted) ? persisted : fallback;
   }
 
   getPrimary(): AgentDefinition[] {
@@ -44,27 +49,50 @@ export class AgentManager {
     return this.subagentList.find((a) => a.name === name);
   }
 
-  getActive(): AgentDefinition | undefined {
-    return this.primary.find((a) => a.name === this.activeName);
+  /**
+   * Session-scoped active agent. When `sessionId` is non-null and has
+   * an override, returns that. Otherwise returns the global default.
+   * Pass `null` for the global default.
+   */
+  getActiveFor(sessionId: string | null): AgentDefinition | undefined {
+    const name = sessionId
+      ? (this.perSession.get(sessionId) ?? this.globalDefault)
+      : this.globalDefault;
+    return this.primary.find((a) => a.name === name);
   }
 
-  setActive(name: string): boolean {
+  /**
+   * Set the active agent for a session. When `sessionId` is `null`,
+   * sets the global default (persisted to disk). Per-session overrides
+   * are ephemeral.
+   */
+  setActiveFor(name: string, sessionId: string | null): boolean {
     const agent = this.primary.find((a) => a.name === name);
     if (!agent) return false;
-    if (this.activeName === name) return false;
-    this.activeName = name;
-    saveSettings(this.settingsPath, { currentAgent: name });
-    for (const fn of this.listeners) fn(agent);
+    if (sessionId) {
+      const prev = this.perSession.get(sessionId);
+      if (prev === name) return false;
+      this.perSession.set(sessionId, name);
+    } else {
+      if (this.globalDefault === name) return false;
+      this.globalDefault = name;
+      saveSettings(this.settingsPath, { currentAgent: name });
+    }
+    for (const fn of this.listeners) fn(agent, sessionId);
     return true;
   }
 
-  /** Move to the next primary agent, wrapping around. Returns the new active. */
+  clearSessionAgent(sessionId: string): void {
+    this.perSession.delete(sessionId);
+  }
+
+  /** Cycle the global default to the next primary agent. */
   cycle(): AgentDefinition | undefined {
     if (this.primary.length === 0) return undefined;
-    const idx = this.primary.findIndex((a) => a.name === this.activeName);
+    const idx = this.primary.findIndex((a) => a.name === this.globalDefault);
     const next = this.primary[(idx + 1) % this.primary.length];
     if (!next) return undefined;
-    this.setActive(next.name);
+    this.setActiveFor(next.name, null);
     return next;
   }
 
@@ -75,20 +103,28 @@ export class AgentManager {
     };
   }
 
-  /**
-   * Replace the agent lists at runtime (used by hot-reload from
-   * AgentSourceManager). Preserves the active agent name when possible;
-   * falls back to the first primary agent otherwise. Notifies listeners
-   * when the active selection changed as a side effect.
-   */
+  onAgentsChanged(listener: AgentsChangedListener): () => void {
+    this.agentsChangedListeners.add(listener);
+    return () => {
+      this.agentsChangedListeners.delete(listener);
+    };
+  }
+
   setAgents(primary: AgentDefinition[], subagent: AgentDefinition[]): void {
     this.primary = primary;
     this.subagentList = subagent;
-    const stillExists = this.primary.some((a) => a.name === this.activeName);
+    const stillExists = this.primary.some((a) => a.name === this.globalDefault);
     if (!stillExists) {
-      this.activeName = this.primary[0]?.name ?? '';
+      this.globalDefault = this.primary[0]?.name ?? '';
     }
-    const active = this.getActive();
-    for (const fn of this.listeners) fn(active);
+    for (const [sid, name] of this.perSession) {
+      if (!this.primary.some((a) => a.name === name)) {
+        this.perSession.delete(sid);
+      }
+    }
+    const active = this.getActiveFor(null);
+    for (const fn of this.listeners) fn(active, null);
+    const snapshot = { primary: this.primary, subagent: this.subagentList };
+    for (const fn of this.agentsChangedListeners) fn(snapshot);
   }
 }

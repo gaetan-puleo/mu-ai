@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink';
-import type { ChatMessage } from 'mu-core';
 import type { SubagentRun } from 'mu-agents';
+import type { ChatMessage } from 'mu-core';
 import { useContext, useEffect, useState } from 'react';
 import { SubagentRunsRegistryContext } from '../../SubagentRunsProvider';
 
@@ -31,9 +31,7 @@ function statusGlyph(status: SubagentRun['status']): string {
 
 function useSubagentRun(id: string | undefined): SubagentRun | undefined {
   const registry = useContext(SubagentRunsRegistryContext);
-  const [run, setRun] = useState<SubagentRun | undefined>(() =>
-    id && registry ? registry.get(id) : undefined,
-  );
+  const [run, setRun] = useState<SubagentRun | undefined>(() => (id && registry ? registry.get(id) : undefined));
   useEffect(() => {
     if (!(id && registry)) return;
     return registry.subscribeRun(id, (next) => setRun(next));

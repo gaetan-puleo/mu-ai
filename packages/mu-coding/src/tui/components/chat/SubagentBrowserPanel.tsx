@@ -139,7 +139,7 @@ export function SubagentBrowserPanel({ run, position, sessionTitle }: SubagentBr
 }
 
 /** Helper type used by `ChatPanelBody` when constructing the panel. */
-export type SubagentBrowserPanelComponent = typeof SubagentBrowserPanel;
+type SubagentBrowserPanelComponent = typeof SubagentBrowserPanel;
 
 /** Wrap a `RefObject<DOMElement>` cast for callers that need it. */
-export type _SubagentBrowserRef = RefObject<InkDOMElement | null>;
+type _SubagentBrowserRef = RefObject<InkDOMElement | null>;

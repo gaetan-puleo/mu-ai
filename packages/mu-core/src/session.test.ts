@@ -82,7 +82,8 @@ describe('Session message store', () => {
     s.appendSynthetic({ role: 'assistant', content: 'a' });
     off();
     s.appendSynthetic({ role: 'assistant', content: 'b' });
-    expect(seen).toHaveLength(1);
+    // messages_changed + synthetic_appended = 2 hits before unsubscribe
+    expect(seen).toHaveLength(2);
   });
 });
 
@@ -95,5 +96,45 @@ describe('Session.runTurn re-entrance guard', () => {
       /already running a turn/i,
     );
     await first;
+  });
+});
+
+describe('SessionManager.onSessionCreated', () => {
+  it('fires for newly created sessions', () => {
+    const { sm } = newSm();
+    const seen: string[] = [];
+    sm.onSessionCreated((s) => seen.push(s.id));
+    sm.getOrCreate('a');
+    sm.getOrCreate('b');
+    expect(seen).toEqual(['a', 'b']);
+  });
+
+  it('replays existing sessions to late subscribers', () => {
+    const { sm } = newSm();
+    sm.getOrCreate('a');
+    sm.getOrCreate('b');
+    const seen: string[] = [];
+    sm.onSessionCreated((s) => seen.push(s.id));
+    expect(seen).toEqual(['a', 'b']);
+  });
+
+  it('does NOT re-fire on getOrCreate of an existing session', () => {
+    const { sm } = newSm();
+    const seen: string[] = [];
+    sm.onSessionCreated((s) => seen.push(s.id));
+    sm.getOrCreate('a');
+    sm.getOrCreate('a');
+    sm.getOrCreate('a');
+    expect(seen).toEqual(['a']);
+  });
+
+  it('unsubscribes correctly', () => {
+    const { sm } = newSm();
+    const seen: string[] = [];
+    const off = sm.onSessionCreated((s) => seen.push(s.id));
+    sm.getOrCreate('a');
+    off();
+    sm.getOrCreate('b');
+    expect(seen).toEqual(['a']);
   });
 });

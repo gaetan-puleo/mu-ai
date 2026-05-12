@@ -1,3 +1,4 @@
+import type { Session } from 'mu-core';
 import { useCallback, useRef, useState } from 'react';
 import { restoreTerminal, type ShutdownFn } from '../../app/shutdown';
 
@@ -7,9 +8,6 @@ function useDoublePress(timeoutMs: number) {
 
   const confirm = useCallback(() => {
     if (warning) {
-      // Confirmed press: cancel the pending auto-reset and clear the
-      // warning flag immediately so the status hint ("Esc again to stop"
-      // / "Ctrl+C again to quit") disappears as soon as the action fires.
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
@@ -32,7 +30,6 @@ function useDoublePress(timeoutMs: number) {
 }
 
 export interface AbortState {
-  controllerRef: React.RefObject<AbortController | null>;
   quitWarning: boolean;
   abortWarning: boolean;
   onCtrlC: () => void;
@@ -41,7 +38,7 @@ export interface AbortState {
 
 export function useAbort(
   streaming: boolean,
-  controllerRef: React.RefObject<AbortController | null>,
+  session: Session,
   exit: () => void,
   timeoutMs: number,
   shutdown?: ShutdownFn,
@@ -50,36 +47,28 @@ export function useAbort(
   const { warning: abortWarning, confirm: onEsc } = useDoublePress(timeoutMs);
 
   const handleCtrlC = useCallback(() => {
-    if (streaming && controllerRef.current) {
-      controllerRef.current.abort();
-      controllerRef.current = null;
+    if (streaming) {
+      session.abort();
       return;
     }
     if (!onCtrlC()) {
       return;
     }
-    // Restore the terminal first so even a hanging shutdown leaves a usable
-    // prompt, then unmount Ink (fires `useScroll`/etc. cleanups), then run
-    // the registry shutdown which `process.exit`s when complete.
     restoreTerminal();
     exit();
     if (shutdown) {
       void shutdown(0);
     } else {
-      // Fallback for callers that didn't wire a shutdown function.
       setTimeout(() => process.exit(0), 500);
     }
-  }, [streaming, onCtrlC, exit, controllerRef, shutdown]);
+  }, [streaming, session, onCtrlC, exit, shutdown]);
 
   const handleEsc = useCallback(() => {
-    if (!(streaming && controllerRef.current)) {
-      return;
-    }
+    if (!streaming) return;
     if (onEsc()) {
-      controllerRef.current.abort();
-      controllerRef.current = null;
+      session.abort();
     }
-  }, [streaming, onEsc, controllerRef]);
+  }, [streaming, session, onEsc]);
 
-  return { controllerRef, quitWarning, abortWarning, onCtrlC: handleCtrlC, onEsc: handleEsc };
+  return { quitWarning, abortWarning, onCtrlC: handleCtrlC, onEsc: handleEsc };
 }

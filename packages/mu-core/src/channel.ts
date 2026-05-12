@@ -1,35 +1,15 @@
 /**
- * Channel — input surface for sessions. A channel converts an external
- * trigger (TUI keystroke, Telegram message, voice transcription, websocket
- * frame) into an `InboundMessage` and forwards it to a `Session`.
+ * Channel — external I/O surface.
  *
- * The abstraction is intentionally tiny: a channel knows how to start, stop,
- * and (optionally) respond. The mu-core host owns lifecycle; channels are
- * registered via `PluginContext.channels?.register(...)`.
+ * A channel converts external triggers (TUI keystrokes, WebSocket frames,
+ * Telegram messages, scheduler ticks) into `runtime.submitText()` calls
+ * and broadcasts session events outward.
+ *
+ * Channels must not:
+ * - Start side effects in constructors.
+ * - Run turns manually.
+ * - Reimplement hook orchestration.
  */
-
-export type InboundKind = 'text' | 'audio';
-export type ResponseMode = 'text' | 'voice';
-
-export interface InboundMessage {
-  kind: InboundKind;
-  channelId: string;
-  sessionId: string;
-  messageId?: string;
-  userId?: string;
-  userName?: string;
-  text?: string;
-  responseMode?: ResponseMode;
-  audio?: { url?: string; mimeType?: string; filePath?: string };
-  raw?: unknown;
-}
-
-export interface ChannelResponder {
-  sendText: (text: string) => Promise<void>;
-  sendVoice?: (text: string) => Promise<void>;
-  sendAck?: (text: string) => Promise<void>;
-  sendError?: (text: string) => Promise<void>;
-}
 
 export interface Channel {
   id: string;
@@ -47,12 +27,19 @@ export interface ChannelRegistry {
 
 export function createChannelRegistry(): ChannelRegistry {
   const channels = new Map<string, Channel>();
+  let started = false;
+
   return {
     register(channel) {
       if (channels.has(channel.id)) {
         throw new Error(`Channel already registered: ${channel.id}`);
       }
       channels.set(channel.id, channel);
+      if (started) {
+        channel.start().catch(() => {
+          /* swallow async start errors for late registrations */
+        });
+      }
       return () => {
         channels.delete(channel.id);
       };
@@ -64,6 +51,7 @@ export function createChannelRegistry(): ChannelRegistry {
       return channels.get(id);
     },
     async startAll() {
+      started = true;
       for (const c of channels.values()) {
         await c.start();
       }
@@ -72,6 +60,7 @@ export function createChannelRegistry(): ChannelRegistry {
       for (const c of channels.values()) {
         if (c.stop) await c.stop();
       }
+      started = false;
     },
   };
 }

@@ -81,7 +81,7 @@ function executeBash(command: string, cwd: string, signal?: AbortSignal): Promis
   });
 }
 
-export interface BashToolOptions {
+interface BashToolOptions {
   getCwd: () => string;
 }
 

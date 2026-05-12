@@ -1,12 +1,12 @@
 // Lightweight diff for edit_file tool output.
 // Uses prefix/suffix matching — sufficient for small, localized edits.
 
-export interface DiffLine {
+interface DiffLine {
   type: 'context' | 'old' | 'new';
   value: string;
 }
 
-export interface DiffResult {
+interface DiffResult {
   lines: DiffLine[];
   totalOldLines: number;
   totalNewLines: number;

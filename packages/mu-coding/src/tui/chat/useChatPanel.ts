@@ -1,10 +1,8 @@
 import { type DOMElement as InkDOMElement, useInput } from 'ink';
 import type { SubagentRunRegistry } from 'mu-agents';
-import type { ChatMessage, PluginRegistry, ProviderConfig } from 'mu-core';
+import type { ChatMessage, PluginRegistry, ProviderConfig, SessionManager, SessionStore, SubmitTextInput, SubmitTextResult } from 'mu-core';
 import { useEffect, useMemo, useRef } from 'react';
 import type { ShutdownFn } from '../../app/shutdown';
-import type { SessionPathHolder } from '../../runtime/createRegistry';
-import type { HostMessageBus } from '../../runtime/messageBus';
 import type { ChatPanelBodyProps } from '../components/chat/ChatPanelBody';
 import { useToast } from '../components/primitives/toast';
 import { useScroll } from '../hooks/useScroll';
@@ -24,35 +22,38 @@ const TOAST_LEVEL_COLORS: Record<string, string> = {
 
 interface UseChatPanelOptions {
   config: ProviderConfig;
+  initialSessionId: string;
   initialMessages?: ChatMessage[];
   registry: PluginRegistry;
-  messageBus?: HostMessageBus;
+  sessions: SessionManager;
+  store: SessionStore;
+  submitText: (input: SubmitTextInput) => Promise<SubmitTextResult>;
   uiService?: InkUIService;
   shutdown?: ShutdownFn;
-  sessionPathHolder?: SessionPathHolder;
   subagentRuns?: SubagentRunRegistry;
 }
 
 export function useChatPanel(options: UseChatPanelOptions) {
-  const { config, initialMessages, registry, messageBus, uiService, shutdown, sessionPathHolder, subagentRuns } =
-    options;
-  const ctx = useChat(
+  const {
+    config, initialSessionId, initialMessages, registry, sessions, store, submitText,
+    uiService, shutdown, subagentRuns,
+  } = options;
+  const ctx = useChat({
     config,
-    registry,
+    initialSessionId,
     initialMessages,
+    registry,
+    sessions,
+    store,
+    submitText,
     shutdown,
     uiService,
-    messageBus,
-    sessionPathHolder,
     subagentRuns,
-  );
+  });
   const browser = useSubagentBrowser(subagentRuns);
   const { width, height } = useTerminalSize();
   const viewRef = useRef<InkDOMElement>(null);
   const contentRef = useRef<InkDOMElement>(null);
-  // The composite key only needs to change when content visible to the layout
-  // shifts: number of messages or active stream length. Mapping over every
-  // message's content per render was O(n) wasted work.
   const measureKey = useMemo(
     () =>
       [ctx.session.messages.length, ctx.session.stream.text.length, ctx.session.stream.reasoning?.length ?? 0].join(
@@ -116,5 +117,3 @@ export function useChatPanel(options: UseChatPanelOptions) {
 
   return { ctx, bodyProps };
 }
-
-export type { SubagentBrowserState };

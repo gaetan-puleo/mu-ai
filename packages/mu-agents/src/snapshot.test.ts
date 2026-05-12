@@ -52,9 +52,7 @@ describe('SubagentRunRegistry — snapshot surface', () => {
   it('emits on update + finish transitions', async () => {
     const registry = createSubagentRunRegistry();
     const seen: Array<{ status: string; final?: string }> = [];
-    registry.subscribeAllSnapshots((s) =>
-      seen.push({ status: s.status, final: s.finalContent }),
-    );
+    registry.subscribeAllSnapshots((s) => seen.push({ status: s.status, final: s.finalContent }));
     const handle = registry.start({
       id: 'r1',
       agent: FAKE_AGENT,

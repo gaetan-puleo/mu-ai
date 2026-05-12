@@ -17,9 +17,5 @@ export function SubagentRunsProvider({
   registry: SubagentRunRegistry;
   children: React.ReactNode;
 }) {
-  return (
-    <SubagentRunsRegistryContext.Provider value={registry}>
-      {children}
-    </SubagentRunsRegistryContext.Provider>
-  );
+  return <SubagentRunsRegistryContext.Provider value={registry}>{children}</SubagentRunsRegistryContext.Provider>;
 }

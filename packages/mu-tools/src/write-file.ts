@@ -3,7 +3,7 @@ import { dirname } from 'node:path';
 import type { PluginTool } from 'mu-core';
 import { sanitizePath } from './utils';
 
-export interface WriteFileToolOptions {
+interface WriteFileToolOptions {
   getCwd: () => string;
   restrictToCwd?: boolean;
 }

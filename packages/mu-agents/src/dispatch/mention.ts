@@ -12,14 +12,8 @@
  * `subagent` tool can't dispatch via `@` either.
  */
 
+import type { ChatMessage, MessageBus, PluginContext, PluginRegistryView, ProviderConfig } from 'mu-core';
 import { makeSyntheticMessage, runDecorateMessageHooks } from 'mu-core';
-import type {
-  ChatMessage,
-  MessageBus,
-  PluginContext,
-  PluginRegistryView,
-  ProviderConfig,
-} from 'mu-core';
 import type { ApprovalGateway } from '../approval';
 import type { AgentManager } from '../manager';
 import { runSubagent } from '../subagent';
@@ -27,7 +21,7 @@ import type { SubagentRunRegistry } from '../subagentRun';
 import type { AgentDefinition } from '../types';
 
 /** Match a leading `@<name>` and split the rest as the task description. */
-export function parseSubagentMention(text: string): { name: string; task: string } | null {
+function parseSubagentMention(text: string): { name: string; task: string } | null {
   const match = /^\s*@([\w-]+)(?:\s+([\s\S]+))?\s*$/.exec(text);
   if (!match) return null;
   return { name: match[1] ?? '', task: (match[2] ?? '').trim() };
@@ -62,16 +56,18 @@ export interface MentionDispatchDeps {
  * the rest of `transformUserInput`); `false` otherwise (no @-mention,
  * unknown subagent, agent forbidden, deps missing).
  */
-export async function handleSubagentMention(
-  text: string,
-  deps: MentionDispatchDeps,
-): Promise<boolean> {
+export async function handleSubagentMention(text: string, deps: MentionDispatchDeps): Promise<boolean> {
   const parsed = parseSubagentMention(text);
   if (!parsed) return false;
   const subagent = deps.manager.getSubagent(parsed.name);
   if (!subagent) return false;
   // Permission gate (see header doc).
-  const active = deps.manager.getActive();
+  // Read session id from the bus to get the session-scoped active agent.
+  const bus = deps.ctxRef.current?.messages;
+  const sessionId = bus && 'getCurrentSession' in bus
+    ? (bus as import('mu-core').MessageBusRouter).getCurrentSession()
+    : null;
+  const active = deps.manager.getActiveFor(sessionId);
   if (active && !agentCanDispatchSubagent(active)) return false;
 
   const ctx = deps.ctxRef.current;
@@ -84,10 +80,20 @@ export async function handleSubagentMention(
   // 1. Live-append the user's own message FIRST so it appears at the
   //    top of the dispatch block, then return `'continue'` so the host
   //    skips its own user-message push.
-  const userMsg = await runDecorateMessageHooks(registryView.getHooks(), {
+  //
+  // Flag the live-appended copy as `transient: true`: the host has
+  // already persisted the user's original input (chat-handler writes
+  // every user message to disk independently). Without the flag,
+  // `attachAutoPersist`'s new `synthetic_appended` handler would double-
+  // write this same content.
+  const decorated = await runDecorateMessageHooks(registryView.getHooks(), {
     role: 'user' as const,
     content: text,
   });
+  const userMsg: ChatMessage = {
+    ...decorated,
+    meta: { ...(decorated.meta ?? {}), transient: true },
+  };
   messageBus?.append(userMsg);
 
   // 2. Run the subagent live. `runSubagent` emits the `↳ subagent`
@@ -128,12 +134,7 @@ export async function handleSubagentMention(
  * preserves it in the LLM payload — the parent agent sees the body once
  * during the relay turn and produces a real follow-up.
  */
-export function buildRelayPrompt(
-  agentName: string,
-  task: string,
-  raw: string,
-  runId: string,
-): ChatMessage {
+function buildRelayPrompt(agentName: string, task: string, raw: string, runId: string): ChatMessage {
   return makeSyntheticMessage({
     role: 'user',
     content:
@@ -150,5 +151,3 @@ export function buildRelayPrompt(
   });
 }
 
-// Re-export so consumers don't have to import from both modules.
-export type { MessageBus };

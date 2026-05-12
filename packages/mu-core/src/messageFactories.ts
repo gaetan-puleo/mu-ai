@@ -96,6 +96,13 @@ export interface SyntheticMessageOpts {
   source?: string;
   /** Correlate to a SubagentRun. */
   subagentRunId?: string;
+  /**
+   * Render-only marker: `attachAutoPersist` skips disk persistence for
+   * transient messages. Used by mu-agents' subagent header + mention
+   * echo so they stay in `session.messages` (for render + LLM context
+   * filtering via `display.llmHidden`) without landing on disk.
+   */
+  transient?: boolean;
 }
 
 /**
@@ -111,6 +118,7 @@ export function makeSyntheticMessage(opts: SyntheticMessageOpts): ChatMessage {
   if (opts.agent) meta.agent = opts.agent;
   if (opts.source) meta.source = opts.source;
   if (opts.subagentRunId) meta.subagentRunId = opts.subagentRunId;
+  if (opts.transient) meta.transient = true;
   const msg: ChatMessage = {
     role: opts.role,
     content: opts.content,

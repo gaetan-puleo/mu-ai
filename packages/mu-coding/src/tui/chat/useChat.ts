@@ -1,17 +1,18 @@
 import { useApp } from 'ink';
 import type { SubagentRunRegistry } from 'mu-agents';
-import {
-  type ChatMessage,
-  createSessionManager,
-  type PluginRegistry,
-  type ProviderConfig,
-  type SessionManager,
+import type {
+  ChatMessage,
+  PluginRegistry,
+  ProviderConfig,
+  SessionManager,
+  SessionStore,
+  SessionSummary,
+  SubmitTextInput,
+  SubmitTextResult,
 } from 'mu-core';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { newSessionId } from 'mu-core';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ShutdownFn } from '../../app/shutdown';
-import type { SessionPathHolder } from '../../runtime/createRegistry';
-import type { HostMessageBus } from '../../runtime/messageBus';
-import { listSessionsAsync, type SessionInfo } from '../../sessions/index';
 import type { InkUIService } from '../plugins/InkUIService';
 import { type AbortState, useAbort } from './useAbort';
 import { type AttachmentState, type TogglesState, useAttachment, useToggles } from './useAttachment';
@@ -28,86 +29,98 @@ export interface ChatContextValue {
   attachment: AttachmentState;
   models: ModelListState;
   abort: AbortState;
-  sessions: SessionInfo[];
+  sessions: SessionSummary[];
   registry: PluginRegistry;
   uiService?: InkUIService;
-  messageBus?: HostMessageBus;
   subagentRuns?: SubagentRunRegistry;
 }
 
-export function useChat(
-  config: ProviderConfig,
-  registry: PluginRegistry,
-  initialMessages?: ChatMessage[],
-  shutdown?: ShutdownFn,
-  uiService?: InkUIService,
-  messageBus?: HostMessageBus,
-  sessionPathHolder?: SessionPathHolder,
-  subagentRuns?: SubagentRunRegistry,
-): ChatContextValue {
+interface UseChatOptions {
+  config: ProviderConfig;
+  initialSessionId: string;
+  initialMessages?: ChatMessage[];
+  registry: PluginRegistry;
+  sessions: SessionManager;
+  store: SessionStore;
+  submitText: (input: SubmitTextInput) => Promise<SubmitTextResult>;
+  shutdown?: ShutdownFn;
+  uiService?: InkUIService;
+  subagentRuns?: SubagentRunRegistry;
+}
+
+export function useChat(options: UseChatOptions): ChatContextValue {
+  const {
+    config, initialSessionId, initialMessages, registry, sessions: sessionManager,
+    store, submitText, shutdown, uiService, subagentRuns,
+  } = options;
+
   const { exit } = useApp();
-  const controllerRef = useRef<AbortController | null>(null);
   const attachment = useAttachment();
   const toggles = useToggles();
   const models = useModelList(config.baseUrl, config.model);
-  // Stable SessionManager + Session for the lifetime of the chat hook. Model
-  // updates flow through `runTurn(options)` per call, so we don't need to
-  // re-instantiate on every change.
-  const sessionManager = useMemo(
-    () => createSessionManager({ registry, config, model: models.currentModel || config.model || 'unknown' }),
-    [registry, config, models.currentModel],
-  );
+
+  const [currentSessionId, setCurrentSessionId] = useState(initialSessionId);
+
   const muSession = useMemo(
-    () => sessionManager.getOrCreate('tui', { initialMessages }),
-    [sessionManager, initialMessages],
+    () => sessionManager.getOrCreate(currentSessionId, { initialMessages }),
+    [sessionManager, currentSessionId, initialMessages],
   );
+
   const session = useChatSession({
     session: muSession,
     config,
     currentModel: models.currentModel,
     attachment,
-    controllerRef,
+    submitText,
     initialMessages,
-    registry,
-    messageBus,
-    sessionPathHolder,
   });
-  const abort = useAbort(session.streaming, controllerRef, exit, ABORT_TIMEOUT_MS, shutdown);
 
-  // Stream the session list asynchronously when the picker opens. Empty until
-  // the first listing settles; subsequent opens hit the in-memory peek cache
-  // so they're effectively instant.
-  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const abort = useAbort(session.streaming, muSession, exit, ABORT_TIMEOUT_MS, shutdown);
+
+  // Session list from the store — refreshed when the picker opens.
+  const [sessionList, setSessionList] = useState<SessionSummary[]>([]);
   useEffect(() => {
     if (!toggles.showSessionPicker) {
-      setSessions([]);
+      setSessionList([]);
       return;
     }
-    let cancelled = false;
-    listSessionsAsync()
-      .then((list) => {
-        if (!cancelled) setSessions(list);
-      })
-      .catch(() => {
-        if (!cancelled) setSessions([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [toggles.showSessionPicker]);
+    setSessionList(store.list());
+  }, [toggles.showSessionPicker, store]);
+
+  // /new: generate a fresh session id, wipe state.
+  const onNew = useCallback(() => {
+    muSession.abort();
+    const freshId = newSessionId();
+    setCurrentSessionId(freshId);
+    session.resetMessages();
+  }, [muSession, session]);
+
+  // Load from picker: switch to the stored session id.
+  const onLoadSession = useCallback(
+    (sessionId: string) => {
+      const stored = store.get(sessionId);
+      if (!stored || stored.messages.length === 0) return;
+      muSession.abort();
+      setCurrentSessionId(sessionId);
+    },
+    [store, muSession],
+  );
 
   return {
     config,
-    session,
+    session: {
+      ...session,
+      onNew,
+      onLoadSession,
+    },
     sessionManager,
     toggles,
     attachment,
     models,
     abort,
-    sessions,
+    sessions: sessionList,
     registry,
     uiService,
-    messageBus,
     subagentRuns,
   };
 }

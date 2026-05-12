@@ -1,25 +1,38 @@
 /**
- * `startMu` — generic host bootstrap. Loads a config, builds the plugin
- * registry with the new side-channel registries (providers/channels/sessions/
- * activity/agents), activates plugins (config first then code-passed), starts
- * channels, and returns a handle for shutdown.
+ * `MuRuntime` — canonical runtime object and `startMu` factory.
  *
- * Designed for non-coding hosts (Arya etc.). mu-coding currently keeps its
- * own bootstrap (Ink TUI lifecycle) and may migrate to this entry point in a
- * later iteration.
+ * Every host (mu-coding TUI, arya WS server, future Telegram bot, tests)
+ * calls `startMu(options)` to obtain a `MuRuntime`. The runtime owns all
+ * registries, the session manager, the message bus, and exposes the
+ * single canonical entry points:
+ *
+ *   - `runtime.submitText()`    — user text → run a turn
+ *   - `runtime.submitCommand()` — slash command dispatch
+ *   - `runtime.start()`         — start channels
+ *   - `runtime.shutdown()`      — stop everything
+ *
+ * No host should manually run hooks, build user messages, drain inject
+ * queues, or call `runAgent` directly.
  */
 
 import type { ActivityBus } from '../activity';
 import { createActivityBus } from '../activity';
 import type { ChannelRegistry } from '../channel';
 import { createChannelRegistry } from '../channel';
-import type { MessageBus, Plugin } from '../plugin';
+import type { MessageBusRouter } from '../messageBus/sessionScoped';
+import { createSessionScopedMessageBus } from '../messageBus/sessionScoped';
+import type { MessageBus, Plugin, SlashCommand } from '../plugin';
 import type { ProviderRegistry } from '../provider/registry';
 import { createProviderRegistry } from '../provider/registry';
 import { PluginRegistry } from '../registry';
 import type { SessionManager } from '../session';
 import { createSessionManager } from '../session';
-import type { ProviderConfig } from '../types/llm';
+import { attachAutoPersist } from '../sessionStore/autoPersist';
+import type { SessionStore } from '../sessionStore/types';
+import type { ChatMessage, ProviderConfig } from '../types/llm';
+import { type RunHostTurnOutcome, runHostTurn } from './runHostTurn';
+
+// ─── Public types ───────────────────────────────────────────────────────────
 
 export interface MuConfigShape {
   cwd?: string;
@@ -32,38 +45,56 @@ export interface MuConfigShape {
   plugins?: Array<string | { name: string; config?: Record<string, unknown> }>;
 }
 
-export interface StartMuOptions {
-  configPath?: string;
-  /** In-memory config — takes precedence over `configPath` when provided. */
-  config?: MuConfigShape;
-  /** Plugins passed in code (activated after config-listed plugins). */
-  plugins?: Plugin[];
-  /** Cwd default (overrides config.cwd if set). */
-  cwd?: string;
-  /**
-   * Optional host-supplied MessageBus. Forwarded into `PluginContext.messages`
-   * so plugins (e.g. mu-agents' @-mention dispatch) can append/inject
-   * synthetic messages into the live transcript. Non-TUI hosts that don't
-   * surface synthetic appends can pass a no-op bus; omitting it disables
-   * features that rely on `ctx.messages`.
-   */
-  messages?: MessageBus;
-  /**
-   * Resolves a `config.plugins` entry to a Plugin instance. Hosts (mu-coding,
-   * Arya) plug their own loader here — typically supports `npm:<name>`
-   * specifiers, absolute paths, etc. When omitted, config.plugins is ignored.
-   */
-  resolvePlugin?: (entry: string | { name: string; config?: Record<string, unknown> }) => Promise<Plugin | null>;
+export interface SubmitTextInput {
+  sessionId: string;
+  text: string;
+  channelId?: string;
+  userId?: string;
+  userName?: string;
+  config?: ProviderConfig;
+  model?: string;
+  decorateUserMessage?: (msg: ChatMessage) => ChatMessage | Promise<ChatMessage>;
 }
 
-export interface MuHandle {
+export type SubmitTextResult = RunHostTurnOutcome;
+
+export interface SubmitCommandInput {
+  sessionId: string;
+  commandName: string;
+  args: string;
+}
+
+export type SubmitCommandResult = { kind: 'executed'; output?: string } | { kind: 'not_found' };
+
+export interface MuRuntime {
   registry: PluginRegistry;
   sessions: SessionManager;
   channels: ChannelRegistry;
-  activity: ActivityBus;
   providers: ProviderRegistry;
+  messageBus: MessageBusRouter;
+  activity: ActivityBus;
+  store?: SessionStore;
+  config: ProviderConfig;
+
+  submitText: (input: SubmitTextInput) => Promise<SubmitTextResult>;
+  submitCommand: (input: SubmitCommandInput) => Promise<SubmitCommandResult>;
+  start: () => Promise<void>;
   shutdown: () => Promise<void>;
 }
+
+// ─── StartMu options ────────────────────────────────────────────────────────
+
+export interface StartMuOptions {
+  configPath?: string;
+  config?: MuConfigShape;
+  plugins?: Plugin[];
+  cwd?: string;
+  store?: SessionStore;
+  messages?: MessageBus | MessageBusRouter;
+  resolvePlugin?: (entry: string | { name: string; config?: Record<string, unknown> }) => Promise<Plugin | null>;
+}
+
+// ─── Internals ──────────────────────────────────────────────────────────────
 
 async function loadConfig(opts: StartMuOptions): Promise<MuConfigShape> {
   if (opts.config) return opts.config;
@@ -74,15 +105,14 @@ async function loadConfig(opts: StartMuOptions): Promise<MuConfigShape> {
   return JSON.parse(text) as MuConfigShape;
 }
 
-export async function startMu(options: StartMuOptions = {}): Promise<MuHandle> {
-  const cfg = await loadConfig(options);
-  const cwd = options.cwd ?? cfg.cwd ?? process.cwd();
+function isRouter(bus: MessageBus | MessageBusRouter | undefined): bus is MessageBusRouter {
+  return !!bus && typeof (bus as MessageBusRouter).setCurrentSession === 'function';
+}
 
-  const providers = createProviderRegistry();
-  const channels = createChannelRegistry();
-  const activity = createActivityBus();
+// ─── Factory ────────────────────────────────────────────────────────────────
 
-  const providerConfig: ProviderConfig = {
+function buildProviderConfig(cfg: MuConfigShape): ProviderConfig {
+  return {
     baseUrl: cfg.baseUrl ?? 'http://localhost:11434/v1',
     model: cfg.model,
     maxTokens: cfg.maxTokens ?? 4096,
@@ -90,9 +120,73 @@ export async function startMu(options: StartMuOptions = {}): Promise<MuHandle> {
     streamTimeoutMs: cfg.streamTimeoutMs ?? 60_000,
     systemPrompt: cfg.systemPrompt,
   };
+}
 
-  // Build a placeholder for sessions injected after construction (circular:
-  // SessionManager needs the registry, plugins want to see SessionManager).
+function buildRuntime(
+  registry: PluginRegistry,
+  sm: SessionManager,
+  channels: ChannelRegistry,
+  providers: ProviderRegistry,
+  messageBus: MessageBusRouter,
+  activity: ActivityBus,
+  providerConfig: ProviderConfig,
+  store: SessionStore | undefined,
+  cwd: string,
+): MuRuntime {
+  return {
+    registry,
+    sessions: sm,
+    channels,
+    providers,
+    messageBus,
+    activity,
+    store,
+    config: providerConfig,
+    async submitText(input) {
+      const session = sm.getOrCreate(input.sessionId);
+      return runHostTurn({
+        session,
+        registry,
+        messageBus,
+        userText: input.text,
+        config: input.config ?? providerConfig,
+        model: input.model,
+        decorateUserMessage: input.decorateUserMessage,
+      });
+    },
+    async submitCommand(input) {
+      const commands: SlashCommand[] = registry.getCommands();
+      const cmd = commands.find((c) => c.name === input.commandName);
+      if (!cmd) return { kind: 'not_found' };
+      const session = sm.getOrCreate(input.sessionId);
+      const output = await cmd.execute(input.args, {
+        messages: session.getMessages(),
+        cwd,
+        config: providerConfig,
+      });
+      return { kind: 'executed', output: output ?? undefined };
+    },
+    async start() {
+      await channels.startAll();
+    },
+    async shutdown() {
+      await channels.stopAll();
+      for (const s of sm.list()) s.abort();
+      await registry.shutdown();
+    },
+  };
+}
+
+export async function startMu(options: StartMuOptions = {}): Promise<MuRuntime> {
+  const cfg = await loadConfig(options);
+  const cwd = options.cwd ?? cfg.cwd ?? process.cwd();
+
+  const providers = createProviderRegistry();
+  const channels = createChannelRegistry();
+  const activity = createActivityBus();
+  const messageBus: MessageBusRouter = isRouter(options.messages) ? options.messages : createSessionScopedMessageBus();
+  const providerConfig = buildProviderConfig(cfg);
+
   let sessions: SessionManager | null = null;
   const sessionsProxy: SessionManager = new Proxy({} as SessionManager, {
     get(_t, prop) {
@@ -108,37 +202,28 @@ export async function startMu(options: StartMuOptions = {}): Promise<MuHandle> {
     channels,
     activity,
     sessions: sessionsProxy,
-    messages: options.messages,
+    messages: options.messages ?? messageBus,
   });
 
   sessions = createSessionManager({ registry, config: providerConfig, model: cfg.model ?? 'unknown' });
+  messageBus.setResolveSession((id) => sessions?.get(id));
 
-  // Activate config-listed plugins via the host's resolver. mu-coding wires
-  // its npm:/path loader; minimal hosts may omit and pass plugins in code.
+  const store = options.store;
+  if (store) {
+    sessions.onSessionCreated((session) => {
+      attachAutoPersist(session, store);
+    });
+  }
+
   if (options.resolvePlugin && cfg.plugins) {
     for (const entry of cfg.plugins) {
       const plugin = await options.resolvePlugin(entry);
       if (plugin) await registry.register(plugin);
     }
   }
-  // Activate code-passed plugins after config-listed ones (so code overrides
-  // config-driven hooks compose-wise).
   for (const plugin of options.plugins ?? []) {
     await registry.register(plugin);
   }
 
-  await channels.startAll();
-
-  const sm = sessions;
-  return {
-    registry,
-    sessions: sm,
-    channels,
-    activity,
-    providers,
-    async shutdown() {
-      await channels.stopAll();
-      for (const s of sm.list()) s.abort();
-    },
-  };
+  return buildRuntime(registry, sessions, channels, providers, messageBus, activity, providerConfig, store, cwd);
 }

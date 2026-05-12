@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test';
-import type { ChatMessage, ProviderConfig } from '../types/llm';
 import type { LifecycleHooks, MessageBus, Plugin, UserInputTransform } from '../plugin';
 import { PluginRegistry } from '../registry';
-import { createSessionManager, type Session } from '../session';
+import type { Session } from '../session';
+import type { ChatMessage, ProviderConfig } from '../types/llm';
 import { runHostTurn } from './runHostTurn';
 
 function fakeConfig(): ProviderConfig {
@@ -21,7 +21,6 @@ function fakeSession(): FakeSession {
     id: 's',
     getMessages: () => [],
     setMessages: () => undefined,
-    submit: async () => undefined,
     runTurn: async (opts) => {
       calls.push({ userMessage: opts.userMessage, queue: queue.slice() });
       queue = [];
@@ -82,8 +81,7 @@ describe('runHostTurn', () => {
   it('handles "intercept" — does NOT run the turn', async () => {
     const { session, calls } = fakeSession();
     const reg = registryWithHook({
-      transformUserInput: () =>
-        ({ kind: 'intercept' }) satisfies UserInputTransform,
+      transformUserInput: () => ({ kind: 'intercept' }) satisfies UserInputTransform,
     });
     const outcome = await runHostTurn({
       session,
@@ -99,8 +97,7 @@ describe('runHostTurn', () => {
   it('handles "transform" — runs the turn with rewritten text', async () => {
     const { session, calls } = fakeSession();
     const reg = registryWithHook({
-      transformUserInput: () =>
-        ({ kind: 'transform', text: 'REWRITTEN' }) satisfies UserInputTransform,
+      transformUserInput: () => ({ kind: 'transform', text: 'REWRITTEN' }) satisfies UserInputTransform,
     });
     const outcome = await runHostTurn({
       session,
@@ -116,8 +113,7 @@ describe('runHostTurn', () => {
   it('handles "continue" — runs the turn with NO userMessage', async () => {
     const { session, calls } = fakeSession();
     const reg = registryWithHook({
-      transformUserInput: () =>
-        ({ kind: 'continue' }) satisfies UserInputTransform,
+      transformUserInput: () => ({ kind: 'continue' }) satisfies UserInputTransform,
     });
     const outcome = await runHostTurn({
       session,
@@ -161,6 +157,3 @@ describe('runHostTurn', () => {
     expect(calls[0]?.userMessage?.content).toBe('hi!!!');
   });
 });
-
-// Reference unused imports for clarity.
-void createSessionManager;

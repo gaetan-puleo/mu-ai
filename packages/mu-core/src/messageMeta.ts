@@ -32,6 +32,14 @@ export interface ChatMessageMeta {
   source?: string;
   /** Correlates a message back to a `SubagentRun`. */
   subagentRunId?: string;
+  /**
+   * Marks a synthetic message as render-only. `attachAutoPersist` skips
+   * persistence for messages flagged transient — used by mu-agents'
+   * subagent header and @-mention echo so those entries stay in
+   * `session.messages` (for live render + LLM context filtering via
+   * `display.llmHidden`) but do NOT land on disk.
+   */
+  transient?: boolean;
 }
 
 /**
@@ -45,4 +53,5 @@ export const META_KEYS = {
   toolArgs: 'toolArgs',
   source: 'source',
   subagentRunId: 'subagentRunId',
+  transient: 'transient',
 } as const satisfies Record<keyof ChatMessageMeta, keyof ChatMessageMeta>;

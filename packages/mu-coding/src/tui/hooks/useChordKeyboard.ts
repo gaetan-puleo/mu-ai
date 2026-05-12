@@ -16,17 +16,17 @@
 import { type Key, useInput } from 'ink';
 import { useEffect, useRef } from 'react';
 
-export interface ChordKey {
+interface ChordKey {
   /** Lower-case input character, when the press produced one. */
   input: string;
   /** Modifiers / arrow keys provided by Ink. */
   key: Key;
 }
 
-export type ChordPredicate = (k: ChordKey) => boolean;
-export type ChordHandler = () => void;
+type ChordPredicate = (k: ChordKey) => boolean;
+type ChordHandler = () => void;
 
-export interface ChordSpec {
+interface ChordSpec {
   /** Predicate matching the prefix (e.g. `({key, input}) => key.ctrl && input === 'x'`). */
   prefix: ChordPredicate;
   /**

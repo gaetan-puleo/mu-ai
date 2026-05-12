@@ -1,15 +1,15 @@
 /**
- * Session — owns the message history for a conversation context, runs the
- * agent loop on submit, and emits events to subscribers (TUI, persistence,
- * HTTP relay, …).
+ * Session — owns the message history for one conversation, runs the agent loop,
+ * and emits events to subscribers (TUI, persistence, WS relay, …).
  *
- * Multi-session: channels emit a `sessionId`; SessionManager lazily
- * instantiates a Session per key. mu-coding uses 'tui'; Arya uses
- * `telegram:${chatId}`, etc.
+ * Multi-session: hosts create sessions via SessionManager.getOrCreate(key).
+ * mu-coding uses 'tui'; arya uses per-client/per-channel ids.
+ *
+ * Hosts should prefer `runtime.submitText()` over `session.runTurn()` — the
+ * runtime wrapper orchestrates hooks, decorations, and message bus draining.
  */
 
 import { runAgent } from './agent';
-import type { ChannelResponder, InboundMessage } from './channel';
 import type { PluginRegistry } from './registry';
 import type { ChatMessage, ProviderConfig } from './types/llm';
 
@@ -19,7 +19,13 @@ export type SessionEvent =
   | { type: 'stream_started' }
   | { type: 'stream_ended' }
   | { type: 'usage'; totalTokens: number; promptTokens: number; cachedTokens: number }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  /**
+   * Emitted by `appendSynthetic`. Carries the single message that was
+   * just appended so persistence middleware can react without diffing the
+   * full snapshot.
+   */
+  | { type: 'synthetic_appended'; message: ChatMessage };
 
 export interface RunTurnOptions {
   /**
@@ -37,23 +43,16 @@ export interface RunTurnOptions {
   model?: string;
   /** Override registry for this single turn (rare). */
   registry?: PluginRegistry;
-  /**
-   * Synthetic messages already in state that should NOT be re-appended (the
-   * caller updated React state imperatively). When omitted, Session works
-   * off its own tracked transcript.
-   */
-  baseMessages?: ChatMessage[];
 }
 
 export interface Session {
   readonly id: string;
   getMessages: () => ChatMessage[];
   setMessages: (messages: ChatMessage[]) => void;
-  submit: (input: InboundMessage, responder: ChannelResponder) => Promise<void>;
   /**
-   * Lower-level entry point used by hosts that pre-process the user input
-   * (transformUserInput hooks, attachments). Appends the message, drains
-   * the next-turn queue, runs the agent loop, and emits events.
+   * Low-level turn entry point. Hosts should prefer `runtime.submitText()`
+   * which orchestrates hooks, decorations, and message bus draining before
+   * calling this.
    */
   runTurn: (options: RunTurnOptions) => Promise<ChatMessage[] | null>;
   abort: () => void;
@@ -134,6 +133,7 @@ class SessionImpl implements Session {
   appendSynthetic(msg: ChatMessage): void {
     this.messages.push(msg);
     this.emit({ type: 'messages_changed', messages: this.messages.slice() });
+    this.emit({ type: 'synthetic_appended', message: msg });
   }
 
   queueForNextTurn(msg: ChatMessage): void {
@@ -142,12 +142,6 @@ class SessionImpl implements Session {
 
   abort(): void {
     if (this.abortCtl) this.abortCtl.abort();
-  }
-
-  async submit(input: InboundMessage, _responder: ChannelResponder): Promise<void> {
-    if (input.text === undefined) return;
-    const userMsg: ChatMessage = { role: 'user', content: input.text };
-    await this.runTurn({ userMessage: userMsg });
   }
 
   private async consumeAgentEvents(
@@ -178,11 +172,6 @@ class SessionImpl implements Session {
           cachedTokens: e.cachedTokens ?? 0,
         });
       } else if (e.type === 'turn_end') {
-        // Clear the locally-tracked partial buffers AND notify subscribers,
-        // otherwise the host's `stream` state still holds the previous step's
-        // reasoning/content between agent loop iterations — visible as a
-        // stale "thinking…" block lingering after a tool call until the next
-        // step's first `content`/`reasoning` chunk overwrites it.
         partialText = '';
         partialReasoning = '';
         this.emit({ type: 'stream_partial', text: '', reasoning: '' });
@@ -192,17 +181,9 @@ class SessionImpl implements Session {
   }
 
   async runTurn(options: RunTurnOptions): Promise<ChatMessage[] | null> {
-    // Re-entrance guard. Concurrent `runTurn` calls would overwrite
-    // `abortCtl` (orphaning the previous abort controller) and append two
-    // user messages onto the same transcript, racing the agent loop. Hosts
-    // are responsible for not interleaving turns; the SDK enforces it.
     if (this.abortCtl !== null) {
       throw new Error(`Session "${this.id}" already running a turn. Call abort() first or wait for completion.`);
     }
-    if (options.baseMessages) this.messages = options.baseMessages.slice();
-    // Skip the push when the caller didn't supply a userMessage — that
-    // happens when a `transformUserInput` hook returned `'continue'` and
-    // already appended the user's message itself (see `UserInputTransform`).
     if (options.userMessage) this.messages.push(options.userMessage);
     if (this.queue.length) {
       this.messages.push(...this.queue);

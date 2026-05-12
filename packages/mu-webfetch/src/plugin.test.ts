@@ -18,13 +18,9 @@ function getTool(): PluginTool {
   return tool;
 }
 
-async function run(args: Record<string, unknown>, signal?: AbortSignal): Promise<string | ToolExecutorResult> {
+async function run(args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolExecutorResult> {
   const tool = getTool();
   return await tool.execute(args, signal);
-}
-
-function asResult(out: string | ToolExecutorResult): ToolExecutorResult {
-  return typeof out === 'string' ? { content: out, error: false } : { error: false, ...out };
 }
 
 function setFetch(stub: FetchStub) {
@@ -42,13 +38,13 @@ afterEach(() => {
 
 describe('mu-webfetch — URL validation', () => {
   it('rejects non-http(s) URLs', async () => {
-    const out = asResult(await run({ url: 'ftp://example.com' }));
+    const out = await run({ url: 'ftp://example.com' });
     expect(out.error).toBe(true);
     expect(out.content).toContain('http://');
   });
 
   it('rejects missing url', async () => {
-    const out = asResult(await run({}));
+    const out = await run({});
     expect(out.error).toBe(true);
   });
 });
@@ -57,22 +53,22 @@ describe('mu-webfetch — content negotiation', () => {
   it('returns plain text bodies untouched in text mode', async () => {
     setFetch(async () => new Response('hello world', { headers: { 'content-type': 'text/plain' } }));
     const out = await run({ url: 'https://example.com/x', format: 'text' });
-    expect(out).toBe('hello world');
+    expect(out.content).toBe('hello world');
   });
 
   it('returns raw HTML in html mode', async () => {
     const html = '<html><head><title>t</title></head><body><p>hi</p></body></html>';
     setFetch(async () => new Response(html, { headers: { 'content-type': 'text/html' } }));
     const out = await run({ url: 'https://example.com/x', format: 'html' });
-    expect(out).toBe(html);
+    expect(out.content).toBe(html);
   });
 
   it('converts HTML to markdown by default', async () => {
     const html = '<html><body><h1>Title</h1><p>body <em>copy</em></p></body></html>';
     setFetch(async () => new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } }));
     const out = await run({ url: 'https://example.com/x' });
-    expect(typeof out).toBe('string');
-    const md = out as string;
+    expect(typeof out.content).toBe('string');
+    const md = out.content;
     expect(md).toContain('# Title');
     expect(md).toContain('*copy*');
     expect(md).not.toContain('<h1>');
@@ -81,10 +77,10 @@ describe('mu-webfetch — content negotiation', () => {
   it('extracts text from HTML in text mode', async () => {
     const html = '<html><body><script>var x=1</script><p>visible</p><style>.x{}</style></body></html>';
     setFetch(async () => new Response(html, { headers: { 'content-type': 'text/html' } }));
-    const out = (await run({ url: 'https://example.com/x', format: 'text' })) as string;
-    expect(out).toContain('visible');
-    expect(out).not.toContain('var x=1');
-    expect(out).not.toContain('<p>');
+    const out = await run({ url: 'https://example.com/x', format: 'text' });
+    expect(out.content).toContain('visible');
+    expect(out.content).not.toContain('var x=1');
+    expect(out.content).not.toContain('<p>');
   });
 });
 
@@ -92,23 +88,23 @@ describe('mu-webfetch — image responses', () => {
   it('returns a data URL for image/png', async () => {
     const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
     setFetch(async () => new Response(bytes, { headers: { 'content-type': 'image/png' } }));
-    const out = (await run({ url: 'https://example.com/img.png' })) as string;
-    expect(out).toContain('data:image/png;base64,');
-    expect(out).toContain('[image: image/png, 4 bytes');
+    const out = await run({ url: 'https://example.com/img.png' });
+    expect(out.content).toContain('data:image/png;base64,');
+    expect(out.content).toContain('[image: image/png, 4 bytes');
   });
 
   it('treats svg as text, not image', async () => {
     const svg = '<svg><title>x</title></svg>';
     setFetch(async () => new Response(svg, { headers: { 'content-type': 'image/svg+xml' } }));
     const out = await run({ url: 'https://example.com/x.svg', format: 'html' });
-    expect(out).toBe(svg);
+    expect(out.content).toBe(svg);
   });
 });
 
 describe('mu-webfetch — error paths', () => {
   it('returns an error result for non-2xx responses', async () => {
     setFetch(async () => new Response('boom', { status: 500, statusText: 'Server Error' }));
-    const out = asResult(await run({ url: 'https://example.com/x' }));
+    const out = await run({ url: 'https://example.com/x' });
     expect(out.error).toBe(true);
     expect(out.content).toContain('500');
   });
@@ -120,7 +116,7 @@ describe('mu-webfetch — error paths', () => {
           headers: { 'content-type': 'text/plain', 'content-length': String(6 * 1024 * 1024) },
         }),
     );
-    const out = asResult(await run({ url: 'https://example.com/x' }));
+    const out = await run({ url: 'https://example.com/x' });
     expect(out.error).toBe(true);
     expect(out.content).toContain('5MB');
   });
@@ -128,7 +124,7 @@ describe('mu-webfetch — error paths', () => {
   it('rejects bodies larger than 5MB even when no content-length is sent', async () => {
     const big = new Uint8Array(6 * 1024 * 1024);
     setFetch(async () => new Response(big, { headers: { 'content-type': 'application/octet-stream' } }));
-    const out = asResult(await run({ url: 'https://example.com/x' }));
+    const out = await run({ url: 'https://example.com/x' });
     expect(out.error).toBe(true);
     expect(out.content).toContain('5MB');
   });
@@ -150,7 +146,7 @@ describe('mu-webfetch — Cloudflare retry', () => {
     });
 
     const out = await run({ url: 'https://example.com/x', format: 'text' });
-    expect(out).toBe('ok');
+    expect(out.content).toBe('ok');
     expect(calls.length).toBe(2);
     expect(calls[0]?.ua).toContain('Mozilla/');
     expect(calls[1]?.ua).toBe('mu');
@@ -162,7 +158,7 @@ describe('mu-webfetch — Cloudflare retry', () => {
       n++;
       return new Response('forbidden', { status: 403 });
     });
-    const out = asResult(await run({ url: 'https://example.com/x' }));
+    const out = await run({ url: 'https://example.com/x' });
     expect(n).toBe(1);
     expect(out.error).toBe(true);
   });
@@ -187,7 +183,7 @@ describe('mu-webfetch — abort + timeout', () => {
     const ac = new AbortController();
     const promise = run({ url: 'https://example.com/x', timeout: 5 }, ac.signal);
     queueMicrotask(() => ac.abort());
-    const out = asResult(await promise);
+    const out = await promise;
     expect(out.error).toBe(true);
     expect(out.content.toLowerCase()).toContain('abort');
   });
@@ -201,7 +197,7 @@ describe('mu-webfetch — abort + timeout', () => {
         });
       });
     });
-    const out = asResult(await run({ url: 'https://example.com/x', timeout: 0.05 }));
+    const out = await run({ url: 'https://example.com/x', timeout: 0.05 });
     expect(out.error).toBe(true);
     expect(out.content).toContain('timed out');
   });

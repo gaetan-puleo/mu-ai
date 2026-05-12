@@ -16,8 +16,8 @@
  * undefined, runs live in memory only.
  */
 
-import { projectMessage, type MessageDisplayRow } from 'mu-core';
 import type { ChatMessage } from 'mu-core';
+import { type MessageDisplayRow, projectMessage } from 'mu-core';
 import type { AgentDefinition } from './types';
 
 export type SubagentStatus = 'running' | 'done' | 'error' | 'aborted';

@@ -1,5 +1,3 @@
-import type { SessionManager } from 'mu-core';
-
 export interface ScheduledTask {
   id: string;
   agent?: string;
@@ -16,15 +14,14 @@ export type SchedulerTaskEvent =
   | { kind: 'failed'; taskId: string; sessionId: string; error: string };
 
 export interface SchedulerOptions {
-  sessions: SessionManager;
+  /** Canonical turn entry point — typically `runtime.submitText`. */
+  submitText: (input: { sessionId: string; text: string }) => Promise<unknown>;
   /** Directory to scan for YAML task files. Optional. */
   tasksDir?: string;
   /** Inline task list. Merged with whatever `tasksDir` resolves. */
   tasks?: ScheduledTask[];
   /** Sink for lifecycle events. Defaults to no-op. */
   onTaskEvent?: (event: SchedulerTaskEvent) => void;
-  /** Override the system prompt for scheduler-created sessions. */
-  systemPromptFor?: (task: ScheduledTask) => string;
 }
 
 export interface SchedulerHandle {

@@ -49,4 +49,14 @@ describe('ChannelRegistry', () => {
     off();
     expect(r.list()).toEqual([]);
   });
+
+  it('auto-starts late registrations after startAll', async () => {
+    const r = createChannelRegistry();
+    await r.startAll();
+    const flag = { value: false };
+    r.register(makeChannel('late', flag));
+    // Give the async auto-start a tick to resolve.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(flag.value).toBe(true);
+  });
 });

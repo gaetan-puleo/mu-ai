@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { PluginTool, ToolExecutorResult } from 'mu-core';
 import { sanitizePath } from './utils';
 
-export interface EditFileToolOptions {
+interface EditFileToolOptions {
   getCwd: () => string;
   restrictToCwd?: boolean;
 }

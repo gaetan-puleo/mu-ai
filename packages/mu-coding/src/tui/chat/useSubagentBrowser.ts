@@ -19,7 +19,7 @@ import type { SubagentRun, SubagentRunRegistry } from 'mu-agents';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useChordKeyboard } from '../hooks/useChordKeyboard';
 
-export type SubagentViewMode = { kind: 'chat' } | { kind: 'subagent'; runId: string };
+type SubagentViewMode = { kind: 'chat' } | { kind: 'subagent'; runId: string };
 
 export interface SubagentBrowserState {
   mode: SubagentViewMode;

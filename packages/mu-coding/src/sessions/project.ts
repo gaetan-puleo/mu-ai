@@ -28,8 +28,6 @@ function getProjectRoot(): string {
 }
 
 let cachedId: string | null = null;
-let cachedName: string | null = null;
-
 export function getProjectId(): string {
   if (cachedId !== null) {
     return cachedId;
@@ -39,13 +37,4 @@ export function getProjectId(): string {
   const name = root.split('/').pop() || 'unknown';
   cachedId = `${name}-${hash}`;
   return cachedId;
-}
-
-export function getProjectName(): string {
-  if (cachedName !== null) {
-    return cachedName;
-  }
-  const root = getProjectRoot();
-  cachedName = root.split('/').pop() || root;
-  return cachedName;
 }

@@ -14,7 +14,7 @@ import type { ApprovalGateway } from './approval';
 import { resolvePermission } from './permissions';
 import type { AgentDefinition } from './types';
 
-export interface PermissionGateInput {
+interface PermissionGateInput {
   agent: AgentDefinition;
   registry: PluginRegistryView | null;
   approvalGateway: ApprovalGateway;
@@ -22,7 +22,7 @@ export interface PermissionGateInput {
   call: ToolCall;
 }
 
-export type PermissionGateOutcome =
+type PermissionGateOutcome =
   | ToolCall
   | {
       blocked: true;

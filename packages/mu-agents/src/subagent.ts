@@ -9,8 +9,8 @@ import {
 } from 'mu-core';
 import type { ApprovalGateway } from './approval';
 import type { AgentManager } from './manager';
-import { enforceAgentPermissions } from './permissionGate';
 import { AGENT_MESSAGE_TYPES } from './messageTypes';
+import { enforceAgentPermissions } from './permissionGate';
 import type { SubagentRunRegistry } from './subagentRun';
 import type { AgentDefinition } from './types';
 
@@ -68,7 +68,7 @@ interface SubagentResult {
   error: boolean;
 }
 
-export interface RunSubagentDeps {
+interface RunSubagentDeps {
   agent: AgentDefinition;
   task: string;
   config: ProviderConfig;
@@ -134,6 +134,10 @@ function emitHeader(
     },
     agent: agent.name,
     subagentRunId: runId,
+    // Render-only header — the persisted subagent transcript lives in its
+    // own JSONL file (see `deriveSubagentPath`). Keeping the header out of
+    // the parent's store preserves the pre-`synthetic_appended` behavior.
+    transient: true,
   });
   if (via === 'injectNext') {
     messageBus.injectNext(message);

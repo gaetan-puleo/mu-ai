@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs as nodeParseArgs } from 'node:util';
-import type { ChatMessage } from 'mu-core';
-import { getLatestSession, loadSession } from '../sessions/index';
+import type { ChatMessage, SessionStore } from 'mu-core';
+import { newSessionId } from 'mu-core';
 
 interface CliArgs {
   model?: string;
@@ -38,34 +38,21 @@ Keyboard shortcuts (interactive):
   Enter         Send message
   Shift+Enter   New line
   Ctrl+S        Send message
-  ← / →         Move cursor (Ctrl/Alt+arrow: by word)
-  Home/End      Start/end of line (or Ctrl+A / Ctrl+E)
-  ↑ / ↓         Move between lines; navigate history at edges
-  Backspace/Del Delete around cursor (Ctrl+W word, Ctrl+U/K line)
-  Ctrl+N        New conversation
-  Ctrl+M        Cycle models
-  Ctrl+O        Model picker
-  Ctrl+V        Paste image from clipboard`);
+  Tab           Cycle agent
+  PageUp/Down   Scroll
+`);
   process.exit(0);
 }
 
 function printVersion(): never {
-  // Walk up from this file to find mu-coding's package.json. Works whether
-  // the file is loaded from `src/cli/args.ts` (bun --watch) or `dist/cli/args.js`.
-  const here = dirname(fileURLToPath(import.meta.url));
-  const candidates = [join(here, '..', '..', 'package.json'), join(here, '..', 'package.json')];
-  for (const path of candidates) {
-    try {
-      const pkg = JSON.parse(readFileSync(path, 'utf-8'));
-      if (pkg?.name === 'mu-coding') {
-        console.log(`mu ${pkg.version}`);
-        process.exit(0);
-      }
-    } catch {
-      // Try next candidate.
-    }
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const pkgPath = join(dirname(__filename), '..', '..', 'package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    console.log(pkg.version ?? 'unknown');
+  } catch {
+    console.log('unknown');
   }
-  console.log('mu (version unknown)');
   process.exit(0);
 }
 
@@ -73,16 +60,14 @@ export function parseArgs(): CliArgs {
   let parsed: ReturnType<typeof nodeParseArgs>;
   try {
     parsed = nodeParseArgs({
+      args: process.argv.slice(2),
       options: {
         model: { type: 'string', short: 'm' },
         continue: { type: 'boolean', short: 'c' },
         session: { type: 'string' },
-        version: { type: 'boolean', short: 'v' },
         help: { type: 'boolean', short: 'h' },
+        version: { type: 'boolean', short: 'v' },
       },
-      // Subcommands like `install`/`uninstall` are routed before parseArgs(),
-      // so we shouldn't see them here. Allow positionals just in case the
-      // user passes stray args (we ignore them rather than erroring).
       allowPositionals: true,
       strict: true,
     });
@@ -106,28 +91,40 @@ export function parseArgs(): CliArgs {
   };
 }
 
-export function resolveInitialMessages(cliArgs: CliArgs): ChatMessage[] | undefined {
+interface InitialSession {
+  sessionId: string;
+  messages?: ChatMessage[];
+}
+
+/**
+ * Resolve the initial session from CLI args using the core SessionStore.
+ * Returns the session id and optional messages for resumed sessions.
+ */
+export function resolveInitialSession(cliArgs: CliArgs, store: SessionStore): InitialSession {
   if (cliArgs.sessionPath) {
-    const msgs = loadSession(cliArgs.sessionPath);
-    if (msgs.length === 0) {
+    // Derive session id from the file stem.
+    const id = basename(cliArgs.sessionPath, '.jsonl');
+    const stored = store.get(id);
+    if (!stored || stored.messages.length === 0) {
       console.error(`Error: session file is empty or not found: ${cliArgs.sessionPath}`);
       process.exit(1);
     }
-    return msgs;
+    return { sessionId: id, messages: stored.messages };
   }
   if (cliArgs.continueSession) {
-    const latest = getLatestSession();
-    if (!latest) {
+    const all = store.list();
+    if (all.length === 0) {
       console.error('Error: no sessions found');
       process.exit(1);
     }
-    const msgs = loadSession(latest);
-    if (msgs.length === 0) {
+    const latest = all[0]!;
+    const stored = store.get(latest.id);
+    if (!stored || stored.messages.length === 0) {
       console.error('Error: latest session is empty');
       process.exit(1);
     }
-    console.log(`Resuming session: ${latest}`);
-    return msgs;
+    console.log(`Resuming session: ${latest.id}`);
+    return { sessionId: latest.id, messages: stored.messages };
   }
-  return undefined;
+  return { sessionId: newSessionId() };
 }

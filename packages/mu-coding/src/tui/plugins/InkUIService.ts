@@ -1,6 +1,6 @@
 import type { UIService } from 'mu-core';
 
-export type DialogType = 'confirm' | 'select' | 'input';
+type DialogType = 'confirm' | 'select' | 'input';
 
 export interface DialogRequest {
   id: number;
