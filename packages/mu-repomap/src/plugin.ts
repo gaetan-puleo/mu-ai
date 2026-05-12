@@ -61,7 +61,8 @@ function createListSymbolsTool(opts: RepomapOptions, getCwd: () => string): Plug
       const query = typeof args.query === 'string' ? args.query : '';
       const page = typeof args.page === 'number' ? args.page : 1;
       const pageSize = typeof args.pageSize === 'number' ? args.pageSize : defaultSize;
-      return await manager.listSymbols({ query, page, pageSize });
+      const content = await manager.listSymbols({ query, page, pageSize });
+      return { content, error: content.startsWith('Error:') };
     },
   };
 }

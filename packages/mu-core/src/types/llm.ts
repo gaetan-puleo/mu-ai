@@ -90,8 +90,11 @@ export interface ChatMessage {
    * is found, the renderer takes precedence over the role-default renderer.
    */
   customType?: string;
-  /** Free-form bag for plugin-private state (e.g. agent name, sub-agent id). */
-  meta?: Record<string, unknown>;
+  /**
+   * Strictly-typed metadata. Plugins extend via module augmentation on
+   * `ChatMessageMeta`; no index signature so typos fail compile.
+   */
+  meta?: import('../messageMeta').ChatMessageMeta;
   /** Lightweight display tweaks; see `MessageDisplay`. */
   display?: MessageDisplay;
 }

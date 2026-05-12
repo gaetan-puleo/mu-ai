@@ -79,8 +79,8 @@ const myPlugin: Plugin = {
 await registry.register(myPlugin);
 ```
 
-Filesystem and shell tools live in `mu-coding` (`createCodingToolsPlugin`),
-not in mu-core — keeps the SDK host-agnostic.
+Filesystem and shell tools live in `mu-tools` (`createMuToolsPlugin`),
+shared between mu-coding and arya — keeps the SDK host-agnostic.
 
 ## API
 

@@ -16,10 +16,38 @@
  * undefined, runs live in memory only.
  */
 
+import { projectMessage, type MessageDisplayRow } from 'mu-core';
 import type { ChatMessage } from 'mu-core';
 import type { AgentDefinition } from './types';
 
 export type SubagentStatus = 'running' | 'done' | 'error' | 'aborted';
+
+/**
+ * Wire-shape snapshot of a single subagent run.
+ *
+ * Carries everything a renderer needs to display the run without
+ * deriving anything client-side. Channel hosts (arya's WS, future
+ * Telegram bot) push these to clients on every transition.
+ */
+export interface SubAgentRunSnapshot {
+  runId: string;
+  agentId: string;
+  agentColor?: string;
+  task: string;
+  status: SubagentStatus;
+  startTs: number;
+  endTs?: number;
+  /** Tool calls observed in `messages` (server-side count). */
+  toolCount: number;
+  /** Final assistant content once the run completes. */
+  finalContent?: string;
+  error?: string;
+  /**
+   * Pre-projected timeline rows. Clients render verbatim — no
+   * reduction needed.
+   */
+  timeline: MessageDisplayRow[];
+}
 
 export interface SubagentRun {
   id: string;
@@ -44,6 +72,7 @@ export interface SubagentRun {
 
 export type SubagentRunListener = (run: SubagentRun) => void;
 export type SubagentRegistryListener = (runs: SubagentRun[]) => void;
+export type SubagentSnapshotListener = (snapshot: SubAgentRunSnapshot) => void;
 
 export type SessionWriter = (path: string, messages: ChatMessage[]) => Promise<void>;
 
@@ -79,6 +108,13 @@ export interface SubagentRunRegistry {
   clear: () => void;
   /** Configure the persistence writer; pass `undefined` to disable. */
   setSessionWriter: (writer: SessionWriter | undefined) => void;
+  /** Snapshot of a run in the wire shape; channel hosts push this. */
+  getSnapshot: (id: string) => SubAgentRunSnapshot | undefined;
+  /** Every active + completed run's snapshot, oldest → newest. */
+  listSnapshots: () => SubAgentRunSnapshot[];
+  /** Subscribe to per-run snapshot transitions. Fires once on subscribe
+   *  with every existing run's snapshot (replay), then on every mutation. */
+  subscribeAllSnapshots: (listener: SubagentSnapshotListener) => () => void;
 }
 
 const PERSIST_DEBOUNCE_MS = 250;
@@ -88,6 +124,7 @@ interface RegistryState {
   order: string[];
   registryListeners: Set<SubagentRegistryListener>;
   runListeners: Map<string, Set<SubagentRunListener>>;
+  snapshotListeners: Set<SubagentSnapshotListener>;
   persistTimers: Map<string, ReturnType<typeof setTimeout>>;
   writer: SessionWriter | undefined;
 }
@@ -98,9 +135,51 @@ function makeState(): RegistryState {
     order: [],
     registryListeners: new Set(),
     runListeners: new Map(),
+    snapshotListeners: new Set(),
     persistTimers: new Map(),
     writer: undefined,
   };
+}
+
+/**
+ * Project a `SubagentRun` into the wire-shape snapshot. Pure derivation
+ * over the run's messages.
+ *
+ *  - timeline: every transcript message projected via mu-core's
+ *    canonical `projectMessage`. Clients render verbatim.
+ *  - toolCount: messages with role === 'tool'.
+ *  - finalContent: last assistant content (if any).
+ */
+function buildSnapshot(run: SubagentRun): SubAgentRunSnapshot {
+  const timeline = run.messages.map((msg, i) => projectMessage(msg, i));
+  const toolCount = run.messages.filter((m) => m.role === 'tool').length;
+  const snapshot: SubAgentRunSnapshot = {
+    runId: run.id,
+    agentId: run.agentName,
+    task: run.task,
+    status: run.status,
+    startTs: run.startedAt,
+    toolCount,
+    timeline,
+  };
+  if (run.agentColor) snapshot.agentColor = run.agentColor;
+  if (run.finishedAt !== undefined) snapshot.endTs = run.finishedAt;
+  if (run.finalContent) snapshot.finalContent = run.finalContent;
+  if (run.error) snapshot.error = run.error;
+  return snapshot;
+}
+
+function emitSnapshot(state: RegistryState, id: string): void {
+  const run = state.runs.get(id);
+  if (!run) return;
+  const snap = buildSnapshot(run);
+  for (const fn of state.snapshotListeners) {
+    try {
+      fn(snap);
+    } catch {
+      // Listener errors must not break the registry.
+    }
+  }
 }
 
 function snapshot(state: RegistryState): SubagentRun[] {
@@ -182,6 +261,7 @@ function startRun(
   state.order.push(id);
   emitRegistry(state);
   emitRun(state, id);
+  emitSnapshot(state, id);
   schedulePersist(state, id);
 
   const update = (patch: Partial<SubagentRun>): void => {
@@ -190,6 +270,7 @@ function startRun(
     state.runs.set(id, { ...current, ...patch });
     emitRun(state, id);
     emitRegistry(state);
+    emitSnapshot(state, id);
     if (patch.messages) schedulePersist(state, id);
   };
 
@@ -225,6 +306,7 @@ function hydrateRun(state: RegistryState, run: SubagentRun): void {
   state.order.sort((a, b) => (state.runs.get(a)?.startedAt ?? 0) - (state.runs.get(b)?.startedAt ?? 0));
   emitRegistry(state);
   emitRun(state, run.id);
+  emitSnapshot(state, run.id);
 }
 
 function clearAll(state: RegistryState): void {
@@ -254,6 +336,32 @@ export function createSubagentRunRegistry(): SubagentRunRegistry {
     clear: () => clearAll(state),
     setSessionWriter: (next) => {
       state.writer = next;
+    },
+    getSnapshot: (id) => {
+      const run = state.runs.get(id);
+      return run ? buildSnapshot(run) : undefined;
+    },
+    listSnapshots: () =>
+      state.order
+        .map((id) => state.runs.get(id))
+        .filter((r): r is SubagentRun => Boolean(r))
+        .map(buildSnapshot),
+    subscribeAllSnapshots(listener) {
+      state.snapshotListeners.add(listener);
+      // Replay current state so late subscribers see existing runs.
+      for (const id of state.order) {
+        const run = state.runs.get(id);
+        if (run) {
+          try {
+            listener(buildSnapshot(run));
+          } catch {
+            // ignore
+          }
+        }
+      }
+      return () => {
+        state.snapshotListeners.delete(listener);
+      };
     },
   };
 }

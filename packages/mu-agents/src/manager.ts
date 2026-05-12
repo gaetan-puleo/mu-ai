@@ -63,6 +63,7 @@ export class AgentManager {
     if (this.primary.length === 0) return undefined;
     const idx = this.primary.findIndex((a) => a.name === this.activeName);
     const next = this.primary[(idx + 1) % this.primary.length];
+    if (!next) return undefined;
     this.setActive(next.name);
     return next;
   }

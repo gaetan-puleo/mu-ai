@@ -23,14 +23,6 @@ describe('ActivityBus', () => {
     expect(seen).toEqual(['first']);
   });
 
-  it('subagent stream is independent', () => {
-    const bus = createActivityBus();
-    const sub: string[] = [];
-    bus.subscribeSubAgent((e) => sub.push(e.kind));
-    bus.emitSubAgent({ runId: 'r1', agentId: 'review', kind: 'invocation_start', ts: 1, data: {} });
-    expect(sub).toEqual(['invocation_start']);
-  });
-
   it('throwing listener does not break the bus', () => {
     const bus = createActivityBus();
     bus.subscribe(() => {

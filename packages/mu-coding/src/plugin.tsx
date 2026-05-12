@@ -12,15 +12,17 @@
  * registry in after constructing it.
  */
 
+import { AGENT_MESSAGE_TYPES } from 'mu-agents';
 import type { ApprovalGateway, SubagentRunRegistry } from 'mu-agents';
 import type { ChatMessage, Plugin, PluginContext, PluginRegistry } from 'mu-core';
 import type { ShutdownFn } from './app/shutdown';
 import type { AppConfig } from './config/index';
-import { createCodingToolsPlugin } from './runtime/codingTools/index';
+import { createMuToolsPlugin } from 'mu-tools';
 import type { SessionPathHolder } from './runtime/createRegistry';
 import { createFileMentionProvider } from './runtime/fileMentionProvider';
 import type { HostMessageBus } from './runtime/messageBus';
 import { createTuiChannel } from './tui/channel/tuiChannel';
+import { SubagentMessage } from './tui/components/messages/SubagentMessage';
 import { createInkApprovalChannel } from './tui/plugins/InkApprovalChannel';
 import type { InkUIService } from './tui/plugins/InkUIService';
 
@@ -50,15 +52,18 @@ interface AgentPluginShape {
 }
 
 export function createCodingPlugin(config: CodingPluginConfig): Plugin {
-  // Coding tools are an inner plugin; we delegate via the registered tools
-  // list rather than a recursive register call so a single Plugin object
-  // is returned (matches the SDK's expected factory shape).
-  const inner = createCodingToolsPlugin();
+  // Filesystem + shell tools live in `mu-tools` (shared with arya). We
+  // delegate via the registered tools list rather than a recursive
+  // register call so a single Plugin object is returned (matches the SDK's
+  // expected factory shape). mu-coding does NOT restrict to cwd — the TUI
+  // routinely opens absolute paths outside the project.
+  const inner = createMuToolsPlugin();
 
   // Captured at activation time so deactivate can clean up both registrations.
   let unregisterTuiChannel: (() => void) | null = null;
   let unregisterApprovalChannel: (() => void) | null = null;
   let unregisterFileMentions: (() => void) | null = null;
+  let unregisterSubagentRenderer: (() => void) | null = null;
 
   return {
     name: 'mu-coding',
@@ -110,8 +115,21 @@ export function createCodingPlugin(config: CodingPluginConfig): Plugin {
           createInkApprovalChannel(config.uiService),
         );
       }
+
+      // Register the Ink renderer for the `mu-agents.subagent` custom
+      // type. The renderer used to live in mu-agents/renderers.tsx,
+      // dragging React/Ink into every consumer (including arya). It's
+      // now mu-coding-owned — mu-agents stays renderer-agnostic.
+      if (ctx.registerMessageRenderer) {
+        unregisterSubagentRenderer = ctx.registerMessageRenderer(
+          AGENT_MESSAGE_TYPES.subagent,
+          (m) => <SubagentMessage msg={m} />,
+        );
+      }
     },
     deactivate() {
+      unregisterSubagentRenderer?.();
+      unregisterSubagentRenderer = null;
       unregisterApprovalChannel?.();
       unregisterApprovalChannel = null;
       unregisterFileMentions?.();

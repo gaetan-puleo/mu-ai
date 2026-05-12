@@ -1,10 +1,30 @@
 import { createReadStream, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { ChatMessage } from 'mu-core';
 import { getDataDir } from '../config/index';
 import { getProjectId, getProjectName } from './project';
+
+/**
+ * v1 JSONL header — matches the schema written by mu-core's
+ * `createJSONLSessionStore`. Lines after the header are one ChatMessage
+ * per line. Legacy files without this header still load (every line is
+ * parsed as a ChatMessage and the header parse just fails harmlessly).
+ */
+interface SessionHeader {
+  v: 1;
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+function isHeader(value: unknown): value is SessionHeader {
+  if (!value || typeof value !== 'object') return false;
+  const rec = value as Record<string, unknown>;
+  return rec.v === 1;
+}
 
 function getProjectSessionsDir(): string {
   return join(getDataDir(), 'sessions', getProjectId());
@@ -39,12 +59,21 @@ export function generateSessionPath(): string {
 }
 
 /**
- * Persist `messages` as JSONL. Async to avoid blocking the event loop on
- * large sessions; callers should `await` to apply backpressure.
+ * Persist `messages` as JSONL with a v1 header on line 1 (interop with
+ * mu-core's `createJSONLSessionStore`). Async to avoid blocking the event
+ * loop on large sessions; callers should `await` to apply backpressure.
  */
 export async function saveSession(path: string, messages: ChatMessage[]): Promise<void> {
-  const content = messages.length > 0 ? `${messages.map((m) => JSON.stringify(m)).join('\n')}\n` : '';
-  await writeFile(path, content, 'utf-8');
+  const now = Date.now();
+  const header: SessionHeader = {
+    v: 1,
+    id: basename(path, '.jsonl'),
+    title: 'mu-coding session',
+    createdAt: now,
+    updatedAt: now,
+  };
+  const lines = [JSON.stringify(header), ...messages.map((m) => JSON.stringify(m))];
+  await writeFile(path, `${lines.join('\n')}\n`, 'utf-8');
 }
 
 export function loadSession(path: string): ChatMessage[] {
@@ -53,16 +82,25 @@ export function loadSession(path: string): ChatMessage[] {
     if (!content) {
       return [];
     }
-    return content
-      .split('\n')
-      .map((line) => {
-        try {
-          return JSON.parse(line) as ChatMessage;
-        } catch {
-          return null;
-        }
-      })
-      .filter((msg): msg is ChatMessage => msg !== null);
+    const rawLines = content.split('\n');
+    const messages: ChatMessage[] = [];
+    let startIndex = 0;
+    // Skip the v1 header line if present (writes after this commit always
+    // produce one; pre-existing files won't and fall through unchanged).
+    try {
+      const first = JSON.parse(rawLines[0] ?? '');
+      if (isHeader(first)) startIndex = 1;
+    } catch {
+      // not a header — treat all lines as messages
+    }
+    for (let i = startIndex; i < rawLines.length; i++) {
+      try {
+        messages.push(JSON.parse(rawLines[i]) as ChatMessage);
+      } catch {
+        // skip malformed line
+      }
+    }
+    return messages;
   } catch {
     return [];
   }
@@ -107,6 +145,7 @@ async function peekSessionStreaming(path: string): Promise<SessionPeek> {
     const rl = createInterface({ input: stream });
     let messageCount = 0;
     let preview: string | null = null;
+    let isFirstLine = true;
 
     const finish = (): void => {
       resolve({ messageCount, preview: preview ?? NO_USER_PREVIEW });
@@ -114,6 +153,18 @@ async function peekSessionStreaming(path: string): Promise<SessionPeek> {
 
     rl.on('line', (line) => {
       if (!line) return;
+      // Skip the v1 header on line 1, if present. Pre-existing files
+      // without a header fall through and have line 1 treated as a
+      // message — same behaviour as before.
+      if (isFirstLine) {
+        isFirstLine = false;
+        try {
+          const parsed = JSON.parse(line);
+          if (isHeader(parsed)) return;
+        } catch {
+          // not a header, fall through to count this line as a message
+        }
+      }
       messageCount++;
       if (preview !== null) return;
       preview = extractUserPreview(line);

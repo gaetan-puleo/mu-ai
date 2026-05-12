@@ -13,7 +13,7 @@ import type { ActivityBus } from '../activity';
 import { createActivityBus } from '../activity';
 import type { ChannelRegistry } from '../channel';
 import { createChannelRegistry } from '../channel';
-import type { Plugin } from '../plugin';
+import type { MessageBus, Plugin } from '../plugin';
 import type { ProviderRegistry } from '../provider/registry';
 import { createProviderRegistry } from '../provider/registry';
 import { PluginRegistry } from '../registry';
@@ -40,6 +40,14 @@ export interface StartMuOptions {
   plugins?: Plugin[];
   /** Cwd default (overrides config.cwd if set). */
   cwd?: string;
+  /**
+   * Optional host-supplied MessageBus. Forwarded into `PluginContext.messages`
+   * so plugins (e.g. mu-agents' @-mention dispatch) can append/inject
+   * synthetic messages into the live transcript. Non-TUI hosts that don't
+   * surface synthetic appends can pass a no-op bus; omitting it disables
+   * features that rely on `ctx.messages`.
+   */
+  messages?: MessageBus;
   /**
    * Resolves a `config.plugins` entry to a Plugin instance. Hosts (mu-coding,
    * Arya) plug their own loader here — typically supports `npm:<name>`
@@ -100,6 +108,7 @@ export async function startMu(options: StartMuOptions = {}): Promise<MuHandle> {
     channels,
     activity,
     sessions: sessionsProxy,
+    messages: options.messages,
   });
 
   sessions = createSessionManager({ registry, config: providerConfig, model: cfg.model ?? 'unknown' });

@@ -127,7 +127,7 @@ export function SubagentBrowserPanel({ run, position, sessionTitle }: SubagentBr
         contentRef={contentRef}
         messages={run.messages}
         streaming={run.status === 'running'}
-        stream={{ text: '', reasoning: '', totalTokens: 0, cachedTokens: 0 }}
+        stream={{ text: '', reasoning: '', totalTokens: 0, promptTokens: 0, cachedTokens: 0 }}
         error={run.error ?? null}
         scrollOffset={scrollOffset}
         viewHeight={viewHeight}

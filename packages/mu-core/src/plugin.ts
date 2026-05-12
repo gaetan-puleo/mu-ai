@@ -164,15 +164,10 @@ export interface PluginContext extends PluginExtras {
 }
 
 /**
- * What a tool's `execute` may return:
- *  - a plain string (legacy / convenience): an error is heuristically inferred
- *    when the string starts with `"Error:"`. Convenient for quick tools but
- *    fragile (collisions with legitimate output that begins with that prefix).
- *  - a `ToolExecutorResult`: explicit `error` flag, no heuristics. Preferred
- *    for new tools and for any tool whose output may legitimately start with
- *    "Error:".
- *
- * The agent runtime accepts both forms; the registry doesn't care.
+ * What a tool's `execute` must return: an explicit `{ content, error }`
+ * structure. The legacy plain-string form (with `"Error:"` heuristic)
+ * has been removed — it collided with legitimate output starting with
+ * that prefix.
  */
 export interface ToolExecutorResult {
   content: string;
@@ -182,7 +177,7 @@ export interface ToolExecutorResult {
 export type ToolExecutor = (
   args: Record<string, unknown>,
   signal?: AbortSignal,
-) => Promise<string | ToolExecutorResult> | string | ToolExecutorResult;
+) => Promise<ToolExecutorResult> | ToolExecutorResult;
 
 /**
  * Optional rendering hints the host can use when displaying a tool call.

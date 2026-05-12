@@ -84,7 +84,7 @@ export function loadAgentFile(filePath: string, fallbackName: string): AgentDefi
   if (!fmMatch) return null;
   let fm: RawFrontmatter;
   try {
-    fm = (parseYaml(fmMatch[1]) ?? {}) as RawFrontmatter;
+    fm = (parseYaml(fmMatch[1]!) ?? {}) as RawFrontmatter;
   } catch {
     return null;
   }

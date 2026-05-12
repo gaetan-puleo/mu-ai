@@ -1,8 +1,15 @@
-import { writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { PluginTool } from 'mu-core';
 import { sanitizePath } from './utils';
 
-export function createWriteFileTool(getCwd: () => string): PluginTool {
+export interface WriteFileToolOptions {
+  getCwd: () => string;
+  restrictToCwd?: boolean;
+}
+
+export function createWriteFileTool(opts: WriteFileToolOptions): PluginTool {
+  const { getCwd, restrictToCwd = false } = opts;
   return {
     definition: {
       type: 'function',
@@ -29,9 +36,19 @@ export function createWriteFileTool(getCwd: () => string): PluginTool {
       matchKey: (args) => args.path as string | undefined,
     },
     execute(args) {
-      const path = sanitizePath(args.path as string, getCwd());
+      const rawPath = args.path as string;
+      const path = sanitizePath(rawPath, getCwd(), restrictToCwd);
+      if (path === null) {
+        return { content: `Error: Invalid or disallowed path: ${rawPath}`, error: true };
+      }
       const content = args.content as string;
       try {
+        // Auto-create missing parent directories — additive vs mu-coding's
+        // historical behaviour; safe because it only triggers on missing dirs.
+        const parentDir = dirname(path);
+        if (!existsSync(parentDir)) {
+          mkdirSync(parentDir, { recursive: true });
+        }
         writeFileSync(path, content, 'utf-8');
         return { content: `File written: ${path}` };
       } catch (err) {

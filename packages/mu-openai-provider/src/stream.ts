@@ -83,7 +83,7 @@ function accumulateToolCallFragments(
     if (!toolCalls[fragment.index]) {
       toolCalls[fragment.index] = { id: '', name: '', arguments: '' };
     }
-    const accumulated = toolCalls[fragment.index];
+    const accumulated = toolCalls[fragment.index]!;
     if (fragment.id) {
       accumulated.id = fragment.id;
     }

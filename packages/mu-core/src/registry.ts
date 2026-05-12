@@ -466,7 +466,9 @@ export class PluginRegistry {
 function segmentsEqual(a: StatusSegment[], b: StatusSegment[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
-    if (a[i].text !== b[i].text || a[i].color !== b[i].color || a[i].dim !== b[i].dim) {
+    const ai = a[i]!;
+    const bi = b[i]!;
+    if (ai.text !== bi.text || ai.color !== bi.color || ai.dim !== bi.dim) {
       return false;
     }
   }
@@ -476,7 +478,9 @@ function segmentsEqual(a: StatusSegment[], b: StatusSegment[]): boolean {
 function inputInfoEqual(a: InputInfoSegment[], b: InputInfoSegment[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
-    if (a[i].key !== b[i].key || a[i].text !== b[i].text || a[i].color !== b[i].color || a[i].bold !== b[i].bold) {
+    const ai = a[i]!;
+    const bi = b[i]!;
+    if (ai.key !== bi.key || ai.text !== bi.text || ai.color !== bi.color || ai.bold !== bi.bold) {
       return false;
     }
   }

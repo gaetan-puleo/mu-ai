@@ -1,5 +1,5 @@
 import { type Instance, render } from 'ink';
-import { type SubagentRunRegistry, SubagentRunsProvider } from 'mu-agents';
+import type { SubagentRunRegistry } from 'mu-agents';
 import type { ChatMessage, PluginRegistry } from 'mu-core';
 import type { ReactNode } from 'react';
 import type { ShutdownFn } from '../app/shutdown';
@@ -9,6 +9,7 @@ import type { HostMessageBus } from '../runtime/messageBus';
 import { ChatPanel } from './components/chat/ChatPanel';
 import { ThemeProvider } from './context/ThemeContext';
 import type { InkUIService } from './plugins/InkUIService';
+import { SubagentRunsProvider } from './SubagentRunsProvider';
 import { resolveTheme } from './theme';
 
 interface RenderAppOptions {

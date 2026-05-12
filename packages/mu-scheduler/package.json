@@ -1,0 +1,19 @@
+{
+  "name": "mu-scheduler",
+  "version": "0.15.0",
+  "description": "Cron/heartbeat task scheduler for mu hosts (YAML-driven or inline tasks)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "croner": "^9.1.0",
+    "mu-core": "0.15.0",
+    "yaml": "^2.8.0"
+  }
+}

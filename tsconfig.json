@@ -20,6 +20,8 @@
     { "path": "packages/mu-agents" },
     { "path": "packages/mu-repomap" },
     { "path": "packages/mu-coding-agents" },
+    { "path": "packages/mu-tools" },
+    { "path": "packages/mu-scheduler" },
     { "path": "packages/mu-webfetch" },
     { "path": "packages/mu-coding" }
   ]

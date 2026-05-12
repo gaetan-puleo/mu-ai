@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_PRIMARY_AGENTS, DEFAULT_SUB_AGENTS } from './builtin';
 import { loadAgentFile, loadAgentsFromDir, mergeAgents } from './markdown';
+import type { AgentDefinition } from './types';
 
 let tmp: string;
 
@@ -86,8 +87,30 @@ describe('loadAgentsFromDir', () => {
 });
 
 describe('mergeAgents', () => {
+  const FAKE_DEFAULTS: AgentDefinition[] = [
+    {
+      name: 'build',
+      description: 'default build',
+      tools: ['read_file'],
+      systemPrompt: 'default',
+      type: 'primary',
+    },
+    {
+      name: 'plan',
+      description: 'default plan',
+      tools: ['read_file'],
+      systemPrompt: 'default',
+      type: 'primary',
+    },
+  ];
+
+  it('mu-agents ships zero built-in defaults', () => {
+    expect(DEFAULT_PRIMARY_AGENTS).toEqual([]);
+    expect(DEFAULT_SUB_AGENTS).toEqual([]);
+  });
+
   it('overrides defaults by name + type', () => {
-    const merged = mergeAgents(DEFAULT_PRIMARY_AGENTS, [
+    const merged = mergeAgents(FAKE_DEFAULTS, [
       {
         name: 'build',
         description: 'overridden',
@@ -102,18 +125,15 @@ describe('mergeAgents', () => {
   });
 
   it('keeps subagent + primary namespaces separate', () => {
-    const merged = mergeAgents(
-      [...DEFAULT_PRIMARY_AGENTS, ...DEFAULT_SUB_AGENTS],
-      [
-        {
-          name: 'build',
-          description: 'as subagent',
-          tools: ['read_file'],
-          systemPrompt: 'sub',
-          type: 'subagent',
-        },
-      ],
-    );
+    const merged = mergeAgents(FAKE_DEFAULTS, [
+      {
+        name: 'build',
+        description: 'as subagent',
+        tools: ['read_file'],
+        systemPrompt: 'sub',
+        type: 'subagent',
+      },
+    ]);
     expect(merged.primary.some((a) => a.name === 'build')).toBe(true);
     expect(merged.subagent.some((a) => a.name === 'build' && a.description === 'as subagent')).toBe(true);
   });

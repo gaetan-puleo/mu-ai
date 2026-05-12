@@ -56,13 +56,10 @@ async function executeTool(call: ToolCall, tools: PluginTool[], signal?: AbortSi
 
   try {
     const result = await tool.execute(args, signal);
-    // Tools may return either a plain string (error inferred from "Error:"
-    // prefix — legacy/convenience form) or a typed `{ content, error }`
-    // object that makes the error flag explicit. Both forms are accepted to
-    // avoid breaking existing plugin authors.
-    if (typeof result === 'string') {
-      return { tool_call_id: call.id, name: call.function.name, content: result, error: result.startsWith('Error:') };
-    }
+    // Strict structured-return contract: tools MUST return
+    // `{ content, error? }`. The previous legacy form (plain `string`
+    // with "Error:" prefix heuristic) is dropped — it collided with
+    // legitimate output that started with "Error:".
     return {
       tool_call_id: call.id,
       name: call.function.name,

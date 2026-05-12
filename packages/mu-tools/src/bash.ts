@@ -27,7 +27,7 @@ function executeBash(command: string, cwd: string, signal?: AbortSignal): Promis
       }
     });
 
-    const onAbort = () => {
+    const onAbort = (): void => {
       const pid = proc.pid;
       if (pid) {
         try {
@@ -81,7 +81,12 @@ function executeBash(command: string, cwd: string, signal?: AbortSignal): Promis
   });
 }
 
-export function createBashTool(getCwd: () => string): PluginTool {
+export interface BashToolOptions {
+  getCwd: () => string;
+}
+
+export function createBashTool(opts: BashToolOptions): PluginTool {
+  const { getCwd } = opts;
   return {
     definition: {
       type: 'function',

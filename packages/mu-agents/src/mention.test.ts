@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -76,6 +76,53 @@ function settingsPathStub(): string {
   return join(dir, 'state.json');
 }
 
+/**
+ * Materialise a fixture agentsDir containing the agents this suite needs
+ * (`build`, `plan`, `review`). mu-agents ships zero built-ins now, so each
+ * test has to bring its own.
+ */
+function makeFixtureAgentsDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'mu-agents-mention-fix-'));
+  writeFileSync(
+    join(dir, 'build.md'),
+    `---
+id: build
+description: default build
+agent: primary
+tools:
+  read: allow
+  subagent: allow
+---
+build prompt
+`,
+  );
+  writeFileSync(
+    join(dir, 'plan.md'),
+    `---
+id: plan
+description: read-only planner
+agent: primary
+tools:
+  read: allow
+---
+plan prompt
+`,
+  );
+  writeFileSync(
+    join(dir, 'review.md'),
+    `---
+id: review
+description: code reviewer
+agent: subagent
+tools:
+  read: allow
+---
+review prompt
+`,
+  );
+  return dir;
+}
+
 async function _waitForRunStatus(
   runs: SubagentRunRegistry,
   predicate: (status: string) => boolean,
@@ -93,10 +140,11 @@ async function _waitForRunStatus(
 describe('@<subagent> forced dispatch', () => {
   it('runs the subagent and queues a synthetic tool flow for the parent turn', async () => {
     const settingsPath = settingsPathStub();
+    const agentsDir = makeFixtureAgentsDir();
     try {
       const plugin = createAgentsPlugin({
         settingsPath,
-        agentsDir: '/nonexistent',
+        agentsDir,
         config: { providerId: 'openai' },
         model: 'gpt',
       }) as ReturnType<typeof createAgentsPlugin> & AgentPluginShape;
@@ -165,6 +213,7 @@ describe('@<subagent> forced dispatch', () => {
       plugin.deactivate?.();
     } finally {
       rmSync(settingsPath, { force: true });
+      rmSync(agentsDir, { recursive: true, force: true });
     }
   });
 
@@ -198,10 +247,11 @@ describe('@<subagent> forced dispatch', () => {
     // able to dispatch subagents via @-mentions either — otherwise typing
     // `@review …` would bypass the agent's tool whitelist.
     const settingsPath = settingsPathStub();
+    const agentsDir = makeFixtureAgentsDir();
     try {
       const plugin = createAgentsPlugin({
         settingsPath,
-        agentsDir: '/nonexistent',
+        agentsDir,
         config: { providerId: 'openai' },
         model: 'gpt',
       }) as ReturnType<typeof createAgentsPlugin> & AgentPluginShape;
@@ -232,6 +282,7 @@ describe('@<subagent> forced dispatch', () => {
       plugin.deactivate?.();
     } finally {
       rmSync(settingsPath, { force: true });
+      rmSync(agentsDir, { recursive: true, force: true });
     }
   });
 });

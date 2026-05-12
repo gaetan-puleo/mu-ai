@@ -1,9 +1,16 @@
 import type { ChatMessage, MessageBus, ProviderConfig, ToolCall } from 'mu-core';
-import { type LifecycleHooks, type PluginRegistry, type PluginRegistryView, type PluginTool, runAgent } from 'mu-core';
+import {
+  type LifecycleHooks,
+  makeSyntheticMessage,
+  type PluginRegistry,
+  type PluginRegistryView,
+  type PluginTool,
+  runAgent,
+} from 'mu-core';
 import type { ApprovalGateway } from './approval';
 import type { AgentManager } from './manager';
 import { enforceAgentPermissions } from './permissionGate';
-import { AGENT_MESSAGE_TYPES } from './renderers';
+import { AGENT_MESSAGE_TYPES } from './messageTypes';
 import type { SubagentRunRegistry } from './subagentRun';
 import type { AgentDefinition } from './types';
 
@@ -111,25 +118,23 @@ function emitHeader(
   via: 'append' | 'injectNext' = 'append',
 ): void {
   if (!messageBus) return;
-  const message = {
-    role: 'assistant' as const,
+  // `display.llmHidden: true` keeps the header in the on-screen
+  // transcript but strips it from the LLM payload right before the
+  // network call — so the parent agent doesn't see a phantom assistant
+  // message between the user's @-mention and the synthetic tool_call
+  // we inject in the @-mention dispatch path (see `agent.ts:streamTurn`).
+  const message = makeSyntheticMessage({
+    role: 'assistant',
     content: task,
     customType: AGENT_MESSAGE_TYPES.subagent,
     display: {
       badge: agent.name,
       color: agent.color,
-      // UI-only: the SubagentMessage renderer reads this to show live status,
-      // but the parent LLM must NOT see a phantom assistant message between
-      // the user's @-mention and the synthetic tool_call we inject in the
-      // @-mention dispatch path. `llmHidden: true` strips it at the very last
-      // step before the network call (see `agent.ts:streamTurn`).
       llmHidden: true,
     },
-    meta: {
-      agent: agent.name,
-      subagentRunId: runId,
-    },
-  };
+    agent: agent.name,
+    subagentRunId: runId,
+  });
   if (via === 'injectNext') {
     messageBus.injectNext(message);
   } else {

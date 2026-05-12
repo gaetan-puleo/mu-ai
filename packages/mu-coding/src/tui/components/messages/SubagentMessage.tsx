@@ -1,42 +1,18 @@
 import { Box, Text } from 'ink';
 import type { ChatMessage } from 'mu-core';
-import { createContext, useContext, useEffect, useState } from 'react';
-import type { SubagentRun, SubagentRunRegistry } from './subagentRun';
-
-const MESSAGE_TYPE_SUBAGENT = 'mu-agents.subagent';
-
-export const AGENT_MESSAGE_TYPES = {
-  subagent: MESSAGE_TYPE_SUBAGENT,
-};
+import type { SubagentRun } from 'mu-agents';
+import { useContext, useEffect, useState } from 'react';
+import { SubagentRunsRegistryContext } from '../../SubagentRunsProvider';
 
 /**
- * Optional registry context. The host wraps the chat view in
- * `SubagentRunsProvider` so the live `↳ subagent` header can subscribe to
- * its own run by id and reflect status updates in real time. When no
- * provider is present (e.g. tests), the renderer falls back to a static
- * header — the message stays readable, just not live.
+ * Ink renderer for `customType === 'mu-agents.subagent'` synthetic
+ * messages — the live `↳ subagent` header in the parent transcript.
+ *
+ * Moved here from mu-agents/renderers.tsx so mu-agents stays
+ * renderer-agnostic (no Ink/React dep for non-TUI hosts like arya).
+ * mu-coding wires this renderer up via `registry.registerMessageRenderer`
+ * at activate time.
  */
-const RegistryContext = createContext<SubagentRunRegistry | null>(null);
-
-export function SubagentRunsProvider({
-  registry,
-  children,
-}: {
-  registry: SubagentRunRegistry;
-  children: React.ReactNode;
-}) {
-  return <RegistryContext.Provider value={registry}>{children}</RegistryContext.Provider>;
-}
-
-function useSubagentRun(id: string | undefined): SubagentRun | undefined {
-  const registry = useContext(RegistryContext);
-  const [run, setRun] = useState<SubagentRun | undefined>(() => (id && registry ? registry.get(id) : undefined));
-  useEffect(() => {
-    if (!(id && registry)) return;
-    return registry.subscribeRun(id, (next) => setRun(next));
-  }, [id, registry]);
-  return run;
-}
 
 function statusGlyph(status: SubagentRun['status']): string {
   switch (status) {
@@ -53,16 +29,22 @@ function statusGlyph(status: SubagentRun['status']): string {
   }
 }
 
-/**
- * Render a subagent invocation header. When a `SubagentRun` is available
- * for the message's `meta.subagentRunId`, the header reflects live status
- * and offers the keyboard hint to open the browser. Otherwise the original
- * static header is used.
- */
+function useSubagentRun(id: string | undefined): SubagentRun | undefined {
+  const registry = useContext(SubagentRunsRegistryContext);
+  const [run, setRun] = useState<SubagentRun | undefined>(() =>
+    id && registry ? registry.get(id) : undefined,
+  );
+  useEffect(() => {
+    if (!(id && registry)) return;
+    return registry.subscribeRun(id, (next) => setRun(next));
+  }, [id, registry]);
+  return run;
+}
+
 export function SubagentMessage({ msg }: { msg: ChatMessage }) {
   const color = msg.display?.color;
   const badge = msg.display?.badge ?? 'subagent';
-  const runId = (msg.meta?.subagentRunId as string | undefined) ?? undefined;
+  const runId = msg.meta?.subagentRunId;
   const run = useSubagentRun(runId);
 
   const status = run?.status;

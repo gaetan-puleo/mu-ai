@@ -2,7 +2,13 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { PluginTool, ToolExecutorResult } from 'mu-core';
 import { sanitizePath } from './utils';
 
-export function createEditFileTool(getCwd: () => string): PluginTool {
+export interface EditFileToolOptions {
+  getCwd: () => string;
+  restrictToCwd?: boolean;
+}
+
+export function createEditFileTool(opts: EditFileToolOptions): PluginTool {
+  const { getCwd, restrictToCwd = false } = opts;
   return {
     definition: {
       type: 'function',
@@ -34,7 +40,11 @@ export function createEditFileTool(getCwd: () => string): PluginTool {
       matchKey: (args) => args.path as string | undefined,
     },
     execute(args): ToolExecutorResult {
-      const path = sanitizePath(args.path as string, getCwd());
+      const rawPath = args.path as string;
+      const path = sanitizePath(rawPath, getCwd(), restrictToCwd);
+      if (path === null) {
+        return { content: `Error: Invalid or disallowed path: ${rawPath}`, error: true };
+      }
       const oldString = args.from as string;
       const newString = args.to as string;
 

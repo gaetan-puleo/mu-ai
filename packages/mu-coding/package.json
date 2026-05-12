@@ -9,7 +9,6 @@
   "exports": {
     ".": "./src/plugin.ts",
     "./config": "./src/config/index.ts",
-    "./tools": "./src/runtime/codingTools/index.ts",
     "./loader": "./src/runtime/pluginLoader.ts"
   },
   "files": [
@@ -27,6 +26,7 @@
     "mu-agents": "0.15.0",
     "mu-core": "0.15.0",
     "mu-openai-provider": "0.15.0",
+    "mu-tools": "0.15.0",
     "react": "^19.2.5"
   }
 }

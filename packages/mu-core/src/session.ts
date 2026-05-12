@@ -72,6 +72,13 @@ export interface SessionManager {
   get: (key: string) => Session | undefined;
   list: () => Session[];
   close: (key: string) => Promise<void>;
+  /**
+   * Subscribe to "a new Session instance was just created" events. Fires
+   * exactly once per session id. Hosts use this to attach per-session
+   * middleware (auto-persistence, WS bridging, …) without having to
+   * intercept every `getOrCreate` call.
+   */
+  onSessionCreated: (listener: (session: Session) => void) => () => void;
 }
 
 export interface CreateSessionManagerOptions {
@@ -222,12 +229,20 @@ class SessionImpl implements Session {
 
 export function createSessionManager(opts: CreateSessionManagerOptions): SessionManager {
   const sessions = new Map<string, SessionImpl>();
+  const createdListeners = new Set<(session: Session) => void>();
   return {
     getOrCreate(key, init) {
       let s = sessions.get(key);
       if (!s) {
         s = new SessionImpl(key, opts.registry, opts.config, opts.model, init);
         sessions.set(key, s);
+        for (const fn of createdListeners) {
+          try {
+            fn(s);
+          } catch {
+            // Listener errors must not break session construction.
+          }
+        }
       }
       return s;
     },
@@ -243,6 +258,20 @@ export function createSessionManager(opts: CreateSessionManagerOptions): Session
         s.abort();
         sessions.delete(key);
       }
+    },
+    onSessionCreated(listener) {
+      createdListeners.add(listener);
+      // Replay existing sessions so late subscribers don't miss them.
+      for (const s of sessions.values()) {
+        try {
+          listener(s);
+        } catch {
+          // Ignore listener errors during replay.
+        }
+      }
+      return () => {
+        createdListeners.delete(listener);
+      };
     },
   };
 }

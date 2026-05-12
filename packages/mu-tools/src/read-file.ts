@@ -2,8 +2,22 @@ import { existsSync, readFileSync } from 'node:fs';
 import type { PluginTool } from 'mu-core';
 import { sanitizePath } from './utils';
 
-function executeReadFileSingle(rawPath: string, cwd: string, start?: number, end?: number): string {
-  const path = sanitizePath(rawPath, cwd);
+export interface ReadFileToolOptions {
+  getCwd: () => string;
+  restrictToCwd?: boolean;
+}
+
+function executeReadFileSingle(
+  rawPath: string,
+  cwd: string,
+  restrictToCwd: boolean,
+  start?: number,
+  end?: number,
+): string {
+  const path = sanitizePath(rawPath, cwd, restrictToCwd);
+  if (path === null) {
+    return `Error: Invalid or disallowed path: ${rawPath}`;
+  }
   if (!existsSync(path)) {
     return `Error: File not found: ${path}`;
   }
@@ -31,7 +45,8 @@ function executeReadFileSingle(rawPath: string, cwd: string, start?: number, end
   }
 }
 
-export function createReadFileTool(getCwd: () => string): PluginTool {
+export function createReadFileTool(opts: ReadFileToolOptions): PluginTool {
+  const { getCwd, restrictToCwd = false } = opts;
   return {
     definition: {
       type: 'function',
@@ -70,14 +85,18 @@ export function createReadFileTool(getCwd: () => string): PluginTool {
       const cwd = getCwd();
 
       if (paths.length === 1) {
-        return executeReadFileSingle(paths[0], cwd, start, end);
+        const content = executeReadFileSingle(paths[0], cwd, restrictToCwd, start, end);
+        return { content, error: content.startsWith('Error:') };
       }
 
       const results: string[] = [];
+      let anyError = false;
       for (const path of paths) {
-        results.push(executeReadFileSingle(path, cwd, start, end));
+        const content = executeReadFileSingle(path, cwd, restrictToCwd, start, end);
+        if (content.startsWith('Error:')) anyError = true;
+        results.push(content);
       }
-      return results.join('\n\n');
+      return { content: results.join('\n\n'), error: anyError };
     },
   };
 }
