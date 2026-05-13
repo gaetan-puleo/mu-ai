@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink';
 import { useTheme } from '../../theme/ThemeContext';
-import { Markdown } from '../markdown/render';
+import { Markdown } from '../markdown';
 
 export function SubagentOutput({ args, content, error }: { args: { agent?: string; task?: string }; content: string; error: boolean }) {
   const theme = useTheme();

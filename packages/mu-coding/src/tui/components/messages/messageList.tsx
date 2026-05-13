@@ -1,7 +1,7 @@
 import { Box, Text } from 'ink';
 import type { Message } from 'mu-core';
 import { useTheme } from '../../theme/ThemeContext';
-import { Markdown } from '../markdown/render';
+import { Markdown } from '../markdown';
 import { Spinner } from '../primitives/spinner';
 import { MessageItem } from './messageItem';
 import { ReasoningBlock } from './reasoningBlock';

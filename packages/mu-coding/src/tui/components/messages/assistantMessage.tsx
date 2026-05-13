@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink';
 import type { Message } from 'mu-core';
-import { Markdown } from '../markdown/render';
+import { Markdown } from '../markdown';
 import { useTheme } from '../../theme/ThemeContext';
 import { ReasoningBlock } from './reasoningBlock';
 import { ToolCallBlock } from './toolCallBlock';

@@ -3,16 +3,19 @@ import { type Command, newMessage } from 'mu-core';
 import { useEffect, useState } from 'react';
 import type { SessionSummary } from '../../store';
 import { useChordKeyboard } from '../hooks/useChordKeyboard';
+import { useChatStatusSegments } from '../hooks/useStatusSegments';
 import { useStreaming } from '../hooks/useStreaming';
 import { useSubagentEvents } from '../hooks/useSubagentEvents';
 import { useToasts } from '../hooks/useToasts';
 import { useApp, useDispatch, useUi } from '../state/AppContext';
-import { CommandPicker, filterCommands } from './input/commandPicker';
+import { filterCommands } from './input/commandPicker';
 import { InputBox } from './input/inputBox';
-import { MentionPicker } from './input/mentionPicker';
 import { MessageList } from './messages/messageList';
 import { ApprovalModal } from './modals/approvalModal';
+import { ConfirmModal } from './modals/confirmModal';
+import { InputModal } from './modals/inputModal';
 import { ModelPickerModal } from './modals/modelPickerModal';
+import { SelectModal } from './modals/selectModal';
 import { SessionListModal } from './modals/sessionListModal';
 import { SubagentBrowser } from './panels/subagentBrowser';
 import { StatusBar } from './statusBar';
@@ -33,7 +36,7 @@ type PickerState =
 export function App({ commands, listSessions, switchSession, setModel }: AppProps) {
   const { session, agents, submit } = useApp();
   const dispatch = useDispatch();
-  const { messages, streaming, modal, panel } = useUi();
+  const { messages, streaming, modal, panel, model } = useUi();
 
   useStreaming(session);
   useSubagentEvents(agents, session.id);
@@ -121,9 +124,11 @@ export function App({ commands, listSessions, switchSession, setModel }: AppProp
     await submit(text);
   };
 
+  const statusSegments = useChatStatusSegments();
+
   return (
     <Box flexDirection="column">
-      <StatusBar />
+      <StatusBar segments={statusSegments} />
       <Box flexDirection="row" flexGrow={1}>
         <Box flexDirection="column" flexGrow={1}>
           <MessageList messages={messages} streaming={streaming} />
@@ -131,17 +136,20 @@ export function App({ commands, listSessions, switchSession, setModel }: AppProp
         {panel === 'subagent' ? <SubagentBrowser /> : null}
       </Box>
       <ToastLayer />
-      {picker.kind === 'command' ? (
-        <CommandPicker partial={picker.partial} selectedIndex={picker.index} commands={commands()} />
-      ) : null}
-      {picker.kind === 'mention' ? (
-        <MentionPicker partial={picker.partial} selectedIndex={picker.index} agents={agents} />
-      ) : null}
       <InputBox
         onSubmit={handleSubmit}
         onChange={handleChange}
         disabled={!!modal}
         placeholder="type a message, /command, or @agent"
+        picker={
+          picker.kind === 'none'
+            ? undefined
+            : { kind: picker.kind, partial: picker.partial, index: picker.index }
+        }
+        commands={commands()}
+        agents={agents}
+        model={model}
+        streaming={!!streaming}
       />
       {modal ? (
         <ModalRoot
@@ -196,6 +204,19 @@ function ModalRoot({
           }}
         />
       );
+    case 'confirm':
+      return <ConfirmModal title={modal.title} message={modal.message} resolve={modal.resolve} />;
+    case 'select':
+      return (
+        <SelectModal
+          title={modal.title}
+          options={modal.options}
+          placeholder={modal.placeholder}
+          resolve={modal.resolve}
+        />
+      );
+    case 'input':
+      return <InputModal title={modal.title} placeholder={modal.placeholder} resolve={modal.resolve} />;
     default:
       return null;
   }

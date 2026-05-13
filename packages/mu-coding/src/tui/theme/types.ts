@@ -35,6 +35,29 @@ export interface ThemeColors {
   tableBorder: string;
   diffAdd: string;
   diffRemove: string;
+
+  /** Backdrop colour for the toast cards (top-right notifications). */
+  toastBackground: string;
+  /** Backdrop for the edit_file diff preview / other tool preview blocks. */
+  previewBackground: string;
+  /** Placeholder colour inside the Dropdown filter / Input dialog. */
+  dropdownPlaceholder: string;
+  /** Cursor caret colour for in-place text input (Dropdown filter, InputDialog). */
+  cursor: string;
+  /** Dim helper text under dialogs (e.g. "y/n · Enter to confirm · Esc to cancel"). */
+  dialogHint: string;
+
+  /** Separator (` · `) between StatusBar segments. */
+  statusSeparator: string;
+
+  /** Backdrop colour of the InputBox container. */
+  inputBackground: string;
+  /** Inline-picker accent inside the InputBox (selected command/mention row). */
+  inputAccent: string;
+  /** Right-aligned helper hint inside the InputBox footer. */
+  inputFooterHint: string;
+  /** Cursor caret colour inside the InputBox. */
+  inputCursor: string;
 }
 
 export interface ThemeRoleBadges {

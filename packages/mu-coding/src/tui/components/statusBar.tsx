@@ -1,45 +1,50 @@
 import { Box, Text } from 'ink';
-import { useUi } from '../state/AppContext';
 import { useTheme } from '../theme/ThemeContext';
 
-export function StatusBar() {
+export interface StatusBarSegment {
+  text: string;
+  color?: string;
+  dim?: boolean;
+  bold?: boolean;
+  /** Pin to the left zone of the status bar. Defaults to right-aligned. */
+  align?: 'left' | 'right';
+}
+
+function renderZone(segments: StatusBarSegment[], separatorColor: string) {
+  return segments.map((seg, i) => (
+    // biome-ignore lint/suspicious/noArrayIndexKey: positional static list
+    <Box key={i}>
+      {i > 0 ? (
+        <Text color={separatorColor} dimColor>
+          {' '}
+          ·{' '}
+        </Text>
+      ) : null}
+      <Text color={seg.color} dimColor={seg.dim} bold={seg.bold}>
+        {seg.text}
+      </Text>
+    </Box>
+  ));
+}
+
+/**
+ * Status bar with left/right zones. Restored from `5c5ae8c:.../statusBar.tsx`
+ * — the previous revision hard-coded model/agent/tokens directly from
+ * `useUi()` which gave callers no way to compose their own segments
+ * (e.g. the subagent browser panel needs its own segment list).
+ *
+ * Callers build the segment array themselves. For the default chat
+ * statusbar, use `useChatStatusSegments()` from `tui/hooks/useStatusSegments.ts`.
+ */
+export function StatusBar({ segments }: { segments: StatusBarSegment[] }) {
   const theme = useTheme();
-  const { model, activeAgent, tokens, status } = useUi();
-  const pluginSegments = Array.from(status.entries()).flatMap(([, segs]) => segs);
+  const left = segments.filter((s) => s.align === 'left');
+  const right = segments.filter((s) => s.align !== 'left');
   return (
-    <Box flexDirection="row" justifyContent="space-between">
-      <Box flexDirection="row" gap={2}>
-        <Text color={theme.colors.muted}>model</Text>
-        {model ? (
-          <Text color={theme.colors.info}>{model}</Text>
-        ) : (
-          <Text color={theme.colors.muted} dimColor>
-            (none — /model)
-          </Text>
-        )}
-        {activeAgent ? (
-          <>
-            <Text color={theme.colors.muted}>·</Text>
-            <Text color={theme.colors.agentBadge} bold>
-              {activeAgent}
-            </Text>
-          </>
-        ) : null}
-        {tokens ? (
-          <>
-            <Text color={theme.colors.muted}>·</Text>
-            <Text color={theme.colors.muted}>
-              {tokens.prompt}p / {tokens.completion}c = {tokens.total}t
-            </Text>
-          </>
-        ) : null}
-      </Box>
-      <Box flexDirection="row" gap={2}>
-        {pluginSegments.map((seg, i) => (
-          <Text key={i} color={seg.color} bold={seg.bold} dimColor={seg.dim}>
-            {seg.text}
-          </Text>
-        ))}
+    <Box flexShrink={0} paddingX={1} marginTop={1}>
+      <Box>{renderZone(left, theme.colors.statusSeparator)}</Box>
+      <Box justifyContent="flex-end" flexGrow={1}>
+        {renderZone(right, theme.colors.statusSeparator)}
       </Box>
     </Box>
   );

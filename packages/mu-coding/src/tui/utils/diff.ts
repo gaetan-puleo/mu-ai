@@ -1,51 +1,86 @@
-/**
- * Line-level diff between two strings. Returns an array of changes with
- * 'add' / 'remove' / 'context' markers. Small, dependency-free LCS-based.
- */
+// Lightweight diff for edit_file tool output.
+// Uses prefix/suffix matching — sufficient for small, localized edits.
+//
+// Restored from `5c5ae8c:packages/mu-coding/src/utils/diff.ts` to replace
+// the LCS-based `diffLines` in the previous revision; for typical small
+// edits (which is the entire edit_file use case) prefix/suffix matching
+// is faster and produces tighter, more readable hunks.
 
 export interface DiffLine {
-  type: 'add' | 'remove' | 'context';
-  text: string;
+  type: 'context' | 'old' | 'new';
+  value: string;
 }
 
-export function diffLines(a: string, b: string): DiffLine[] {
-  const aLines = a.split('\n');
-  const bLines = b.split('\n');
-  const n = aLines.length;
-  const m = bLines.length;
+export interface DiffResult {
+  lines: DiffLine[];
+  totalOldLines: number;
+  totalNewLines: number;
+}
 
-  // Longest-common-subsequence table.
-  const lcs: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
-  for (let i = 0; i < n; i++) {
-    for (let j = 0; j < m; j++) {
-      lcs[i + 1]![j + 1] = aLines[i] === bLines[j] ? (lcs[i]![j] ?? 0) + 1 : Math.max(lcs[i + 1]![j] ?? 0, lcs[i]![j + 1] ?? 0);
-    }
+const CONTEXT_LINES = 3;
+const MAX_LINES = 500;
+
+export function computeDiff(oldText: string, newText: string): DiffResult {
+  const oldLines = oldText.split('\n');
+  const newLines = newText.split('\n');
+
+  if (oldLines.length > MAX_LINES || newLines.length > MAX_LINES) {
+    return { lines: [], totalOldLines: oldLines.length, totalNewLines: newLines.length };
   }
 
-  // Backtrack.
-  const out: DiffLine[] = [];
-  let i = n;
-  let j = m;
-  while (i > 0 && j > 0) {
-    if (aLines[i - 1] === bLines[j - 1]) {
-      out.unshift({ type: 'context', text: aLines[i - 1] ?? '' });
-      i--;
-      j--;
-    } else if ((lcs[i - 1]![j] ?? 0) >= (lcs[i]![j - 1] ?? 0)) {
-      out.unshift({ type: 'remove', text: aLines[i - 1] ?? '' });
-      i--;
-    } else {
-      out.unshift({ type: 'add', text: bLines[j - 1] ?? '' });
-      j--;
-    }
+  // Find common prefix
+  let prefixLen = 0;
+  const minLen = Math.min(oldLines.length, newLines.length);
+  while (prefixLen < minLen && oldLines[prefixLen] === newLines[prefixLen]) {
+    prefixLen++;
   }
-  while (i > 0) {
-    out.unshift({ type: 'remove', text: aLines[i - 1] ?? '' });
-    i--;
+
+  // Find common suffix (don't overlap with prefix)
+  let suffixLen = 0;
+  const maxSuffix = Math.min(oldLines.length - prefixLen, newLines.length - prefixLen);
+  while (
+    suffixLen < maxSuffix &&
+    oldLines[oldLines.length - 1 - suffixLen] === newLines[newLines.length - 1 - suffixLen]
+  ) {
+    suffixLen++;
   }
-  while (j > 0) {
-    out.unshift({ type: 'add', text: bLines[j - 1] ?? '' });
-    j--;
+
+  const result: DiffLine[] = [];
+
+  // Context from prefix (last N lines)
+  const ctxStart = Math.max(0, prefixLen - CONTEXT_LINES);
+  for (let i = ctxStart; i < prefixLen; i++) {
+    result.push({ type: 'context', value: oldLines[i] ?? '' });
   }
-  return out;
+
+  // Removed lines
+  for (let i = prefixLen; i < oldLines.length - suffixLen; i++) {
+    result.push({ type: 'old', value: oldLines[i] ?? '' });
+  }
+
+  // Added lines
+  for (let i = prefixLen; i < newLines.length - suffixLen; i++) {
+    result.push({ type: 'new', value: newLines[i] ?? '' });
+  }
+
+  // Context from suffix (first N lines)
+  const ctxEnd = Math.min(suffixLen, CONTEXT_LINES);
+  for (let i = 0; i < ctxEnd; i++) {
+    const idx = oldLines.length - suffixLen + i;
+    result.push({ type: 'context', value: oldLines[idx] ?? '' });
+  }
+
+  return { lines: result, totalOldLines: oldLines.length, totalNewLines: newLines.length };
+}
+
+export function renderDiff(diff: DiffResult, maxLines: number): { lines: string[]; truncated: boolean } {
+  const result: string[] = [];
+  const capped = diff.lines.slice(0, maxLines);
+
+  for (const line of capped) {
+    const prefix = line.type === 'old' ? '-' : line.type === 'new' ? '+' : ' ';
+    result.push(`${prefix} ${line.value}`);
+  }
+
+  return { lines: result, truncated: diff.lines.length > maxLines };
 }

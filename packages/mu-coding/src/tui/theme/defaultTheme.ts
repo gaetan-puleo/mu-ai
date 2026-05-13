@@ -33,6 +33,19 @@ export const defaultTheme: Theme = {
     tableBorder: 'gray',
     diffAdd: 'green',
     diffRemove: 'red',
+
+    toastBackground: 'blackBright',
+    previewBackground: 'blackBright',
+    dropdownPlaceholder: 'gray',
+    cursor: 'cyan',
+    dialogHint: 'gray',
+
+    statusSeparator: 'gray',
+
+    inputBackground: 'black',
+    inputAccent: 'cyanBright',
+    inputFooterHint: 'gray',
+    inputCursor: 'cyan',
   },
   badges: {
     user: '▌ you',

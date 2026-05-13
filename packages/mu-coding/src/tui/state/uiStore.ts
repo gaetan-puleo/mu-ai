@@ -29,7 +29,26 @@ export type ModalKind =
   | { kind: 'sessionList' }
   | { kind: 'modelPicker'; models: string[]; current?: string }
   | { kind: 'commandPicker'; partial: string }
-  | { kind: 'mentionPicker'; partial: string };
+  | { kind: 'mentionPicker'; partial: string }
+  | {
+      kind: 'confirm';
+      title: string;
+      message?: string;
+      resolve: (value: boolean) => void;
+    }
+  | {
+      kind: 'select';
+      title: string;
+      options: string[];
+      placeholder?: string;
+      resolve: (value: string | null) => void;
+    }
+  | {
+      kind: 'input';
+      title: string;
+      placeholder?: string;
+      resolve: (value: string | null) => void;
+    };
 
 export type Panel = 'none' | 'subagent';
 
