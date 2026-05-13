@@ -6,7 +6,7 @@
  */
 
 import { execFile, execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -133,4 +133,54 @@ export async function probeSelfAsync(): Promise<NpmRegistryView | null> {
   if (!latest) return null;
   const current = readSelfVersion();
   return { current: current ?? '(unknown)', latest, hasUpdate: isVersionNewer(current, latest) };
+}
+
+// ─── Self-install detection ──────────────────────────────────────────────────
+
+export interface SelfInstallStrategy {
+  manager: 'bun' | 'npm' | 'pnpm' | 'yarn' | 'unknown';
+  command?: [string, string[]];
+}
+
+/**
+ * Best-effort detection of which package manager installed `mu` globally.
+ * We resolve the absolute binary path of the running process and look for
+ * tell-tale path segments.
+ */
+export function detectSelfInstall(): SelfInstallStrategy {
+  let bin = process.argv[1] ?? '';
+  try {
+    bin = realpathSync(bin);
+  } catch {
+    // keep raw argv path
+  }
+  const norm = bin.replace(/\\/g, '/');
+
+  if (norm.includes('/.bun/') || norm.includes('/bun/install/')) {
+    return { manager: 'bun', command: ['bun', ['add', '-g', `${PACKAGE_NAME}@latest`]] };
+  }
+  if (norm.includes('/pnpm/')) {
+    return { manager: 'pnpm', command: ['pnpm', ['add', '-g', `${PACKAGE_NAME}@latest`]] };
+  }
+  if (norm.includes('/.yarn/') || norm.includes('/yarn/global/')) {
+    return { manager: 'yarn', command: ['yarn', ['global', 'add', `${PACKAGE_NAME}@latest`]] };
+  }
+  if (norm.includes('/npm/') || norm.includes('node_modules/.bin/mu')) {
+    return { manager: 'npm', command: ['npm', ['i', '-g', `${PACKAGE_NAME}@latest`]] };
+  }
+  return { manager: 'unknown' };
+}
+
+// ─── Plugin update ───────────────────────────────────────────────────────────
+
+/**
+ * Run `bun update --latest <name>` in the data dir. Returns `true` on success.
+ */
+export async function updatePluginPackage(name: string, dataDir: string): Promise<boolean> {
+  try {
+    await execFileAsync('bun', ['update', '--latest', name], { cwd: dataDir });
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -94,23 +94,15 @@ interface GenericProps {
 
 function GenericToolOutput({ name, args, content, error, hint }: GenericProps) {
   const theme = useTheme();
-  let summary = '';
-  const commandField = hint?.fields?.command;
-  if (commandField) {
-    try {
-      const parsed = JSON.parse(args);
-      summary = parsed[commandField] ?? '';
-    } catch {
-      // ignore
-    }
-  }
+  const summary = getArgSummary(args, hint);
+  const showSummary = summary !== args;
 
   const preview = content.length > 200 ? `${content.slice(0, 200)}…` : content;
   return (
     <Box flexDirection="column" flexShrink={0}>
       <Text color={error ? theme.tool.error : theme.tool.success} bold={true}>
         {error ? '✗' : '✓'} {name}
-        {summary && (
+        {showSummary && (
           <>
             {' '}
             <Text dimColor={true}>{summary}</Text>

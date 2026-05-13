@@ -238,7 +238,7 @@ export function createApprovalGateway(): ApprovalGateway {
       return order
         .map((id) => requests.get(id))
         .filter((r): r is ApprovalRequest => Boolean(r))
-        .map((r) => buildSnapshot(r, r.status === 'pending' ? undefined : undefined));
+        .map((r) => buildSnapshot(r));
     },
     subscribeAllSnapshots(listener) {
       snapshotListeners.add(listener);

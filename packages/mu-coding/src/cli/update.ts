@@ -13,13 +13,14 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { realpathSync } from 'node:fs';
 import {
+  detectSelfInstall,
   listConfiguredNpmPlugins,
   type NpmRegistryView,
   PACKAGE_NAME,
   probePluginSync,
   probeSelfSync,
+  updatePluginPackage,
 } from '../runtime/updateCheck';
 import { ensureDataDir } from './install';
 
@@ -73,16 +74,6 @@ export async function runOutdated(args: string[]): Promise<void> {
 
 // ─── update plugins ──────────────────────────────────────────────────────────
 
-function updatePlugin(name: string, dataDir: string): boolean {
-  try {
-    execFileSync('bun', ['update', '--latest', name], { cwd: dataDir, stdio: 'inherit' });
-    return true;
-  } catch (err) {
-    console.error(`Failed to update ${name}: ${err instanceof Error ? err.message : err}`);
-    return false;
-  }
-}
-
 async function runUpdatePlugins(): Promise<{ ok: number; failed: number }> {
   const dataDir = ensureDataDir();
   const names = listConfiguredNpmPlugins();
@@ -94,51 +85,18 @@ async function runUpdatePlugins(): Promise<{ ok: number; failed: number }> {
   let failed = 0;
   for (const name of names) {
     console.log(`\nUpdating ${name}…`);
-    if (updatePlugin(name, dataDir)) {
+    if (await updatePluginPackage(name, dataDir)) {
       ok += 1;
       console.log(`✓ ${name}`);
     } else {
       failed += 1;
+      console.error(`Failed to update ${name}`);
     }
   }
   return { ok, failed };
 }
 
 // ─── update self ─────────────────────────────────────────────────────────────
-
-interface SelfInstallStrategy {
-  manager: 'bun' | 'npm' | 'pnpm' | 'yarn' | 'unknown';
-  command?: [string, string[]];
-}
-
-/**
- * Best-effort detection of which package manager installed `mu` globally.
- * We resolve the absolute binary path of the running process and look for
- * tell-tale path segments.
- */
-function detectSelfInstall(): SelfInstallStrategy {
-  let bin = process.argv[1] ?? '';
-  try {
-    bin = realpathSync(bin);
-  } catch {
-    // keep raw argv path
-  }
-  const norm = bin.replace(/\\/g, '/');
-
-  if (norm.includes('/.bun/') || norm.includes('/bun/install/')) {
-    return { manager: 'bun', command: ['bun', ['add', '-g', `${PACKAGE_NAME}@latest`]] };
-  }
-  if (norm.includes('/pnpm/')) {
-    return { manager: 'pnpm', command: ['pnpm', ['add', '-g', `${PACKAGE_NAME}@latest`]] };
-  }
-  if (norm.includes('/.yarn/') || norm.includes('/yarn/global/')) {
-    return { manager: 'yarn', command: ['yarn', ['global', 'add', `${PACKAGE_NAME}@latest`]] };
-  }
-  if (norm.includes('/npm/') || norm.includes('node_modules/.bin/mu')) {
-    return { manager: 'npm', command: ['npm', ['i', '-g', `${PACKAGE_NAME}@latest`]] };
-  }
-  return { manager: 'unknown' };
-}
 
 async function runUpdateSelf(): Promise<boolean> {
   const view = probeSelfSync();

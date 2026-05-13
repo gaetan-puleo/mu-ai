@@ -8,53 +8,20 @@
  */
 
 import { execFile } from 'node:child_process';
-import { realpathSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { ensureDataDir } from '../../cli/install';
 import { invalidateUpdateCheckCache } from '../../runtime/startupUpdateCheck';
-import { listConfiguredNpmPlugins, PACKAGE_NAME } from '../../runtime/updateCheck';
+import {
+  detectSelfInstall,
+  listConfiguredNpmPlugins,
+  PACKAGE_NAME,
+  updatePluginPackage,
+} from '../../runtime/updateCheck';
 import type { InkUIService } from '../plugins/InkUIService';
 
 const execFileAsync = promisify(execFile);
 
 export type UpdateScope = 'all' | 'plugins' | 'self';
-
-interface SelfInstallStrategy {
-  manager: 'bun' | 'npm' | 'pnpm' | 'yarn' | 'unknown';
-  command?: [string, string[]];
-}
-
-function detectSelfInstall(): SelfInstallStrategy {
-  let bin = process.argv[1] ?? '';
-  try {
-    bin = realpathSync(bin);
-  } catch {
-    // keep raw argv
-  }
-  const norm = bin.replace(/\\/g, '/');
-  if (norm.includes('/.bun/') || norm.includes('/bun/install/')) {
-    return { manager: 'bun', command: ['bun', ['add', '-g', `${PACKAGE_NAME}@latest`]] };
-  }
-  if (norm.includes('/pnpm/')) {
-    return { manager: 'pnpm', command: ['pnpm', ['add', '-g', `${PACKAGE_NAME}@latest`]] };
-  }
-  if (norm.includes('/.yarn/') || norm.includes('/yarn/global/')) {
-    return { manager: 'yarn', command: ['yarn', ['global', 'add', `${PACKAGE_NAME}@latest`]] };
-  }
-  if (norm.includes('/npm/') || norm.includes('node_modules/.bin/mu')) {
-    return { manager: 'npm', command: ['npm', ['i', '-g', `${PACKAGE_NAME}@latest`]] };
-  }
-  return { manager: 'unknown' };
-}
-
-async function updatePlugin(name: string, dataDir: string): Promise<boolean> {
-  try {
-    await execFileAsync('bun', ['update', '--latest', name], { cwd: dataDir });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 async function updatePlugins(ui: InkUIService): Promise<{ ok: number; failed: number; total: number }> {
   const dataDir = ensureDataDir();
@@ -65,7 +32,7 @@ async function updatePlugins(ui: InkUIService): Promise<{ ok: number; failed: nu
   let failed = 0;
   for (const name of names) {
     ui.notify(`Updating ${name}…`, 'info');
-    if (await updatePlugin(name, dataDir)) ok += 1;
+    if (await updatePluginPackage(name, dataDir)) ok += 1;
     else {
       failed += 1;
       ui.notify(`Failed to update ${name}`, 'error');

@@ -79,22 +79,6 @@ export interface AppConfig extends ProviderConfig {
   theme?: ThemeConfig;
 }
 
-/**
- * Keys that `loadConfig`/`saveConfig` know how to materialize from `AppConfig`.
- * Used as an allow-list when seeding a fresh config.json. On `saveConfig` we
- * preserve every key already present in the file so users can keep custom
- * fields (or fields added by future versions) without losing them on round-trip.
- */
-const CONFIG_FILE_KEYS = [
-  'baseUrl',
-  'model',
-  'maxTokens',
-  'temperature',
-  'streamTimeoutMs',
-  'plugins',
-  'theme',
-] as const;
-
 function configPath(): string {
   return join(getConfigDir(), 'config.json');
 }
@@ -170,10 +154,7 @@ export function loadConfig(cliModel?: string): AppConfig {
 
   if (!existsSync(path)) {
     mkdirSync(getConfigDir(), { recursive: true });
-    const fileConfig = Object.fromEntries(
-      CONFIG_FILE_KEYS.filter((k) => file[k] !== undefined).map((k) => [k, file[k]]),
-    ) as Partial<AppConfig>;
-    writeFileSync(path, JSON.stringify(fileConfig, null, 2), 'utf-8');
+    writeFileSync(path, '{}\n', 'utf-8');
   }
 
   return config;
