@@ -5,11 +5,16 @@
  * tool-call accumulator, finish_reason handling, and usage reporting.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import type { ProviderConfig, StreamChunk, Usage } from 'mu-core';
+import type { Message, ProviderConfig, Role, StreamChunk, Usage } from 'mu-core';
 import { streamChat } from './stream';
+
+function msg(role: Role, content: string): Message {
+  return { id: `${role}-${Math.random()}`, ts: 0, role, content };
+}
 
 const baseConfig: ProviderConfig = {
   baseUrl: 'http://test.invalid/v1',
+  model: 'm',
   maxTokens: 1024,
   temperature: 0.7,
   streamTimeoutMs: 5_000,
@@ -61,7 +66,7 @@ describe('streamChat content & reasoning', () => {
         JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] }),
       ]),
     );
-    const chunks = await collect(streamChat([{ role: 'user', content: 'hi' }], baseConfig, 'm'));
+    const chunks = await collect(streamChat([msg('user', 'hi')], baseConfig));
     expect(chunks).toEqual([
       { type: 'content', text: 'Hel' },
       { type: 'content', text: 'lo' },
@@ -76,7 +81,7 @@ describe('streamChat content & reasoning', () => {
         JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] }),
       ]),
     );
-    const chunks = await collect(streamChat([{ role: 'user', content: '' }], baseConfig, 'm'));
+    const chunks = await collect(streamChat([msg('user', '')], baseConfig));
     expect(chunks).toEqual([
       { type: 'reasoning', text: 'think ' },
       { type: 'reasoning', text: 'more' },
@@ -104,7 +109,7 @@ describe('streamChat tool calls', () => {
       ]),
     );
 
-    const chunks = await collect(streamChat([{ role: 'user', content: 'x' }], baseConfig, 'm'));
+    const chunks = await collect(streamChat([msg('user', 'x')], baseConfig));
     const toolCalls = chunks.filter((c) => c.type === 'tool_call');
     expect(toolCalls).toHaveLength(1);
     expect(toolCalls[0]).toEqual({
@@ -136,7 +141,7 @@ describe('streamChat tool calls', () => {
       ]),
     );
 
-    const chunks = await collect(streamChat([{ role: 'user', content: '' }], baseConfig, 'm'));
+    const chunks = await collect(streamChat([msg('user', '')], baseConfig));
     const toolCalls = chunks.filter((c) => c.type === 'tool_call');
     expect(toolCalls).toHaveLength(1);
   });
@@ -156,7 +161,7 @@ describe('streamChat tool calls', () => {
       ]),
     );
 
-    const chunks = await collect(streamChat([{ role: 'user', content: '' }], baseConfig, 'm'));
+    const chunks = await collect(streamChat([msg('user', '')], baseConfig));
     const toolCalls = chunks.filter((c) => c.type === 'tool_call');
     expect(toolCalls).toHaveLength(1);
   });
@@ -171,7 +176,7 @@ describe('streamChat tool calls', () => {
         JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] }),
       ]),
     );
-    const chunks = await collect(streamChat([{ role: 'user', content: '' }], baseConfig, 'm'));
+    const chunks = await collect(streamChat([msg('user', '')], baseConfig));
     expect(chunks.filter((c) => c.type === 'tool_call')).toHaveLength(0);
   });
 });
@@ -189,7 +194,7 @@ describe('streamChat usage reporting', () => {
     );
     const seen: Usage[] = [];
     await collect(
-      streamChat([{ role: 'user', content: 'x' }], baseConfig, 'm', {
+      streamChat([msg('user', 'x')], baseConfig, {
         onUsage: (u) => seen.push(u),
       }),
     );
@@ -214,7 +219,7 @@ describe('streamChat usage reporting', () => {
     );
     const seen: Usage[] = [];
     await collect(
-      streamChat([{ role: 'user', content: 'x' }], baseConfig, 'm', {
+      streamChat([msg('user', 'x')], baseConfig, {
         onUsage: (u) => seen.push(u),
       }),
     );
@@ -244,7 +249,7 @@ describe('streamChat error handling', () => {
 
     // The OpenAI SDK formats non-2xx responses as `<status> <body>` and throws
     // an `APIError` subclass.
-    await expect(collect(streamChat([{ role: 'user', content: 'x' }], baseConfig, 'm'))).rejects.toThrow(
+    await expect(collect(streamChat([msg('user', 'x')], baseConfig))).rejects.toThrow(
       /429.*rate limited/,
     );
   });

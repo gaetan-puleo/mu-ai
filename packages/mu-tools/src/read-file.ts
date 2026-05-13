@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import type { PluginTool } from 'mu-core';
+import type { Tool } from 'mu-core';
 import { sanitizePath } from './utils';
 
 interface ReadFileToolOptions {
@@ -45,38 +45,26 @@ function executeReadFileSingle(
   }
 }
 
-export function createReadFileTool(opts: ReadFileToolOptions): PluginTool {
+export function createReadFileTool(opts: ReadFileToolOptions): Tool {
   const { getCwd, restrictToCwd = false } = opts;
   return {
-    definition: {
-      type: 'function',
-      function: {
-        name: 'read',
-        description: 'Read text file(s) with line numbers. `path` may be a single path or array.',
-        parameters: {
-          type: 'object',
-          properties: {
-            path: { type: ['string', 'array'], items: { type: 'string' } },
-            start: { type: 'integer', description: '1-indexed first line, inclusive.' },
-            end: { type: 'integer', description: '1-indexed last line, inclusive.' },
-          },
-          required: ['path'],
-          additionalProperties: false,
-        },
+    name: 'read',
+    description: 'Read text file(s) with line numbers. `path` may be a single path or array.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: ['string', 'array'], items: { type: 'string' } },
+        start: { type: 'integer', description: '1-indexed first line, inclusive.' },
+        end: { type: 'integer', description: '1-indexed last line, inclusive.' },
       },
+      required: ['path'],
+      additionalProperties: false,
     },
-    display: {
-      verb: 'reading',
-      kind: 'file-read',
-      fields: { path: 'path', start: 'start', end: 'end' },
-    },
-    permission: {
-      matchKey: (args) => {
-        const p = args.path;
-        if (typeof p === 'string') return p;
-        if (Array.isArray(p)) return p[0] as string | undefined;
-        return undefined;
-      },
+    matchKey: (args) => {
+      const p = args.path;
+      if (typeof p === 'string') return p;
+      if (Array.isArray(p) && typeof p[0] === 'string') return p[0];
+      return undefined;
     },
     execute(args) {
       const paths = Array.isArray(args.path) ? (args.path as string[]) : [args.path as string];

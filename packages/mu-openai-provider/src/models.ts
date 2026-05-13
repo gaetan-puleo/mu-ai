@@ -1,5 +1,9 @@
-import type { ApiModel } from 'mu-core';
 import OpenAI from 'openai';
+
+export interface ApiModel {
+  id: string;
+  contextLimit?: number;
+}
 
 /**
  * Field names different OpenAI-compatible servers use to report a model's
@@ -76,20 +80,21 @@ export async function fetchModelContextLimit(baseUrl: string, modelId: string): 
 }
 
 export async function listModels(baseUrl: string): Promise<ApiModel[]> {
-  try {
-    // Local OpenAI-compatible servers don't enforce auth; a placeholder
-    // apiKey satisfies the SDK without leaking real credentials.
-    const client = new OpenAI({ baseURL: baseUrl, apiKey: 'sk-local' });
-    const list = await client.models.list();
-    return list.data.map((m) => {
-      // Only honour limits the server inlined in `/v1/models`. Probing
-      // `/props` here would force every advertised model to load on
-      // llama-swap-style proxies. The TUI lazily probes the active model
-      // after its first usage event instead — see `useModelContextLimits`.
-      const contextLimit = readContextLimit(m);
-      return contextLimit ? { id: m.id, contextLimit } : { id: m.id };
-    });
-  } catch {
-    return [];
-  }
+  // Local OpenAI-compatible servers don't enforce auth; a placeholder
+  // apiKey satisfies the SDK without leaking real credentials.
+  //
+  // Errors (network, 404, malformed body) propagate. Callers that prefer
+  // graceful degradation should wrap their own try/catch — silently
+  // returning `[]` here made the TUI model picker show "(no models
+  // available)" with no signal as to why.
+  const client = new OpenAI({ baseURL: baseUrl, apiKey: 'sk-local' });
+  const list = await client.models.list();
+  return list.data.map((m) => {
+    // Only honour limits the server inlined in `/v1/models`. Probing
+    // `/props` here would force every advertised model to load on
+    // llama-swap-style proxies. The TUI lazily probes the active model
+    // after its first usage event instead — see `useModelContextLimits`.
+    const contextLimit = readContextLimit(m);
+    return contextLimit ? { id: m.id, contextLimit } : { id: m.id };
+  });
 }

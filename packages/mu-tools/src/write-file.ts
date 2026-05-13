@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { PluginTool } from 'mu-core';
+import type { Tool } from 'mu-core';
 import { sanitizePath } from './utils';
 
 interface WriteFileToolOptions {
@@ -8,33 +8,21 @@ interface WriteFileToolOptions {
   restrictToCwd?: boolean;
 }
 
-export function createWriteFileTool(opts: WriteFileToolOptions): PluginTool {
+export function createWriteFileTool(opts: WriteFileToolOptions): Tool {
   const { getCwd, restrictToCwd = false } = opts;
   return {
-    definition: {
-      type: 'function',
-      function: {
-        name: 'write',
-        description: 'Create or overwrite a file. Use `edit` for partial changes to existing files.',
-        parameters: {
-          type: 'object',
-          properties: {
-            path: { type: 'string' },
-            content: { type: 'string' },
-          },
-          required: ['path', 'content'],
-          additionalProperties: false,
-        },
+    name: 'write',
+    description: 'Create or overwrite a file. Use `edit` for partial changes to existing files.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        content: { type: 'string' },
       },
+      required: ['path', 'content'],
+      additionalProperties: false,
     },
-    display: {
-      verb: 'writing',
-      kind: 'file-write',
-      fields: { path: 'path', content: 'content' },
-    },
-    permission: {
-      matchKey: (args) => args.path as string | undefined,
-    },
+    matchKey: (args) => (typeof args.path === 'string' ? args.path : undefined),
     execute(args) {
       const rawPath = args.path as string;
       const path = sanitizePath(rawPath, getCwd(), restrictToCwd);

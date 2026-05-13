@@ -1,40 +1,27 @@
-import type { DOMElement } from 'ink';
-import { measureElement, useStdout } from 'ink';
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
-export function useTerminalSize() {
-  const { stdout } = useStdout();
-  const [size, setSize] = useState({ width: stdout.columns, height: stdout.rows });
-  useEffect(() => {
-    const onResize = () => setSize({ width: stdout.columns, height: stdout.rows });
-    stdout.on('resize', onResize);
-    return () => {
-      stdout.off('resize', onResize);
-    };
-  }, [stdout]);
-  return size;
+export interface TerminalSize {
+  columns: number;
+  rows: number;
 }
 
-export function useMeasure(
-  viewRef: React.RefObject<DOMElement | null>,
-  contentRef: React.RefObject<DOMElement | null>,
-  contentKey?: unknown,
-) {
-  const [viewHeight, setViewHeight] = useState(0);
-  const [contentHeight, setContentHeight] = useState(0);
+function readSize(): TerminalSize {
+  return {
+    columns: process.stdout.columns ?? 80,
+    rows: process.stdout.rows ?? 24,
+  };
+}
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: contentKey triggers re-measure on content changes
-  useLayoutEffect(() => {
-    const timer = setTimeout(() => {
-      if (viewRef.current) {
-        setViewHeight(measureElement(viewRef.current).height);
-      }
-      if (contentRef.current) {
-        setContentHeight(measureElement(contentRef.current).height);
-      }
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [viewRef, contentRef, contentKey]);
+export function useTerminal(): TerminalSize {
+  const [size, setSize] = useState<TerminalSize>(readSize);
 
-  return { viewHeight, contentHeight };
+  useEffect(() => {
+    const onResize = (): void => setSize(readSize());
+    process.stdout.on('resize', onResize);
+    return () => {
+      process.stdout.off('resize', onResize);
+    };
+  }, []);
+
+  return size;
 }

@@ -1,47 +1,40 @@
-import { Box, Text, useStdout } from 'ink';
+import { Box, Text, type DOMElement } from 'ink';
 import type { ReactNode } from 'react';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../theme/ThemeContext';
 
-interface ModalProps {
-  visible: boolean;
+export interface ModalProps {
   title?: string;
-  width?: number;
   children: ReactNode;
+  width?: number | string;
+  footer?: ReactNode;
 }
 
-export function Modal({ visible, title, width: requestedWidth, children }: ModalProps) {
+export function Modal({ title, children, width, footer }: ModalProps) {
   const theme = useTheme();
-  const { stdout } = useStdout();
-  const columns = stdout.columns;
-  const rows = stdout.rows;
-
-  if (!visible) {
-    return null;
-  }
-
-  const modalWidth = requestedWidth ?? Math.min(60, columns - 4);
-
   return (
     <Box
-      position="absolute"
       flexDirection="column"
-      justifyContent="center"
-      alignItems="center"
-      width={columns}
-      height={rows}
-      top={0}
-      left={0}
+      borderStyle="round"
+      borderColor={theme.colors.border}
+      paddingX={1}
+      paddingY={0}
+      width={width ?? 80}
     >
-      <Box flexDirection="column" width={modalWidth} backgroundColor={theme.modal.background} paddingX={2} paddingY={1}>
-        {title && (
-          <Box marginBottom={1}>
-            <Text bold={true}>{title}</Text>
-            <Box flexGrow={1} />
-            <Text color={theme.modal.hint}>Esc to close</Text>
-          </Box>
-        )}
-        {children}
-      </Box>
+      {title ? (
+        <Box marginBottom={1}>
+          <Text bold color={theme.colors.heading}>
+            {title}
+          </Text>
+        </Box>
+      ) : null}
+      <Box flexDirection="column">{children}</Box>
+      {footer ? (
+        <Box marginTop={1}>
+          <Text dimColor>{footer}</Text>
+        </Box>
+      ) : null}
     </Box>
   );
 }
+
+export type { DOMElement };

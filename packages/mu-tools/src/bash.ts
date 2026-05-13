@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
-import type { PluginTool, ToolExecutorResult } from 'mu-core';
+import type { Tool, ToolResult } from 'mu-core';
 
-function executeBash(command: string, cwd: string, signal?: AbortSignal): Promise<ToolExecutorResult> {
+function executeBash(command: string, cwd: string, signal?: AbortSignal): Promise<ToolResult> {
   return new Promise((resolve) => {
     const proc = spawn('bash', ['-c', command], {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -85,33 +85,21 @@ interface BashToolOptions {
   getCwd: () => string;
 }
 
-export function createBashTool(opts: BashToolOptions): PluginTool {
+export function createBashTool(opts: BashToolOptions): Tool {
   const { getCwd } = opts;
   return {
-    definition: {
-      type: 'function',
-      function: {
-        name: 'bash',
-        description:
-          'Run a shell command via bash in the project cwd. Returns stdout+stderr; non-zero exit is an error.',
-        parameters: {
-          type: 'object',
-          properties: {
-            cmd: { type: 'string' },
-          },
-          required: ['cmd'],
-          additionalProperties: false,
-        },
+    name: 'bash',
+    description:
+      'Run a shell command via bash in the project cwd. Returns stdout+stderr; non-zero exit is an error.',
+    parameters: {
+      type: 'object',
+      properties: {
+        cmd: { type: 'string' },
       },
+      required: ['cmd'],
+      additionalProperties: false,
     },
-    display: {
-      verb: 'running',
-      kind: 'shell',
-      fields: { command: 'cmd' },
-    },
-    permission: {
-      matchKey: (args) => args.cmd as string | undefined,
-    },
+    matchKey: (args) => (typeof args.cmd === 'string' ? args.cmd : undefined),
     execute(args, signal) {
       return executeBash(args.cmd as string, getCwd(), signal);
     },

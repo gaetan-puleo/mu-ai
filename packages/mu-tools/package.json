@@ -12,6 +12,6 @@
     "src"
   ],
   "dependencies": {
-    "mu-core": "0.15.0"
+    "mu-core": "workspace:*"
   }
 }

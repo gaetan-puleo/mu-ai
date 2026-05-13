@@ -1,25 +1,27 @@
 /**
  * mu-coding-agents — packages the default coding agents (build / plan /
- * explore / review) as a plugin. The plugin only registers the directory
- * with `ctx.agents` (the AgentSourceRegistry exposed by mu-agents); the
- * markdown files themselves carry the prompts + permissions.
+ * explore / review) as a plugin. The markdown files in ../agents carry the
+ * prompts + permissions; this plugin just exposes the directory path for
+ * whichever agents-registry consumer wants it.
  */
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'mu-core';
 
-export function createCodingAgentsPlugin(): Plugin {
+export function getCodingAgentsDir(): string {
   const here = dirname(fileURLToPath(import.meta.url));
-  const agentsDir = join(here, '..', 'agents');
+  return join(here, '..', 'agents');
+}
+
+export function createCodingAgentsPlugin(): Plugin {
   return {
     name: 'mu-coding-agents',
-    version: '0.5.0',
-    activate(ctx) {
-      ctx.agents?.registerSource(agentsDir);
+    register() {
+      // Agents directory is exposed via getCodingAgentsDir(); hosts wire it
+      // into their agent registry directly.
     },
   };
 }
 
-// Default export so hosts can `import codingAgents from 'mu-coding-agents'`.
 export default createCodingAgentsPlugin;

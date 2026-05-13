@@ -1,8 +1,7 @@
-import type { ChatMessage, ProviderConfig, StreamChunk, StreamOptions, Usage } from 'mu-core';
+import type { Message, ProviderConfig, StreamChunk, StreamOptions, Tool, Usage } from 'mu-core';
 import OpenAI from 'openai';
 import type {
   ChatCompletionChunk,
-  ChatCompletionContentPart,
   ChatCompletionCreateParamsStreaming,
   ChatCompletionMessageParam,
 } from 'openai/resources/chat/completions';
@@ -18,7 +17,7 @@ type DeltaWithReasoning = ChatCompletionChunk.Choice.Delta & {
 
 // --- Message formatting ---
 
-function buildMessages(messages: ChatMessage[], config: ProviderConfig): ChatCompletionMessageParam[] {
+function buildMessages(messages: Message[], config: ProviderConfig): ChatCompletionMessageParam[] {
   const apiMessages: ChatCompletionMessageParam[] = [];
 
   if (config.systemPrompt) {
@@ -27,20 +26,7 @@ function buildMessages(messages: ChatMessage[], config: ProviderConfig): ChatCom
 
   for (const m of messages) {
     if (m.role === 'user') {
-      if (m.images?.length) {
-        const parts: ChatCompletionContentPart[] = [
-          { type: 'text', text: m.content.trim() || '(image attached)' },
-          ...m.images.map(
-            (img): ChatCompletionContentPart => ({
-              type: 'image_url',
-              image_url: { url: `data:${img.mimeType};base64,${img.data}` },
-            }),
-          ),
-        ];
-        apiMessages.push({ role: 'user', content: parts });
-      } else {
-        apiMessages.push({ role: 'user', content: m.content });
-      }
+      apiMessages.push({ role: 'user', content: m.content });
     } else if (m.role === 'assistant') {
       if (m.toolCalls?.length) {
         apiMessages.push({
@@ -56,13 +42,9 @@ function buildMessages(messages: ChatMessage[], config: ProviderConfig): ChatCom
         apiMessages.push({ role: 'assistant', content: m.content });
       }
     } else if (m.role === 'tool') {
-      apiMessages.push({ role: 'tool', tool_call_id: m.toolCallId ?? '', content: m.content });
+      const content = m.toolResult?.content ?? m.content;
+      apiMessages.push({ role: 'tool', tool_call_id: m.toolCallId ?? '', content });
     } else if (m.role === 'system') {
-      // System messages embedded in a transcript (e.g. resumed sessions where
-      // an old prompt was persisted, or plugin-injected system context) are
-      // forwarded verbatim. The leading `config.systemPrompt` is still pushed
-      // first above so the canonical system instruction precedes any inline
-      // ones — most servers tolerate multiple system messages.
       apiMessages.push({ role: 'system', content: m.content });
     }
   }
@@ -146,10 +128,16 @@ async function* withInactivityTimeout<T>(iter: AsyncIterable<T>, timeoutMs: numb
 
 // --- Main entry point ---
 
+function toOpenAITool(t: Tool): { type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } } {
+  return {
+    type: 'function',
+    function: { name: t.name, description: t.description, parameters: t.parameters },
+  };
+}
+
 export async function* streamChat(
-  messages: ChatMessage[],
+  messages: Message[],
   config: ProviderConfig,
-  model: string,
   options?: StreamOptions,
 ): AsyncGenerator<StreamChunk, void, unknown> {
   // The SDK requires an apiKey to construct, but local OpenAI-compatible
@@ -157,11 +145,14 @@ export async function* streamChat(
   // satisfies the SDK without leaking real credentials.
   const client = new OpenAI({ baseURL: config.baseUrl, apiKey: 'sk-local' });
 
-  // `cache_prompt` is a llama.cpp/llama-server extension (default: true) that
-  // we expose explicitly for robustness — some proxies disable it. The OpenAI
-  // hosted API ignores unknown fields, so this stays safe across providers.
+  if (!config.model) {
+    throw new Error(
+      'No model selected. Pick one via the TUI model picker (/model), pass --model <id>, or set "model" in ~/.config/mu/config.json.',
+    );
+  }
+
   const params: ChatCompletionCreateParamsStreaming & { cache_prompt?: boolean } = {
-    model,
+    model: config.model,
     messages: buildMessages(messages, config),
     max_tokens: config.maxTokens,
     temperature: config.temperature,
@@ -171,17 +162,14 @@ export async function* streamChat(
   };
 
   if (options?.tools?.length) {
-    params.tools = options.tools.map((t) => ({
-      type: 'function',
-      function: t.function,
-    }));
+    params.tools = options.tools.map(toOpenAITool);
   }
 
   const stream = await client.chat.completions.create(params, {
     signal: options?.signal,
   });
 
-  yield* processStream(stream, config.streamTimeoutMs, options);
+  yield* processStream(stream, config.streamTimeoutMs ?? 60_000, options);
 }
 
 async function* processStream(

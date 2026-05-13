@@ -12,7 +12,11 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Cron } from 'croner';
-import { newTaskSessionId, nowMs } from 'mu-core';
+import { nowMs } from 'mu-core';
+
+function newTaskSessionId(taskId: string): string {
+  return `task:${taskId}:${nowMs()}`;
+}
 import { parse } from 'yaml';
 import type { ScheduledTask, SchedulerHandle, SchedulerOptions, SchedulerTaskEvent } from './types';
 

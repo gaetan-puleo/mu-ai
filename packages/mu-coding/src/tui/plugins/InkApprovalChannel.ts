@@ -1,30 +1,22 @@
+import type { ApprovalChannel, ApprovalDecision } from 'mu-agents';
+import { getDispatch } from '../dispatchSlot';
+
 /**
- * InkApprovalChannel — bridges the ApprovalGateway to the Ink confirm
- * dialog. Returns the user's choice synchronously (no token round-trip
- * through HTTP / Telegram); the gateway honours that immediate result.
+ * ApprovalChannel that opens an Ink modal. Reads the dispatch lazily from
+ * the slot — if the TUI isn't mounted yet (or no TUI at all) the request
+ * is rejected via deny so the gateway can fall through to its error path.
  */
-
-import type { ApprovalChannel, ApprovalRequest, ApprovalResult } from 'mu-agents';
-import type { InkUIService } from './InkUIService';
-
-function formatArgs(args: unknown): string {
-  if (args === null || args === undefined) return '';
-  if (typeof args === 'string') return args;
-  try {
-    const json = JSON.stringify(args, null, 2);
-    return json.length > 800 ? `${json.slice(0, 800)}…` : json;
-  } catch {
-    return String(args);
-  }
-}
-
-export function createInkApprovalChannel(ui: InkUIService): ApprovalChannel {
+export function createInkApprovalChannel(): ApprovalChannel {
   return {
-    async sendApprovalRequest(req: ApprovalRequest): Promise<ApprovalResult | undefined> {
-      const title = `Run \`${req.toolName}\`?`;
-      const message = formatArgs(req.toolArgs);
-      const ok = await ui.confirm(title, message);
-      return ok ? 'approved' : 'denied';
+    async request(req): Promise<ApprovalDecision> {
+      const dispatch = getDispatch();
+      if (!dispatch) return { outcome: 'deny' };
+      return new Promise<ApprovalDecision>((resolve) => {
+        dispatch({
+          type: 'modal_open',
+          modal: { kind: 'approval', req, resolve },
+        });
+      });
     },
   };
 }

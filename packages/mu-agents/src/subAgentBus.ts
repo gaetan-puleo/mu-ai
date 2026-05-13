@@ -1,55 +1,56 @@
-/**
- * SubAgentBus — pub/sub for fine-grained sub-agent invocation events.
- *
- * Only mu-agents emits these (every other event type lives on
- * `mu-core`'s `ActivityBus`). Moving the type + bus here removes a
- * leak in `mu-core` where it declared events nobody in the core
- * actually emits.
- *
- * The host (arya, future channels) doesn't subscribe to this directly
- * anymore — instead it subscribes to the higher-level
- * `SubagentRunRegistry.subscribeAllSnapshots`, which projects to a
- * render-ready wire shape. The raw event bus is kept for plugins that
- * want to react to invocation-level events (telemetry, custom UI).
- */
-
-export type SubAgentEventKind =
-  | 'invocation_start'
-  | 'text_delta'
-  | 'message_end'
-  | 'tool_call_start'
-  | 'tool_call_end'
-  | 'invocation_end';
+export type SubAgentEventType =
+  | 'started'
+  | 'content'
+  | 'tool_call'
+  | 'tool_result'
+  | 'completed'
+  | 'error';
 
 export interface SubAgentEvent {
   runId: string;
-  parentRunId?: string;
-  agentId: string;
-  kind: SubAgentEventKind;
-  ts: number;
-  data: Record<string, unknown>;
+  parentSessionId: string;
+  agentName: string;
+  type: SubAgentEventType;
+  detail?: unknown;
 }
 
 export interface SubAgentBus {
-  subscribe: (fn: (e: SubAgentEvent) => void) => () => void;
-  emit: (e: SubAgentEvent) => void;
+  emit(event: SubAgentEvent): void;
+  /** Subscribe to events for sub-runs of a specific parent session. */
+  onParent(parentSessionId: string, fn: (event: SubAgentEvent) => void): () => void;
+  /** Drop all listeners. Used during plugin deactivate. */
+  clear(): void;
 }
 
 export function createSubAgentBus(): SubAgentBus {
-  const listeners = new Set<(e: SubAgentEvent) => void>();
+  const byParent = new Map<string, Set<(event: SubAgentEvent) => void>>();
+
   return {
-    subscribe(fn) {
-      listeners.add(fn);
-      return () => listeners.delete(fn);
-    },
-    emit(e) {
+    emit(event) {
+      const listeners = byParent.get(event.parentSessionId);
+      if (!listeners) return;
       for (const fn of listeners) {
         try {
-          fn(e);
+          fn(event);
         } catch {
-          // Listener errors must not break the bus.
+          /* listener errors must not break the run */
         }
       }
+    },
+    onParent(parentSessionId, fn) {
+      let set = byParent.get(parentSessionId);
+      if (!set) {
+        set = new Set();
+        byParent.set(parentSessionId, set);
+      }
+      set.add(fn);
+      return () => {
+        set?.delete(fn);
+        if (set && set.size === 0) byParent.delete(parentSessionId);
+      };
+    },
+    clear() {
+      byParent.clear();
     },
   };
 }

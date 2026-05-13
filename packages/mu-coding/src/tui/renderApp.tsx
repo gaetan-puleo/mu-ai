@@ -1,58 +1,95 @@
-import { type Instance, render } from 'ink';
-import type { SubagentRunRegistry } from 'mu-agents';
-import type { ChatMessage, PluginRegistry, SessionManager, SessionStore, SubmitTextInput, SubmitTextResult } from 'mu-core';
-import type { ReactNode } from 'react';
-import type { ShutdownFn } from '../app/shutdown';
-import type { AppConfig } from '../config/index';
-import { ChatPanel } from './components/chat/ChatPanel';
-import { ThemeProvider } from './context/ThemeContext';
-import type { InkUIService } from './plugins/InkUIService';
-import { SubagentRunsProvider } from './SubagentRunsProvider';
-import { resolveTheme } from './theme';
+import { render } from 'ink';
+import type { AgentsHandle } from 'mu-agents';
+import type { Command, Session } from 'mu-core';
+import { useEffect } from 'react';
+import type { SessionSummary } from '../store';
+import { _setMuCodingTUI, type MuCodingTUI } from './api';
+import { App } from './components/App';
+import { setDispatch } from './dispatchSlot';
+import { AppProvider, useDispatch } from './state/AppContext';
+import { ThemeProvider } from './theme/ThemeContext';
 
-interface RenderAppOptions {
-  config: AppConfig;
-  initialSessionId: string;
-  initialMessages?: ChatMessage[];
-  registry: PluginRegistry;
-  sessions: SessionManager;
-  store: SessionStore;
-  submitText: (input: SubmitTextInput) => Promise<SubmitTextResult>;
-  uiService: InkUIService;
-  shutdown: ShutdownFn;
-  subagentRuns?: SubagentRunRegistry;
+export interface MountOptions {
+  session: Session;
+  model?: string;
+  agents?: AgentsHandle;
+  submit: (text: string) => Promise<void>;
+  abort: () => void;
+  commands: () => readonly Command[];
+  listSessions: () => SessionSummary[];
+  switchSession: (id: string) => void;
+  setModel: (model: string) => void;
 }
 
-function withSubagentProvider(runs: SubagentRunRegistry | undefined, children: ReactNode): ReactNode {
-  if (!runs) return <>{children}</>;
-  return <SubagentRunsProvider registry={runs}>{children}</SubagentRunsProvider>;
+export interface MountedTui {
+  waitUntilExit: () => Promise<void>;
+  unmount: () => void;
 }
 
-export function renderApp(options: RenderAppOptions): Instance {
-  const theme = resolveTheme(options.config.theme);
-  return render(
-    <ThemeProvider theme={theme}>
-      {withSubagentProvider(
-        options.subagentRuns,
-        <ChatPanel
-          config={options.config}
-          initialSessionId={options.initialSessionId}
-          initialMessages={options.initialMessages}
-          registry={options.registry}
-          sessions={options.sessions}
-          store={options.store}
-          submitText={options.submitText}
-          uiService={options.uiService}
-          shutdown={options.shutdown}
-          subagentRuns={options.subagentRuns}
-        />,
-      )}
+export function mountTui(opts: MountOptions): MountedTui {
+  const instance = render(
+    <ThemeProvider>
+      <AppProvider
+        session={opts.session}
+        agents={opts.agents}
+        model={opts.model}
+        submit={opts.submit}
+        abort={opts.abort}
+      >
+        <DispatchBridge />
+        <App
+          commands={opts.commands}
+          listSessions={opts.listSessions}
+          switchSession={opts.switchSession}
+          setModel={opts.setModel}
+        />
+      </AppProvider>
     </ThemeProvider>,
-    {
-      exitOnCtrlC: false,
-      kittyKeyboard: { mode: 'enabled' },
-      maxFps: 60,
-      incrementalRendering: true,
-    },
+    { exitOnCtrlC: true },
   );
+
+  return {
+    waitUntilExit: async () => {
+      await instance.waitUntilExit();
+    },
+    unmount: () => {
+      setDispatch(undefined);
+      _setMuCodingTUI(undefined);
+      instance.unmount();
+    },
+  };
+}
+
+/**
+ * Mounts the React-side dispatch into the global slot and installs the
+ * plugin-facing TUI API. Renders nothing.
+ */
+function DispatchBridge() {
+  const dispatch = useDispatch();
+
+  useEffect(() => {
+    setDispatch(dispatch);
+    const api: MuCodingTUI = {
+      shortcut: () => () => {},
+      setStatus: (key, segments) => dispatch({ type: 'status_set', key, segments }),
+      clearStatus: (key) => dispatch({ type: 'status_clear', key }),
+      notify: (message, level = 'info') =>
+        dispatch({
+          type: 'toast_push',
+          toast: {
+            id: `t-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            message,
+            level,
+          },
+        }),
+      renderer: () => () => {},
+    };
+    _setMuCodingTUI(api);
+    return () => {
+      setDispatch(undefined);
+      _setMuCodingTUI(undefined);
+    };
+  }, [dispatch]);
+
+  return null;
 }

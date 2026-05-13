@@ -4,21 +4,43 @@
  * sequence (Cloudflare retry, UA fallback, timeout abort, size cap, etc.).
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import type { PluginTool, ToolExecutorResult } from 'mu-core';
+import type { PluginAPI, Tool, ToolResult } from 'mu-core';
 import { createWebFetchPlugin } from './plugin';
 
 type FetchStub = (input: string, init?: RequestInit) => Promise<Response>;
 
 const realFetch = globalThis.fetch;
 
-function getTool(): PluginTool {
+function getTool(): Tool {
   const plugin = createWebFetchPlugin();
-  const tool = plugin.tools?.[0];
-  if (!tool) throw new Error('webfetch tool missing');
-  return tool;
+  let captured: Tool | undefined;
+  const noop = (): (() => void) => () => {};
+  const api = {
+    config: {},
+    hook: noop,
+    tool: (t: Tool) => {
+      captured = t;
+      return () => {};
+    },
+    provider: noop,
+    channel: noop,
+    command: noop,
+    systemPrompt: noop,
+    getTool: () => undefined,
+    getTools: () => [],
+    getProvider: () => undefined,
+    getCommand: () => undefined,
+    listCommands: () => [],
+    getSession: () => undefined,
+    listSessions: () => [],
+    onSession: noop,
+  } as unknown as PluginAPI;
+  void plugin.register(api);
+  if (!captured) throw new Error('webfetch tool missing');
+  return captured;
 }
 
-async function run(args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolExecutorResult> {
+async function run(args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
   const tool = getTool();
   return await tool.execute(args, signal);
 }
@@ -204,17 +226,9 @@ describe('mu-webfetch — abort + timeout', () => {
 });
 
 describe('mu-webfetch — tool surface', () => {
-  it('exposes a permission matchKey on args.url', () => {
-    const tool = getTool();
-    expect(tool.permission?.matchKey?.({ url: 'https://x.dev/a' })).toBe('https://x.dev/a');
-    expect(tool.permission?.matchKey?.({})).toBeUndefined();
-  });
-
   it('declares the format enum on its parameters', () => {
     const tool = getTool();
-    const params = tool.definition.function.parameters as {
-      properties: { format: { enum: string[] } };
-    };
+    const params = tool.parameters as { properties: { format: { enum: string[] } } };
     expect(params.properties.format.enum).toEqual(['text', 'markdown', 'html']);
   });
 });

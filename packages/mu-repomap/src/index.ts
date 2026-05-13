@@ -2,7 +2,7 @@
 export { formatFileView, formatSummary, formatTree } from './formatter';
 // Layered discovery (list_symbols)
 export { DEFAULT_PAGE_SIZE, type ListSymbolsArgs, listSymbols } from './listSymbols';
-export { createLogger, type RepomapLogger } from './logger';
+export { createLogger, type RepomapLogger, type UIService } from './logger';
 // Manager
 export { RepomapManager, type RepomapState } from './manager';
 export type { RepomapOptions } from './plugin';

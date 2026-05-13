@@ -7,12 +7,10 @@
     "mu": "./bin/mu.js"
   },
   "exports": {
-    "./config": "./src/config/index.ts",
-    "./loader": "./src/runtime/pluginLoader.ts"
+    ".": "./src/index.ts"
   },
   "files": [
     "bin",
-    "prompts",
     "src"
   ],
   "scripts": {
@@ -22,10 +20,14 @@
   },
   "dependencies": {
     "ink": "^7.0.1",
-    "mu-agents": "0.15.0",
-    "mu-core": "0.15.0",
-    "mu-openai-provider": "0.15.0",
-    "mu-tools": "0.15.0",
+    "marked": "^14.1.0",
+    "mu-agents": "workspace:*",
+    "mu-core": "workspace:*",
+    "mu-openai-provider": "workspace:*",
+    "mu-tools": "workspace:*",
     "react": "^19.2.5"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.5"
   }
 }

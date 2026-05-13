@@ -9,7 +9,7 @@
  *  - arya enables it for permission-glob safety.
  */
 
-import type { Plugin, PluginTool } from 'mu-core';
+import type { Plugin, Tool } from 'mu-core';
 import { createBashTool } from './bash';
 import { createEditFileTool } from './edit-file';
 import { createListDirTool } from './list-dir';
@@ -17,7 +17,7 @@ import { createReadFileTool } from './read-file';
 import { createWriteFileTool } from './write-file';
 
 export interface MuToolsPluginOptions {
-  /** Working directory accessor. Defaults to `() => ctx.cwd` resolved at activate. */
+  /** Working directory accessor. Defaults to `api.cwd` resolved at register. */
   getCwd?: () => string;
   /** Enforce that path-accepting tools stay inside the cwd. Default `false`. */
   restrictToCwd?: boolean;
@@ -27,13 +27,21 @@ export interface MuToolsPluginOptions {
 
 const DEFAULT_TOOLS = ['read', 'write', 'edit', 'bash', 'list_dir'] as const;
 
+const SYSTEM_PROMPT = [
+  'File & shell tools:',
+  '- Prefer `read` over `cat`/`sed`; pass `start`/`end` for large files.',
+  '- Use `edit` for surgical changes; include enough context in `from` to be unique. One `edit` call per change site.',
+  '- Use `write` only for new files or full rewrites.',
+  '- Use `list_dir` to inspect directory contents (optionally recursive with `depth`).',
+  '- Use `bash` for ops without a dedicated tool (rg, build, tests). Avoid using it to read or rewrite files.',
+].join('\n');
+
 export function createMuToolsPlugin(options: MuToolsPluginOptions = {}): Plugin {
-  let pluginCwd: string | undefined;
-  const getCwd = options.getCwd ?? ((): string => pluginCwd ?? process.cwd());
+  const getCwd = options.getCwd ?? ((): string => process.cwd());
   const restrictToCwd = options.restrictToCwd ?? false;
   const enabled = new Set(options.tools ?? DEFAULT_TOOLS);
 
-  const tools: PluginTool[] = [];
+  const tools: Tool[] = [];
   if (enabled.has('read')) tools.push(createReadFileTool({ getCwd, restrictToCwd }));
   if (enabled.has('write')) tools.push(createWriteFileTool({ getCwd, restrictToCwd }));
   if (enabled.has('edit')) tools.push(createEditFileTool({ getCwd, restrictToCwd }));
@@ -42,18 +50,9 @@ export function createMuToolsPlugin(options: MuToolsPluginOptions = {}): Plugin 
 
   return {
     name: 'mu-tools',
-    version: '0.15.0',
-    tools,
-    systemPrompt: [
-      'File & shell tools:',
-      '- Prefer `read` over `cat`/`sed`; pass `start`/`end` for large files.',
-      '- Use `edit` for surgical changes; include enough context in `from` to be unique. One `edit` call per change site.',
-      '- Use `write` only for new files or full rewrites.',
-      '- Use `list_dir` to inspect directory contents (optionally recursive with `depth`).',
-      '- Use `bash` for ops without a dedicated tool (rg, build, tests). Avoid using it to read or rewrite files.',
-    ].join('\n'),
-    activate(ctx) {
-      pluginCwd = ctx.cwd;
+    register(api) {
+      api.systemPrompt(SYSTEM_PROMPT);
+      for (const t of tools) api.tool(t);
     },
   };
 }

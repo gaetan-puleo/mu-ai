@@ -1,12 +1,15 @@
-import type { UIService } from 'mu-core';
+/**
+ * Minimal UI surface mu-repomap depends on. Hosts (e.g. mu-coding TUI) inject
+ * an implementation; otherwise repomap falls back to stdout/stderr.
+ */
+export interface UIService {
+  notify: (message: string, level?: 'info' | 'success' | 'warning' | 'error') => void;
+  setStatus: (key: string, text: string) => void;
+  clearStatus: (key: string) => void;
+}
 
 /**
  * Repomap logger — abstracts where progress and errors go.
- *
- * In TUI mode (UIService provided) progress is pinned as a status segment under
- * the `repomap-progress` key (replaced as phases advance, cleared on completion)
- * and notable events (done / error) become toasts. In standalone mode (no
- * UIService) we fall back to stdout/stderr so messages stay visible.
  */
 export interface RepomapLogger {
   /** Transient progress text — replaces previous progress. */

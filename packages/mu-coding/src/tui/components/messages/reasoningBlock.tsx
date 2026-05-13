@@ -1,18 +1,18 @@
 import { Box, Text } from 'ink';
-import { useTheme } from '../../context/ThemeContext';
+import { useState } from 'react';
+import { useTheme } from '../../theme/ThemeContext';
 
-export function ReasoningBlock({ reasoning }: { reasoning: string }) {
+const SUMMARY_CHARS = 120;
+
+export function ReasoningBlock({ text }: { text: string }) {
   const theme = useTheme();
+  const [expanded] = useState(false);
+  if (!text) return null;
+  const shown = expanded ? text : text.length > SUMMARY_CHARS ? `${text.slice(0, SUMMARY_CHARS)}…` : text;
   return (
-    <Box marginBottom={0}>
-      <Text wrap="wrap">
-        <Text color={theme.reasoning.title} italic={true}>
-          thinking:{' '}
-        </Text>
-        <Text color={theme.reasoning.body} italic={true}>
-          {reasoning}
-        </Text>
-      </Text>
+    <Box flexDirection="column" borderStyle="single" borderColor={theme.colors.muted} paddingX={1}>
+      <Text dimColor>reasoning</Text>
+      <Text dimColor>{shown}</Text>
     </Box>
   );
 }

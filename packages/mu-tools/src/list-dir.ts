@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import type { PluginTool } from 'mu-core';
+import type { Tool } from 'mu-core';
 import { sanitizePath } from './utils';
 
 interface ListDirToolOptions {
@@ -31,34 +31,22 @@ function listDirRecursive(dir: string, prefix: string, depth: number, maxDepth: 
   return lines.join('\n');
 }
 
-export function createListDirTool(opts: ListDirToolOptions): PluginTool {
+export function createListDirTool(opts: ListDirToolOptions): Tool {
   const { getCwd, restrictToCwd = false } = opts;
   return {
-    definition: {
-      type: 'function',
-      function: {
-        name: 'list_dir',
-        description: 'List the contents of a directory. Optionally recurse with a depth limit.',
-        parameters: {
-          type: 'object',
-          properties: {
-            path: { type: 'string', description: 'Directory path to list.' },
-            recursive: { type: 'boolean', description: 'Recursively list subdirectories.' },
-            depth: { type: 'integer', description: 'Max recursion depth (default: 2).' },
-          },
-          required: ['path'],
-          additionalProperties: false,
-        },
+    name: 'list_dir',
+    description: 'List the contents of a directory. Optionally recurse with a depth limit.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Directory path to list.' },
+        recursive: { type: 'boolean', description: 'Recursively list subdirectories.' },
+        depth: { type: 'integer', description: 'Max recursion depth (default: 2).' },
       },
+      required: ['path'],
+      additionalProperties: false,
     },
-    display: {
-      verb: 'listing',
-      kind: 'directory',
-      fields: { path: 'path', recursive: 'recursive', depth: 'depth' },
-    },
-    permission: {
-      matchKey: (args) => args.path as string | undefined,
-    },
+    matchKey: (args) => (typeof args.path === 'string' ? args.path : undefined),
     execute(args) {
       const rawPath = args.path as string;
       const cwd = getCwd();

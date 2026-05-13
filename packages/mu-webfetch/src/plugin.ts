@@ -4,14 +4,14 @@
  * `webfetch` tool (sst/opencode @ dev, packages/opencode/src/tool/webfetch.ts).
  *
  * Differences vs. opencode:
- *  - mu's PluginTool has no native attachment channel, so image responses
+ *  - mu's Tool has no native attachment channel, so image responses
  *    return a `data:<mime>;base64,...` URL inline as text.
  *  - HTML→text uses Bun's HTMLRewriter when available with a regex fallback
  *    for non-Bun hosts.
  *  - Cloudflare retry uses `User-Agent: mu` (vs. `opencode`).
  */
 
-import type { Plugin, PluginTool, ToolExecutorResult } from 'mu-core';
+import type { Plugin, Tool, ToolResult } from 'mu-core';
 import TurndownService from 'turndown';
 
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -135,7 +135,7 @@ async function extractTextFromHtml(html: string): Promise<string> {
   return text.trim();
 }
 
-function err(content: string): ToolExecutorResult {
+function err(content: string): ToolResult {
   return { content, error: true };
 }
 
@@ -152,7 +152,7 @@ function pickTimeoutMs(value: unknown): number {
   return Math.min(Math.max(seconds, 0) * 1000, MAX_TIMEOUT_MS);
 }
 
-type FetchAttempt = { ok: true; response: Response } | { ok: false; error: ToolExecutorResult };
+type FetchAttempt = { ok: true; response: Response } | { ok: false; error: ToolResult };
 
 async function fetchWithCloudflareRetry(
   url: string,
@@ -187,7 +187,7 @@ async function fetchWithCloudflareRetry(
   return { ok: true, response };
 }
 
-type BoundedRead = { ok: true; buf: ArrayBuffer } | { ok: false; error: ToolExecutorResult };
+type BoundedRead = { ok: true; buf: ArrayBuffer } | { ok: false; error: ToolResult };
 
 async function readBoundedBuffer(response: Response): Promise<BoundedRead> {
   const declaredLen = response.headers.get('content-length');
@@ -217,7 +217,7 @@ async function renderBody(buf: ArrayBuffer, contentType: string, format: WebFetc
 async function executeWebFetch(
   args: Record<string, unknown>,
   signal: AbortSignal | undefined,
-): Promise<ToolExecutorResult> {
+): Promise<ToolResult> {
   const url = typeof args.url === 'string' ? args.url : '';
   if (!url) return err('Error: url is required');
   if (!isHttpUrl(url)) return err('Error: URL must start with http:// or https://');
@@ -248,46 +248,32 @@ async function executeWebFetch(
   }
 }
 
-function createWebFetchTool(): PluginTool {
+function createWebFetchTool(): Tool {
   return {
-    definition: {
-      type: 'function',
-      function: {
-        name: 'webfetch',
-        description: 'Fetch a URL and return it as markdown (default), text, or raw HTML.',
-        parameters: {
-          type: 'object',
-          properties: {
-            url: {
-              type: 'string',
-              description: 'Fully-formed http:// or https:// URL.',
-            },
-            format: {
-              type: 'string',
-              enum: ['text', 'markdown', 'html'],
-              default: 'markdown',
-              description: 'Output format.',
-            },
-            timeout: {
-              type: 'number',
-              description: 'Timeout in seconds (max 120).',
-            },
-          },
-          required: ['url'],
-          additionalProperties: false,
+    name: 'webfetch',
+    description: 'Fetch a URL and return it as markdown (default), text, or raw HTML.',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'Fully-formed http:// or https:// URL.',
+        },
+        format: {
+          type: 'string',
+          enum: ['text', 'markdown', 'html'],
+          default: 'markdown',
+          description: 'Output format.',
+        },
+        timeout: {
+          type: 'number',
+          description: 'Timeout in seconds (max 120).',
         },
       },
+      required: ['url'],
+      additionalProperties: false,
     },
-    display: {
-      verb: 'fetching',
-      kind: 'webfetch',
-      fields: { path: 'url' },
-    },
-    permission: {
-      // Lets agent definitions glob-allow URLs, e.g.
-      //   webfetch: { allow: ["https://github.com/**", "https://*.dev/**"] }
-      matchKey: (args) => (typeof args.url === 'string' ? args.url : undefined),
-    },
+    matchKey: (args) => (typeof args.url === 'string' ? args.url : undefined),
     execute: executeWebFetch,
   };
 }
@@ -295,9 +281,10 @@ function createWebFetchTool(): PluginTool {
 export function createWebFetchPlugin(): Plugin {
   return {
     name: 'mu-webfetch',
-    version: '0.9.0',
-    tools: [createWebFetchTool()],
-    systemPrompt: WEBFETCH_SYSTEM_PROMPT,
+    register(api) {
+      api.tool(createWebFetchTool());
+      api.systemPrompt(WEBFETCH_SYSTEM_PROMPT);
+    },
   };
 }
 

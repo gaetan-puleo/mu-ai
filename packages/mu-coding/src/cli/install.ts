@@ -1,107 +1,65 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { canonicalNpmSpecifier, getDataDir, loadConfig, parseBareNpmSpec, saveConfig } from '../config/index';
+import { getConfigDir, getConfigPath, getDataDir } from '../config';
 
-const INIT_PACKAGE_JSON = JSON.stringify({ private: true, dependencies: {} }, null, 2);
-
-export function ensureDataDir(): string {
-  const dataDir = getDataDir();
-  mkdirSync(dataDir, { recursive: true });
-
-  const pkgPath = join(dataDir, 'package.json');
-  if (!existsSync(pkgPath)) {
-    writeFileSync(pkgPath, INIT_PACKAGE_JSON, 'utf-8');
-  }
-
-  return dataDir;
-}
-
-/**
- * Install an npm package into the mu data dir using `bun add`. Shared by the
- * `mu install` CLI and the runtime auto-installer (pluginLoader). `bare` is
- * the spec without the `npm:` prefix (e.g. `mu-coding-agents`,
- * `@scope/foo@^1.0.0`). When `silent`, stdout is suppressed (used by the
- * runtime path so the TUI isn't garbled at startup).
- */
-export function installNpmPackage(bare: string, options: { silent?: boolean } = {}): void {
-  const dataDir = ensureDataDir();
-  execFileSync('bun', ['add', bare], {
-    cwd: dataDir,
-    stdio: options.silent ? 'pipe' : 'inherit',
+function execNpm(args: string[]): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('npm', args, { stdio: 'inherit' });
+    proc.on('error', reject);
+    proc.on('exit', (code) => resolve(code ?? 1));
   });
 }
 
-function stripNpmPrefix(specifier: string): string {
-  if (!specifier.startsWith('npm:')) {
-    console.error(`Error: package specifier must start with npm: — got "${specifier}"`);
-    process.exit(1);
-  }
-  return specifier.slice(4);
+function ensureDir(dir: string): void {
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
+/** Append a `plugins[]` entry to the config; idempotent. */
+function rememberPlugin(spec: string): void {
+  ensureDir(getConfigDir());
+  const path = getConfigPath();
+  let cfg: { plugins?: string[] } = {};
+  if (existsSync(path)) {
+    try {
+      cfg = JSON.parse(readFileSync(path, 'utf-8'));
+    } catch {
+      /* ignore */
+    }
+  }
+  const set = new Set(cfg.plugins ?? []);
+  set.add(spec);
+  cfg.plugins = Array.from(set);
+  writeFileSync(path, JSON.stringify(cfg, null, 2), 'utf-8');
+}
+
+/**
+ * `mu install npm:<spec>` — installs into ~/.local/share/mu/node_modules/
+ * via plain `npm install <spec> --prefix <root>`.
+ */
 export async function runInstall(args: string[]): Promise<void> {
   if (args.length === 0) {
-    console.error('Usage: mu install npm:<package>');
+    process.stderr.write('usage: mu install <spec> [<spec>…]\n');
     process.exit(1);
   }
 
-  ensureDataDir();
-  const config = loadConfig();
-  const plugins = config.plugins ?? [];
+  const root = getDataDir();
+  ensureDir(root);
 
-  for (const specifier of args) {
-    const bare = stripNpmPrefix(specifier);
-    const canonical = canonicalNpmSpecifier(bare);
-
-    console.log(`Installing ${bare}...`);
-    try {
-      installNpmPackage(bare);
-    } catch (err) {
-      console.error(`Failed to install ${bare}: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    }
-
-    // Add to plugins if not already present (compare by canonical form so
-    // `npm:foo` and `npm:foo@1.2.3` deduplicate correctly).
-    const existing = plugins.some((p) => (typeof p === 'string' ? p : p.name) === canonical);
-    if (!existing) {
-      plugins.push(canonical);
-    }
-
-    console.log(`✓ ${canonical}`);
+  // Ensure a package.json exists so npm install doesn't complain.
+  const pkgPath = join(root, 'package.json');
+  if (!existsSync(pkgPath)) {
+    writeFileSync(pkgPath, JSON.stringify({ name: 'mu-plugins', private: true }, null, 2), 'utf-8');
   }
 
-  saveConfig({ plugins });
-}
-
-export async function runUninstall(args: string[]): Promise<void> {
-  if (args.length === 0) {
-    console.error('Usage: mu uninstall npm:<package>');
-    process.exit(1);
-  }
-
-  const dataDir = ensureDataDir();
-  const config = loadConfig();
-  let plugins = config.plugins ?? [];
-
-  for (const specifier of args) {
-    const bare = stripNpmPrefix(specifier);
-    const canonical = canonicalNpmSpecifier(bare);
-    const { name } = parseBareNpmSpec(bare);
-
-    console.log(`Removing ${name}...`);
-    try {
-      execFileSync('bun', ['remove', name], { cwd: dataDir, stdio: 'inherit' });
-    } catch (err) {
-      console.error(`Failed to remove ${name}: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
+  for (const spec of args) {
+    const bare = spec.startsWith('npm:') ? spec.slice('npm:'.length) : spec;
+    process.stdout.write(`installing ${bare} into ${root}\n`);
+    const code = await execNpm(['install', bare, '--prefix', root, '--no-fund', '--no-audit']);
+    if (code !== 0) {
+      process.stderr.write(`install failed for ${bare}\n`);
+      process.exit(code);
     }
-
-    plugins = plugins.filter((p) => (typeof p === 'string' ? p : p.name) !== canonical);
-
-    console.log(`✓ Removed ${canonical}`);
+    rememberPlugin(spec.startsWith('npm:') ? spec : `npm:${bare}`);
   }
-
-  saveConfig({ plugins });
 }

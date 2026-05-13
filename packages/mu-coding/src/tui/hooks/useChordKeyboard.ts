@@ -1,87 +1,74 @@
+import { useInput, type Key } from 'ink';
+import { useRef } from 'react';
+
+export interface ChordHandlers {
+  /** Called for every key event; return true to stop default propagation. */
+  onKey?: (input: string, key: Key) => boolean | void;
+  /** Called when Ctrl-<letter> is pressed. */
+  onCtrl?: (letter: string) => boolean | void;
+  /** Called on Escape. */
+  onEscape?: () => boolean | void;
+  /** Called on Tab. */
+  onTab?: () => boolean | void;
+  /** Called on Shift-Tab. */
+  onShiftTab?: () => boolean | void;
+  /** Called on Enter (no shift). */
+  onEnter?: () => boolean | void;
+  /** Called on Up/Down arrows. */
+  onArrowUp?: () => boolean | void;
+  onArrowDown?: () => boolean | void;
+  onArrowLeft?: () => boolean | void;
+  onArrowRight?: () => boolean | void;
+}
+
 /**
- * Two-key emacs-style chord prefix.
- *
- * `useChordKeyboard` takes a prefix predicate (e.g. "Ctrl+X") and a map of
- * follow-up handlers. Pressing the prefix arms a chord state for
- * `timeoutMs` (default 1000); the next key event dispatches to the
- * matching handler, or — if nothing matches before the timer fires — the
- * chord is dropped silently.
- *
- * Integrates with Ink's `useInput` so it cooperates with the rest of the
- * keyboard pipeline; keys consumed while armed are swallowed regardless of
- * whether they matched a follow-up handler, so a stray `g` after `Ctrl+X`
- * does not leak into the chat input.
+ * Centralised keyboard handler. Wraps Ink's `useInput` with a handlers object.
  */
-
-import { type Key, useInput } from 'ink';
-import { useEffect, useRef } from 'react';
-
-interface ChordKey {
-  /** Lower-case input character, when the press produced one. */
-  input: string;
-  /** Modifiers / arrow keys provided by Ink. */
-  key: Key;
-}
-
-type ChordPredicate = (k: ChordKey) => boolean;
-type ChordHandler = () => void;
-
-interface ChordSpec {
-  /** Predicate matching the prefix (e.g. `({key, input}) => key.ctrl && input === 'x'`). */
-  prefix: ChordPredicate;
-  /**
-   * Follow-up handlers. The first matching predicate (by insertion order)
-   * runs; non-matching follow-ups still consume the key and clear the
-   * armed state — i.e. the chord is "spent" on any keypress.
-   */
-  followUps: Array<{
-    match: ChordPredicate;
-    handler: ChordHandler;
-  }>;
-  /** When false, the hook is dormant. Defaults to `true`. */
-  isActive?: boolean;
-  /** Window after the prefix during which a follow-up is accepted. */
-  timeoutMs?: number;
-}
-
-export function useChordKeyboard(spec: ChordSpec): void {
-  const armedRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const timeoutMs = spec.timeoutMs ?? 1000;
-
-  // Clear any pending timer if the component using the hook unmounts mid-chord.
-  useEffect(() => {
-    return () => {
-      if (armedRef.current) {
-        clearTimeout(armedRef.current);
-        armedRef.current = null;
-      }
-    };
-  }, []);
+export function useChordKeyboard(handlers: ChordHandlers, enabled = true): void {
+  const ref = useRef(handlers);
+  ref.current = handlers;
 
   useInput(
     (input, key) => {
-      const event: ChordKey = { input, key };
-
-      if (armedRef.current) {
-        // We're inside the chord window. Any keypress consumes the chord;
-        // dispatch when one of the follow-ups matches.
-        clearTimeout(armedRef.current);
-        armedRef.current = null;
-        for (const fu of spec.followUps) {
-          if (fu.match(event)) {
-            fu.handler();
-            return;
-          }
-        }
+      const h = ref.current;
+      if (h.onKey?.(input, key)) return;
+      if (key.escape) {
+        h.onEscape?.();
         return;
       }
-
-      if (spec.prefix(event)) {
-        armedRef.current = setTimeout(() => {
-          armedRef.current = null;
-        }, timeoutMs);
+      if (key.tab && key.shift) {
+        h.onShiftTab?.();
+        return;
+      }
+      if (key.tab) {
+        h.onTab?.();
+        return;
+      }
+      if (key.return) {
+        h.onEnter?.();
+        return;
+      }
+      if (key.upArrow) {
+        h.onArrowUp?.();
+        return;
+      }
+      if (key.downArrow) {
+        h.onArrowDown?.();
+        return;
+      }
+      if (key.leftArrow) {
+        h.onArrowLeft?.();
+        return;
+      }
+      if (key.rightArrow) {
+        h.onArrowRight?.();
+        return;
+      }
+      if (key.ctrl && input.length === 1) {
+        h.onCtrl?.(input);
+        return;
       }
     },
-    { isActive: spec.isActive ?? true },
+    { isActive: enabled },
   );
 }

@@ -1,2 +1,7 @@
 #!/usr/bin/env bun
-import '../src/main.ts';
+import { main } from '../src/main.ts';
+
+main(process.argv.slice(2)).catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

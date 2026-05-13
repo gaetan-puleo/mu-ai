@@ -1,83 +1,65 @@
 import { describe, expect, it } from 'bun:test';
-import { resolvePermission, validatePermissionMap } from './permissions';
+import { parsePermissions, resolveAction } from './permissions';
 
-describe('resolvePermission', () => {
-  it('denies when rule is undefined', () => {
-    expect(resolvePermission(undefined, { toolName: 't', args: {} })).toBe('deny');
+describe('parsePermissions', () => {
+  it('treats undefined as allow-all', () => {
+    expect(parsePermissions(undefined)).toEqual({ permissions: undefined, allowList: ['*'] });
   });
 
-  it('returns direct action', () => {
-    expect(resolvePermission('allow', { toolName: 't', args: {} })).toBe('allow');
-    expect(resolvePermission('deny', { toolName: 't', args: {} })).toBe('deny');
-    expect(resolvePermission('ask', { toolName: 't', args: {} })).toBe('ask');
+  it('parses comma-separated string', () => {
+    expect(parsePermissions('bash, read, edit')).toEqual({
+      permissions: undefined,
+      allowList: ['bash', 'read', 'edit'],
+    });
   });
 
-  it('returns first matching glob in declared order', () => {
-    const rule = { 'git *': 'allow' as const, 'rm -rf *': 'deny' as const, '*': 'ask' as const };
-    const ctx = {
-      toolName: 'bash',
-      args: { cmd: 'git status' },
-      matchKey: (a: Record<string, unknown>) => a.cmd as string,
-    };
-    expect(resolvePermission(rule, ctx)).toBe('allow');
+  it('parses an array as allow-list', () => {
+    expect(parsePermissions(['bash', 'read'])).toEqual({
+      permissions: undefined,
+      allowList: ['bash', 'read'],
+    });
   });
 
-  it('falls through to later globs when earlier do not match', () => {
-    const rule = { 'git *': 'allow' as const, '*': 'ask' as const };
-    const ctx = { toolName: 'bash', args: { cmd: 'ls' }, matchKey: (a: Record<string, unknown>) => a.cmd as string };
-    expect(resolvePermission(rule, ctx)).toBe('ask');
-  });
-
-  it('default deny when no glob matches', () => {
-    const rule = { 'git *': 'allow' as const };
-    const ctx = { toolName: 'bash', args: { cmd: 'ls' }, matchKey: (a: Record<string, unknown>) => a.cmd as string };
-    expect(resolvePermission(rule, ctx)).toBe('deny');
-  });
-
-  it('object form denies when matchKey absent', () => {
-    const rule = { 'src/**': 'allow' as const };
-    expect(resolvePermission(rule, { toolName: 't', args: { path: 'src/x' } })).toBe('deny');
-  });
-
-  it('matches dotfiles via dot:true', () => {
-    const rule = { '**/.env': 'deny' as const, '**': 'allow' as const };
-    const ctx = {
-      toolName: 'wf',
-      args: { path: 'src/.env' },
-      matchKey: (a: Record<string, unknown>) => a.path as string,
-    };
-    expect(resolvePermission(rule, ctx)).toBe('deny');
-  });
-
-  it('handles matchKey that throws', () => {
-    const rule = { '*': 'allow' as const };
-    const ctx = {
-      toolName: 't',
-      args: {},
-      matchKey: () => {
-        throw new Error('bad');
-      },
-    };
-    expect(resolvePermission(rule, ctx)).toBe('deny');
+  it('parses structured map and derives allow-list', () => {
+    const { permissions, allowList } = parsePermissions({
+      bash: { 'git *': 'allow', '*': 'ask' },
+      read: 'allow',
+      write: 'deny',
+    });
+    expect(permissions).toEqual({
+      bash: { 'git *': 'allow', '*': 'ask' },
+      read: 'allow',
+      write: 'deny',
+    });
+    // 'write: deny' excluded; 'read' included; 'bash' included
+    expect(allowList.sort()).toEqual(['bash', 'read']);
   });
 });
 
-describe('validatePermissionMap', () => {
-  it('rejects glob form on tool without matchKey', () => {
-    expect(() =>
-      validatePermissionMap({ subagent: { '*': 'allow' } }, [{ toolName: 'subagent' /* no matchKey */ }]),
-    ).toThrow(/matchKey/);
+describe('resolveAction', () => {
+  it('returns shorthand action directly', () => {
+    expect(resolveAction('allow', 'anything')).toEqual({ action: 'allow', rule: '*' });
+    expect(resolveAction('deny', undefined)).toEqual({ action: 'deny', rule: '*' });
   });
 
-  it('accepts simple form on any tool', () => {
-    validatePermissionMap({ subagent: 'allow' }, [{ toolName: 'subagent' }]);
+  it('walks glob map in order, first match wins', () => {
+    const perm = { 'git *': 'allow' as const, 'rm -rf *': 'deny' as const, '*': 'ask' as const };
+    expect(resolveAction(perm, 'git status')).toEqual({ action: 'allow', rule: 'git *' });
+    expect(resolveAction(perm, 'rm -rf /tmp')).toEqual({ action: 'deny', rule: 'rm -rf *' });
+    expect(resolveAction(perm, 'ls -la')).toEqual({ action: 'ask', rule: '*' });
   });
 
-  it('accepts glob form on tool with matchKey', () => {
-    validatePermissionMap({ bash: { '*': 'allow' } }, [{ toolName: 'bash', matchKey: (a) => a.cmd as string }]);
+  it('falls back to deny when nothing matches', () => {
+    expect(resolveAction({ 'git *': 'allow' }, 'ls')).toEqual({
+      action: 'deny',
+      rule: 'no-match',
+    });
   });
 
-  it('skips unknown tools silently', () => {
-    validatePermissionMap({ unknown_tool: { '*': 'allow' } }, []);
+  it('uses * fallback when matchKey is undefined', () => {
+    expect(resolveAction({ 'git *': 'allow', '*': 'ask' }, undefined)).toEqual({
+      action: 'ask',
+      rule: '*',
+    });
   });
 });

@@ -1,106 +1,111 @@
-/**
- * Permission resolver for agent tool calls.
- *
- * A permission map looks like:
- *   tools:
- *     bash:
- *       "git *": allow
- *       "rm -rf *": deny
- *       "*": ask
- *     read_file: allow
- *     write_file:
- *       "**\/.env": deny
- *       "src/**": allow
- *     subagent: allow
- *
- * Each tool entry is either a direct action ('allow' | 'deny' | 'ask') or a
- * glob → action map. Glob form requires the tool to expose a `matchKey`
- * extractor (validated at load time, not at execution).
- */
-
-import picomatch from 'picomatch';
-
 export type Action = 'allow' | 'deny' | 'ask';
 
+/**
+ * Minimal glob matcher for permission rules. Supports `*` (any characters,
+ * including slashes — commands/URLs are opaque strings, not paths) and `?`
+ * (single character). Anchored: the pattern must match the entire input.
+ */
+export function globMatch(input: string, pattern: string): boolean {
+  // Escape regex metacharacters except our two glob wildcards.
+  const re = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+  return new RegExp(`^${re}$`, 's').test(input);
+}
+
+/** Permission rule for one tool. Either a single action, or globs → action. */
 export type ToolPermission = Action | Record<string, Action>;
 
+/** Map of tool name → its permission rule. */
 export type PermissionMap = Record<string, ToolPermission>;
 
-export interface PermissionContext {
-  toolName: string;
-  args: Record<string, unknown>;
-  /** Pulls the value to glob-match from the call args (e.g. cmd, path). */
-  matchKey?: (args: Record<string, unknown>) => string | undefined;
+export interface ResolvedAction {
+  action: Action;
+  /** The pattern that matched ('*' if fallback or no globs). */
+  rule: string;
 }
 
-const matcherCache = new WeakMap<
-  Record<string, Action>,
-  Array<{ glob: string; action: Action; isMatch: (s: string) => boolean }>
->();
-
-function getMatchers(
-  rule: Record<string, Action>,
-): Array<{ glob: string; action: Action; isMatch: (s: string) => boolean }> {
-  let cached = matcherCache.get(rule);
-  if (!cached) {
-    cached = Object.entries(rule).map(([glob, action]) => ({
-      glob,
-      action,
-      isMatch: picomatch(glob, { dot: true }),
-    }));
-    matcherCache.set(rule, cached);
-  }
-  return cached;
+function isAction(v: unknown): v is Action {
+  return v === 'allow' || v === 'deny' || v === 'ask';
 }
 
 /**
- * Resolve the action for a tool call given its permission rule.
+ * Resolve a permission rule against an arg's match-key.
  *
- *  - undefined rule (tool absent from map) → `'deny'`
- *  - direct string action → that action
- *  - object rule + matchKey → first matching glob in declared order; default `'deny'`
- *
- * The function is defensive on bad inputs (matchKey throws → `'deny'` with no
- * silent failure path).
+ *   - Shorthand `'allow' | 'deny' | 'ask'` → applies to everything.
+ *   - Glob map: walk in declaration order, first match wins. `'*'` is the fallback.
+ *   - No matchKey + glob map: use `'*'` fallback, else `deny`.
  */
-export function resolvePermission(rule: ToolPermission | undefined, ctx: PermissionContext): Action {
-  if (rule === undefined) return 'deny';
-  if (typeof rule === 'string') return rule;
+export function resolveAction(perm: ToolPermission, matchKey: string | undefined): ResolvedAction {
+  if (typeof perm === 'string') return { action: perm, rule: '*' };
 
-  let key: string | undefined;
-  try {
-    key = ctx.matchKey?.(ctx.args);
-  } catch {
-    return 'deny';
+  if (matchKey === undefined) {
+    const fallback = perm['*'];
+    return { action: isAction(fallback) ? fallback : 'deny', rule: '*' };
   }
-  if (key === undefined) return 'deny';
 
-  for (const m of getMatchers(rule)) {
-    if (m.isMatch(key)) return m.action;
-  }
-  return 'deny';
-}
-
-/**
- * Validate a permission map at load time. Throws on glob-form rules whose
- * tool has no `matchKey`. Returns nothing on success.
- */
-export interface ToolMatchKeySpec {
-  toolName: string;
-  matchKey?: (args: Record<string, unknown>) => string | undefined;
-}
-
-export function validatePermissionMap(map: PermissionMap, knownTools: ToolMatchKeySpec[]): void {
-  const byName = new Map(knownTools.map((t) => [t.toolName, t]));
-  for (const [toolName, rule] of Object.entries(map)) {
-    if (typeof rule === 'string') continue;
-    const spec = byName.get(toolName);
-    if (!spec) continue; // unknown tool — silently skip; agent loader may warn
-    if (!spec.matchKey) {
-      throw new Error(
-        `Tool "${toolName}" has glob-form permissions but does not declare a matchKey extractor. ` +
-          'Use the simple form (allow | deny | ask) for this tool.',
-      );
+  for (const [pattern, action] of Object.entries(perm)) {
+    if (!isAction(action)) continue;
+    if (pattern === '*' || globMatch(matchKey, pattern)) {
+      return { action, rule: pattern };
     }
   }
+  return { action: 'deny', rule: 'no-match' };
+}
+
+/**
+ * Parse the YAML `tools:` frontmatter into a typed PermissionMap + simple
+ * allow-list. Accepts:
+ *
+ *   - undefined / null         → allow everything (`tools: ['*']`)
+ *   - string  "a, b, c"        → allow-list of those names
+ *   - array   ['a', 'b']       → allow-list
+ *   - object  { bash: 'allow', read: { '*': 'ask' } }
+ *
+ * The allow-list is derived by including any tool whose effective rule isn't
+ * a hard `'deny'`.
+ */
+export function parsePermissions(raw: unknown): {
+  permissions: PermissionMap | undefined;
+  allowList: string[];
+} {
+  if (raw === undefined || raw === null) {
+    return { permissions: undefined, allowList: ['*'] };
+  }
+
+  if (typeof raw === 'string') {
+    const list = raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return { permissions: undefined, allowList: list };
+  }
+
+  if (Array.isArray(raw)) {
+    return { permissions: undefined, allowList: raw.map(String).filter(Boolean) };
+  }
+
+  if (typeof raw === 'object') {
+    const permissions: PermissionMap = {};
+    const allowList: string[] = [];
+    for (const [tool, rule] of Object.entries(raw as Record<string, unknown>)) {
+      const normalised = normaliseToolPermission(rule);
+      if (normalised === null) continue;
+      permissions[tool] = normalised;
+      if (normalised !== 'deny') allowList.push(tool);
+    }
+    return { permissions, allowList };
+  }
+
+  return { permissions: undefined, allowList: ['*'] };
+}
+
+function normaliseToolPermission(raw: unknown): ToolPermission | null {
+  if (isAction(raw)) return raw;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const out: Record<string, Action> = {};
+    for (const [glob, action] of Object.entries(raw as Record<string, unknown>)) {
+      if (isAction(action)) out[glob] = action;
+    }
+    return out;
+  }
+  return null;
 }

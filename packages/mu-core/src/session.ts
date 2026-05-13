@@ -1,258 +1,281 @@
-/**
- * Session — owns the message history for one conversation, runs the agent loop,
- * and emits events to subscribers (TUI, persistence, WS relay, …).
- *
- * Multi-session: hosts create sessions via SessionManager.getOrCreate(key).
- * mu-coding uses 'tui'; arya uses per-client/per-channel ids.
- *
- * Hosts should prefer `runtime.submitText()` over `session.runTurn()` — the
- * runtime wrapper orchestrates hooks, decorations, and message bus draining.
- */
+import { nowMs } from './ids';
+import { newMessage } from './message';
+import { resolveSystemPrompt } from './mu';
+import type { Mu } from './mu';
+import type {
+  Hooks,
+  Message,
+  ProviderConfig,
+  RunInput,
+  SessionEvent,
+  Tool,
+  ToolBlock,
+  ToolCall,
+  ToolResult,
+  TurnEvent,
+  TurnReason,
+  TurnResult,
+  Usage,
+} from './types';
 
-import { runAgent } from './agent';
-import type { PluginRegistry } from './registry';
-import type { ChatMessage, ProviderConfig } from './types/llm';
-
-export type SessionEvent =
-  | { type: 'messages_changed'; messages: ChatMessage[] }
-  | { type: 'stream_partial'; text: string; reasoning?: string }
-  | { type: 'stream_started' }
-  | { type: 'stream_ended' }
-  | { type: 'usage'; totalTokens: number; promptTokens: number; cachedTokens: number }
-  | { type: 'error'; message: string }
-  /**
-   * Emitted by `appendSynthetic`. Carries the single message that was
-   * just appended so persistence middleware can react without diffing the
-   * full snapshot.
-   */
-  | { type: 'synthetic_appended'; message: ChatMessage };
-
-export interface RunTurnOptions {
-  /**
-   * Pre-built user message to append before running the agent loop.
-   * Optional: when a plugin's `transformUserInput` returns `'continue'`
-   * the hook has already appended its own user message via
-   * `MessageBus.append`, and the host calls `runTurn` without a
-   * `userMessage` to drain the injectNext queue and stream the LLM
-   * without pushing a duplicate.
-   */
-  userMessage?: ChatMessage;
-  /** Override config for this single turn (e.g. fresh model id). */
-  config?: ProviderConfig;
-  /** Override model for this single turn. */
-  model?: string;
-  /** Override registry for this single turn (rare). */
-  registry?: PluginRegistry;
+async function compose<T, K extends keyof Hooks>(
+  hooks: Hooks[],
+  name: K,
+  initial: T,
+  invoke: (hook: NonNullable<Hooks[K]>, current: T) => Promise<T> | T,
+): Promise<T> {
+  let current = initial;
+  for (const h of hooks) {
+    const fn = h[name];
+    if (fn) current = await invoke(fn as NonNullable<Hooks[K]>, current);
+  }
+  return current;
 }
 
-export interface Session {
+async function executeTool(call: ToolCall, tools: Tool[], signal?: AbortSignal): Promise<ToolResult> {
+  let args: Record<string, unknown>;
+  try {
+    args = JSON.parse(call.function.arguments);
+  } catch {
+    return { content: 'Error: Invalid JSON arguments', error: true };
+  }
+  const tool = tools.find((t) => t.name === call.function.name);
+  if (!tool) return { content: `Error: Unknown tool: ${call.function.name}`, error: true };
+  try {
+    return await tool.execute(args, signal);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    return { content: `Error: ${msg}`, error: true };
+  }
+}
+
+export class Session {
   readonly id: string;
-  getMessages: () => ChatMessage[];
-  setMessages: (messages: ChatMessage[]) => void;
-  /**
-   * Low-level turn entry point. Hosts should prefer `runtime.submitText()`
-   * which orchestrates hooks, decorations, and message bus draining before
-   * calling this.
-   */
-  runTurn: (options: RunTurnOptions) => Promise<ChatMessage[] | null>;
-  abort: () => void;
-  appendSynthetic: (msg: ChatMessage) => void;
-  queueForNextTurn: (msg: ChatMessage) => void;
-  subscribe: (listener: (event: SessionEvent) => void) => () => void;
-}
+  readonly createdAt: number;
+  readonly source: string | undefined;
 
-export interface SessionInit {
-  initialMessages?: ChatMessage[];
-  systemPrompt?: string;
-}
+  private _messages: Message[] = [];
+  private _listeners = new Set<(event: SessionEvent) => void>();
+  private _mu: Mu;
+  private _abortController: AbortController | null = null;
+  private _ended = false;
 
-export interface SessionManager {
-  getOrCreate: (key: string, init?: SessionInit) => Session;
-  get: (key: string) => Session | undefined;
-  list: () => Session[];
-  close: (key: string) => Promise<void>;
-  /**
-   * Subscribe to "a new Session instance was just created" events. Fires
-   * exactly once per session id. Hosts use this to attach per-session
-   * middleware (auto-persistence, WS bridging, …) without having to
-   * intercept every `getOrCreate` call.
-   */
-  onSessionCreated: (listener: (session: Session) => void) => () => void;
-}
-
-export interface CreateSessionManagerOptions {
-  registry: PluginRegistry;
-  config: ProviderConfig;
-  model: string;
-}
-
-class SessionImpl implements Session {
-  readonly id: string;
-  private messages: ChatMessage[] = [];
-  private queue: ChatMessage[] = [];
-  private listeners = new Set<(e: SessionEvent) => void>();
-  private abortCtl: AbortController | null = null;
-  private systemPrompt?: string;
-
-  constructor(
-    id: string,
-    private registry: PluginRegistry,
-    private config: ProviderConfig,
-    private model: string,
-    init?: SessionInit,
-  ) {
-    this.id = id;
-    this.systemPrompt = init?.systemPrompt;
-    if (init?.initialMessages) this.messages = init.initialMessages.slice();
+  constructor(opts: {
+    id: string;
+    mu: Mu;
+    createdAt?: number;
+    initialMessages?: Message[];
+    source?: string;
+  }) {
+    this.id = opts.id;
+    this.createdAt = opts.createdAt ?? nowMs();
+    this.source = opts.source;
+    this._mu = opts.mu;
+    if (opts.initialMessages) this._messages = [...opts.initialMessages];
   }
 
-  getMessages(): ChatMessage[] {
-    return this.messages.slice();
+  messages(): readonly Message[] {
+    return this._messages;
   }
 
-  setMessages(messages: ChatMessage[]): void {
-    this.messages = messages.slice();
-    this.emit({ type: 'messages_changed', messages: this.messages.slice() });
-  }
-
-  subscribe(listener: (event: SessionEvent) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-
-  private emit(event: SessionEvent): void {
-    for (const fn of this.listeners) {
-      try {
-        fn(event);
-      } catch {
-        // listeners must not break the session
-      }
+  async append(message: Message): Promise<Message | null> {
+    let current: Message | null | undefined = message;
+    for (const h of this._mu._hooks) {
+      if (!h.onMessageAppend) continue;
+      const result = await h.onMessageAppend(current as Message, this);
+      if (result === null) return null;
+      if (result !== undefined) current = result;
     }
-  }
+    const final = current as Message;
+    this._messages.push(final);
+    this.emit({ type: 'message_appended', session: this, message: final });
 
-  appendSynthetic(msg: ChatMessage): void {
-    this.messages.push(msg);
-    this.emit({ type: 'messages_changed', messages: this.messages.slice() });
-    this.emit({ type: 'synthetic_appended', message: msg });
-  }
-
-  queueForNextTurn(msg: ChatMessage): void {
-    this.queue.push(msg);
-  }
-
-  abort(): void {
-    if (this.abortCtl) this.abortCtl.abort();
-  }
-
-  private async consumeAgentEvents(
-    cfg: ProviderConfig,
-    model: string,
-    registry: PluginRegistry,
-    signal: AbortSignal,
-  ): Promise<ChatMessage[] | null> {
-    let final: ChatMessage[] | null = null;
-    let partialText = '';
-    let partialReasoning = '';
-    for await (const e of runAgent(this.messages, cfg, model, signal, registry)) {
-      if (e.type === 'content') {
-        partialText = e.text;
-        this.emit({ type: 'stream_partial', text: partialText, reasoning: partialReasoning });
-      } else if (e.type === 'reasoning') {
-        partialReasoning = e.text;
-        this.emit({ type: 'stream_partial', text: partialText, reasoning: partialReasoning });
-      } else if (e.type === 'messages') {
-        this.messages = e.messages.slice();
-        final = this.messages.slice();
-        this.emit({ type: 'messages_changed', messages: this.messages.slice() });
-      } else if (e.type === 'usage') {
-        this.emit({
-          type: 'usage',
-          totalTokens: e.totalTokens,
-          promptTokens: e.promptTokens,
-          cachedTokens: e.cachedTokens ?? 0,
-        });
-      } else if (e.type === 'turn_end') {
-        partialText = '';
-        partialReasoning = '';
-        this.emit({ type: 'stream_partial', text: '', reasoning: '' });
+    if (final.channelId) {
+      const target = this._mu._channels.find((c) => c.id === final.channelId);
+      if (target?.send) {
+        try {
+          await target.send(final, this);
+        } catch {
+          // channel send errors are swallowed
+        }
       }
     }
     return final;
   }
 
-  async runTurn(options: RunTurnOptions): Promise<ChatMessage[] | null> {
-    if (this.abortCtl !== null) {
-      throw new Error(`Session "${this.id}" already running a turn. Call abort() first or wait for completion.`);
-    }
-    if (options.userMessage) this.messages.push(options.userMessage);
-    if (this.queue.length) {
-      this.messages.push(...this.queue);
-      this.queue = [];
-    }
-    this.emit({ type: 'messages_changed', messages: this.messages.slice() });
-    this.emit({ type: 'stream_started' });
-    this.abortCtl = new AbortController();
-    const cfg: ProviderConfig = { ...(options.config ?? this.config) };
-    if (this.systemPrompt) cfg.systemPrompt = this.systemPrompt;
-    const model = options.model ?? this.model;
-    const registry = options.registry ?? this.registry;
-    try {
-      return await this.consumeAgentEvents(cfg, model, registry, this.abortCtl.signal);
-    } catch (err) {
-      this.emit({ type: 'error', message: err instanceof Error ? err.message : String(err) });
-      return null;
-    } finally {
-      this.abortCtl = null;
-      this.emit({ type: 'stream_ended' });
+  clear(): void {
+    this._messages = [];
+    this.emit({ type: 'transcript_cleared', session: this });
+  }
+
+  on(listener: (event: SessionEvent) => void): () => void {
+    this._listeners.add(listener);
+    return () => this._listeners.delete(listener);
+  }
+
+  emit(event: SessionEvent): void {
+    for (const fn of this._listeners) {
+      try {
+        fn(event);
+      } catch {
+        // listener errors don't break the session
+      }
     }
   }
-}
 
-export function createSessionManager(opts: CreateSessionManagerOptions): SessionManager {
-  const sessions = new Map<string, SessionImpl>();
-  const createdListeners = new Set<(session: Session) => void>();
-  return {
-    getOrCreate(key, init) {
-      let s = sessions.get(key);
-      if (!s) {
-        s = new SessionImpl(key, opts.registry, opts.config, opts.model, init);
-        sessions.set(key, s);
-        for (const fn of createdListeners) {
-          try {
-            fn(s);
-          } catch {
-            // Listener errors must not break session construction.
+  abort(): void {
+    this._abortController?.abort();
+  }
+
+  end(): void {
+    if (this._ended) return;
+    this._ended = true;
+    this.abort();
+    this.emit({ type: 'session_ended', session: this });
+    this._listeners.clear();
+  }
+
+  run(input: RunInput = {}): AsyncIterable<TurnEvent> {
+    const session = this;
+    const mu = this._mu;
+    const controller = new AbortController();
+    this._abortController = controller;
+
+    async function* gen(): AsyncGenerator<TurnEvent> {
+      const signal = controller.signal;
+      const baseConfig: ProviderConfig = { ...mu._config, ...(input.config ?? {}) };
+      const systemPrompt = await resolveSystemPrompt(mu._systemPrompts, baseConfig.systemPrompt);
+      const config: ProviderConfig = { ...baseConfig, systemPrompt };
+      const providerId = config.providerId ?? 'openai';
+      const provider = mu._providers.find((p) => p.id === providerId);
+      if (!provider) {
+        yield {
+          type: 'turn_end',
+          reason: 'error',
+          error: new Error(`No provider registered for id "${providerId}".`),
+        };
+        return;
+      }
+
+      session.emit({ type: 'turn_started', session });
+      let reason: TurnReason = 'complete';
+      let error: Error | undefined;
+
+      try {
+        if (input.userMessage) {
+          const m = await session.append(input.userMessage);
+          if (m) yield { type: 'message', message: m };
+        }
+
+        while (!signal.aborted) {
+          const tools = mu._tools;
+          const hooks = mu._hooks;
+
+          const visible = session._messages.filter((m) => m.meta?.visibility !== 'ui');
+          const prepared = await compose(hooks, 'beforeLlmCall', visible, (fn, m) => fn(m, session));
+
+          let content = '';
+          let reasoning = '';
+          let usage: Usage | undefined;
+          const toolCalls: ToolCall[] = [];
+
+          for await (const chunk of provider.streamChat(prepared, config, {
+            signal,
+            tools,
+            onUsage: (u) => {
+              usage = u;
+            },
+          })) {
+            if (signal.aborted) break;
+            if (chunk.type === 'reasoning') {
+              reasoning += chunk.text;
+              yield { type: 'reasoning', text: reasoning };
+            } else if (chunk.type === 'content') {
+              content += chunk.text;
+              yield { type: 'content', text: content };
+            } else if (chunk.type === 'tool_call') {
+              toolCalls.push(chunk.toolCall);
+            }
+          }
+
+          if (signal.aborted) break;
+
+          const initial: TurnResult = { content, reasoning, toolCalls, usage };
+          const turn = await compose(hooks, 'afterLlmCall', initial, (fn, r) => fn(r, session));
+
+          if (turn.usage) yield { type: 'usage', usage: turn.usage };
+
+          const assistant = newMessage({
+            role: 'assistant',
+            content: turn.content,
+            reasoning: turn.reasoning || undefined,
+            toolCalls: turn.toolCalls.length > 0 ? turn.toolCalls : undefined,
+          });
+          const appended = await session.append(assistant);
+          if (appended) yield { type: 'message', message: appended };
+
+          if (turn.toolCalls.length === 0) return;
+
+          for (const call of turn.toolCalls) {
+            if (signal.aborted) break;
+
+            const outcome: ToolCall | ToolBlock = await compose(
+              hooks,
+              'beforeToolExec',
+              call as ToolCall | ToolBlock,
+              async (fn, c) => ('blocked' in c ? c : await fn(c, session)),
+            );
+
+            let result: ToolResult;
+            let actualCall: ToolCall;
+            if ('blocked' in outcome) {
+              actualCall = call;
+              result = { content: outcome.content, error: outcome.error ?? true };
+            } else {
+              actualCall = outcome;
+              result = await executeTool(outcome, tools, signal);
+            }
+
+            result = await compose(hooks, 'afterToolExec', result, (fn, r) =>
+              fn(actualCall, r, session),
+            );
+
+            const toolMsg = newMessage({
+              role: 'tool',
+              content: '',
+              toolCallId: actualCall.id,
+              toolResult: {
+                name: actualCall.function.name,
+                content: result.content,
+                error: result.error ?? false,
+              },
+            });
+            const m = await session.append(toolMsg);
+            if (m) yield { type: 'message', message: m };
           }
         }
-      }
-      return s;
-    },
-    get(key) {
-      return sessions.get(key);
-    },
-    list() {
-      return Array.from(sessions.values());
-    },
-    async close(key) {
-      const s = sessions.get(key);
-      if (s) {
-        s.abort();
-        sessions.delete(key);
-      }
-    },
-    onSessionCreated(listener) {
-      createdListeners.add(listener);
-      // Replay existing sessions so late subscribers don't miss them.
-      for (const s of sessions.values()) {
-        try {
-          listener(s);
-        } catch {
-          // Ignore listener errors during replay.
+
+        if (signal.aborted) reason = 'aborted';
+      } catch (err) {
+        reason = 'error';
+        error = err instanceof Error ? err : new Error(String(err));
+      } finally {
+        for (const h of mu._hooks) {
+          if (h.onTurnEnd) {
+            try {
+              await h.onTurnEnd(reason, session);
+            } catch {
+              // hook errors don't break finalisation
+            }
+          }
         }
+        session.emit({ type: 'turn_ended', session, reason });
+        session._abortController = null;
       }
-      return () => {
-        createdListeners.delete(listener);
-      };
-    },
-  };
+
+      yield { type: 'turn_end', reason, error };
+    }
+
+    return gen();
+  }
 }

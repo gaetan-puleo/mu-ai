@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import type { PluginTool, ToolExecutorResult } from 'mu-core';
+import type { Tool, ToolResult } from 'mu-core';
 import { sanitizePath } from './utils';
 
 interface EditFileToolOptions {
@@ -7,39 +7,27 @@ interface EditFileToolOptions {
   restrictToCwd?: boolean;
 }
 
-export function createEditFileTool(opts: EditFileToolOptions): PluginTool {
+export function createEditFileTool(opts: EditFileToolOptions): Tool {
   const { getCwd, restrictToCwd = false } = opts;
   return {
-    definition: {
-      type: 'function',
-      function: {
-        name: 'edit',
-        description: 'Replace an exact substring in an existing file.',
-        parameters: {
-          type: 'object',
-          properties: {
-            path: { type: 'string' },
-            from: {
-              type: 'string',
-              description:
-                'Must occur exactly once in the file \u2014 include surrounding context to disambiguate. Whitespace must match exactly.',
-            },
-            to: { type: 'string' },
-          },
-          required: ['path', 'from', 'to'],
-          additionalProperties: false,
+    name: 'edit',
+    description: 'Replace an exact substring in an existing file.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        from: {
+          type: 'string',
+          description:
+            'Must occur exactly once in the file — include surrounding context to disambiguate. Whitespace must match exactly.',
         },
+        to: { type: 'string' },
       },
+      required: ['path', 'from', 'to'],
+      additionalProperties: false,
     },
-    display: {
-      verb: 'editing',
-      kind: 'diff',
-      fields: { path: 'path', from: 'from', to: 'to' },
-    },
-    permission: {
-      matchKey: (args) => args.path as string | undefined,
-    },
-    execute(args): ToolExecutorResult {
+    matchKey: (args) => (typeof args.path === 'string' ? args.path : undefined),
+    execute(args): ToolResult {
       const rawPath = args.path as string;
       const path = sanitizePath(rawPath, getCwd(), restrictToCwd);
       if (path === null) {

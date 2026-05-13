@@ -1,59 +1,27 @@
+export type { Agent } from './markdown';
+export { loadAgentFile, loadAgentsFromDir } from './markdown';
+
+export type { Action, PermissionMap, ResolvedAction, ToolPermission } from './permissions';
+export { parsePermissions, resolveAction } from './permissions';
+
 export type {
   ApprovalChannel,
-  ApprovalGateway,
-  ApprovalGatewayRequestInput,
+  ApprovalDecision,
   ApprovalRequest,
-  ApprovalResult,
-  ApprovalSnapshot,
-  ApprovalSnapshotListener,
 } from './approval';
-export { createApprovalGateway } from './approval';
-export { DEFAULT_PRIMARY_AGENTS, DEFAULT_SUB_AGENTS } from './builtin';
-export type {
-  AgentListItem,
-  AuthoredMessage,
-  MessageAuthor,
-  MuAgentsHandle,
-  MuAgentsManager,
-} from './handle';
-export {
-  enrichMessageAuthor,
-  getActiveAgentId,
-  getMuAgents,
-  listAgents,
-  resolveAgentInfo,
-  subscribeActiveAgent,
-  subscribeAgentsList,
-} from './handle';
-export { AgentManager } from './manager';
-export { loadAgentFile, loadAgentsFromDir, mergeAgents } from './markdown';
-export { AGENT_MESSAGE_TYPES } from './messageTypes';
-export type { Action, PermissionContext, PermissionMap, ToolMatchKeySpec, ToolPermission } from './permissions';
-export { resolvePermission, validatePermissionMap } from './permissions';
-export {
-  type AgentsPluginConfig,
-  createAgentsPlugin,
-  createAgentsPlugin as default,
-} from './plugin';
-export type { AgentSourceManager, AgentSourceRegistry } from './sources';
-export { createAgentSourceManager } from './sources';
-export type {
-  SubAgentBus,
-  SubAgentEvent,
-  SubAgentEventKind,
-} from './subAgentBus';
+export { ApprovalGateway } from './approval';
+
+export type { SubAgentEvent, SubAgentEventType, SubAgentBus } from './subAgentBus';
 export { createSubAgentBus } from './subAgentBus';
-export { runSubagent } from './subagent';
-export type {
-  SessionWriter,
-  SubAgentRunSnapshot,
-  SubagentRegistryListener,
-  SubagentRun,
-  SubagentRunListener,
-  SubagentRunRegistry,
-  SubagentSnapshotListener,
-  SubagentStatus,
-} from './subagentRun';
-export { createSubagentRunRegistry } from './subagentRun';
-export type { AgentDefinition, AgentSettings } from './types';
-export { capitalizeAgentName } from './utils/displayName';
+
+export type { SwitchEvent, SwitchReason, SwitchTracker } from './switches';
+export { createSwitchTracker } from './switches';
+
+export type { MentionCompletion, ParsedMention } from './mention';
+export { createAgentCompletions, parseMention } from './mention';
+
+export type { SubAgentResult, SubAgentRunOptions } from './subagent';
+export { runSubAgent, createSubagentTool, createSubagentParallelTool } from './subagent';
+
+export type { AgentsHandle, AgentsPluginOptions } from './plugin';
+export { createAgentsPlugin, default } from './plugin';

@@ -1,163 +1,76 @@
-/**
- * Startup update check — fires off `npm view` probes in the background after
- * the TUI is up, then surfaces a toast through `uiService.notify` when mu or
- * any installed npm plugin has a newer version on the registry.
- *
- * Design constraints:
- *  - Must never block startup. Caller fire-and-forgets the returned promise.
- *  - Must never crash the host on network / DNS errors. Every probe is wrapped.
- *  - Must not hammer npm on every boot. Results are cached in
- *    `<cacheDir>/update-check.json` for `CACHE_TTL_MS` (1h).
- *  - Disable with `MU_NO_UPDATE_CHECK=1` (kill switch for offline / CI / tests).
- *
- * Toasts are routed through the existing `InkUIService.notify` queue, which
- * buffers messages emitted before any toast listener attaches — so even if
- * the probe finishes before the TUI mounts (rare; see fast `npm view` runs)
- * the alert still surfaces.
- */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
+import { spawn } from 'node:child_process';
+import { getDataDir } from '../config';
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { getCacheDir, getDataDir } from '../config/index';
-import type { InkUIService } from '../tui/plugins/InkUIService';
-import {
-  listConfiguredNpmPlugins,
-  type NpmRegistryView,
-  PACKAGE_NAME,
-  probePluginAsync,
-  probeSelfAsync,
-} from './updateCheck';
+const TTL_MS = 60 * 60 * 1000; // 1h
 
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 h
-const CACHE_FILENAME = 'update-check.json';
+function getCacheDir(): string {
+  return process.env.XDG_CACHE_HOME ? join(process.env.XDG_CACHE_HOME, 'mu') : join(homedir(), '.cache', 'mu');
+}
+
+function getCachePath(): string {
+  return join(getCacheDir(), 'update-check.json');
+}
 
 interface CacheShape {
   ts: number;
-  results: Record<string, NpmRegistryView | null>;
-}
-
-function cachePath(): string {
-  return join(getCacheDir(), CACHE_FILENAME);
+  outdated: string[];
 }
 
 function readCache(): CacheShape | null {
   try {
-    const raw = readFileSync(cachePath(), 'utf-8');
+    const raw = readFileSync(getCachePath(), 'utf-8');
     const parsed = JSON.parse(raw) as CacheShape;
-    if (typeof parsed?.ts !== 'number' || typeof parsed?.results !== 'object') return null;
-    if (Date.now() - parsed.ts > CACHE_TTL_MS) return null;
+    if (!parsed.ts || Date.now() - parsed.ts > TTL_MS) return null;
     return parsed;
   } catch {
     return null;
   }
 }
 
-function writeCache(cache: CacheShape): void {
+function writeCache(outdated: string[]): void {
   try {
-    mkdirSync(getCacheDir(), { recursive: true });
-    writeFileSync(cachePath(), JSON.stringify(cache), 'utf-8');
+    const path = getCachePath();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify({ ts: Date.now(), outdated }), 'utf-8');
   } catch {
-    // Cache writes are best-effort; ignore disk errors.
+    /* cache failures are silent */
   }
 }
 
-/**
- * Discard the cached probe result. Called after a `/update` so the next
- * boot re-probes against fresh registry data instead of replaying the
- * pre-update state from cache.
- */
-export function invalidateUpdateCheckCache(): void {
-  try {
-    rmSync(cachePath(), { force: true });
-  } catch {
-    // best-effort
-  }
-}
-
-function isDisabled(): boolean {
-  const v = process.env.MU_NO_UPDATE_CHECK;
-  return v === '1' || v === 'true' || v === 'yes';
-}
-
-interface ProbeOutcome {
-  self: NpmRegistryView | null;
-  plugins: Map<string, NpmRegistryView | null>;
-}
-
-async function runProbes(): Promise<ProbeOutcome> {
-  const dataDir = getDataDir();
-  const pluginNames = listConfiguredNpmPlugins();
-
-  const [self, ...plugins] = await Promise.all([
-    probeSelfAsync().catch(() => null),
-    ...pluginNames.map((name) => probePluginAsync(name, dataDir).catch(() => null)),
-  ]);
-
-  const pluginMap = new Map<string, NpmRegistryView | null>();
-  pluginNames.forEach((name, i) => {
-    pluginMap.set(name, plugins[i] ?? null);
+async function probeOutdated(): Promise<string[]> {
+  const root = getDataDir();
+  if (!existsSync(join(root, 'package.json'))) return [];
+  return await new Promise<string[]>((resolve) => {
+    const proc = spawn('npm', ['outdated', '--json', '--prefix', root], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    let stdout = '';
+    proc.stdout.on('data', (b: Buffer) => {
+      stdout += b.toString('utf-8');
+    });
+    proc.on('exit', () => {
+      try {
+        const parsed = JSON.parse(stdout || '{}') as Record<string, unknown>;
+        resolve(Object.keys(parsed));
+      } catch {
+        resolve([]);
+      }
+    });
+    proc.on('error', () => resolve([]));
   });
-
-  return { self, plugins: pluginMap };
-}
-
-function outcomeFromCache(cache: CacheShape, pluginNames: string[]): ProbeOutcome {
-  const self = cache.results[PACKAGE_NAME] ?? null;
-  const plugins = new Map<string, NpmRegistryView | null>();
-  for (const name of pluginNames) {
-    plugins.set(name, cache.results[name] ?? null);
-  }
-  return { self, plugins };
-}
-
-function outcomeToCache(outcome: ProbeOutcome): CacheShape {
-  const results: Record<string, NpmRegistryView | null> = {};
-  results[PACKAGE_NAME] = outcome.self;
-  for (const [name, view] of outcome.plugins) {
-    results[name] = view;
-  }
-  return { ts: Date.now(), results };
-}
-
-function notifyOutcome(outcome: ProbeOutcome, ui: InkUIService): void {
-  const stale: string[] = [];
-  if (outcome.self?.hasUpdate) {
-    stale.push(`mu ${outcome.self.current} → ${outcome.self.latest}`);
-  }
-  for (const [name, view] of outcome.plugins) {
-    if (view?.hasUpdate) {
-      stale.push(`${name} ${view.current} → ${view.latest}`);
-    }
-  }
-  if (stale.length === 0) return;
-
-  const header = stale.length === 1 ? 'Update available' : `${stale.length} updates available`;
-  const body = stale.join(', ');
-  ui.notify(`${header}: ${body}. Run \`mu update\` to apply.`, 'info');
 }
 
 /**
- * Background entry point. Resolves once the probe (or cache lookup) has
- * completed and any toast has been emitted. Callers should fire-and-forget.
+ * Returns the list of outdated package names, using a 1h cache. Designed to
+ * be called at TUI startup; failures return [].
  */
-export async function checkForUpdatesInBackground(ui: InkUIService): Promise<void> {
-  if (isDisabled()) return;
-
-  const pluginNames = listConfiguredNpmPlugins();
-
+export async function startupUpdateCheck(): Promise<string[]> {
   const cached = readCache();
-  if (cached) {
-    notifyOutcome(outcomeFromCache(cached, pluginNames), ui);
-    return;
-  }
-
-  let outcome: ProbeOutcome;
-  try {
-    outcome = await runProbes();
-  } catch {
-    return;
-  }
-
-  writeCache(outcomeToCache(outcome));
-  notifyOutcome(outcome, ui);
+  if (cached) return cached.outdated;
+  const fresh = await probeOutdated();
+  writeCache(fresh);
+  return fresh;
 }

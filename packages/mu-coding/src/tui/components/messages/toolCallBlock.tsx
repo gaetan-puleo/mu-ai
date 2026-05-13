@@ -1,117 +1,26 @@
 import { Box, Text } from 'ink';
-import type { ChatMessage, ToolDisplayHint } from 'mu-core';
-import { useToolDisplay } from '../../chat/ToolDisplayContext';
-import { useTheme } from '../../context/ThemeContext';
-import { useSpinner } from '../../hooks/useUI';
-import { EditOutput } from './EditOutput';
-import { ReadOutput } from './ReadOutput';
-import { WebFetchOutput } from './WebFetchOutput';
-import { WriteOutput } from './WriteOutput';
+import type { ToolCall } from 'mu-core';
+import { useTheme } from '../../theme/ThemeContext';
 
-/**
- * Render a tool call. Display behaviour is driven by the optional
- * `ToolDisplayHint` the plugin attached to its tool — `kind` selects the
- * dedicated renderer (file-read / file-write / diff / shell), and `verb`
- * shows in the spinner line. Tools without a hint fall back to a generic
- * preview block, so plugin-registered tools "just work" without UI changes.
- */
-
-function getArgSummary(args: string, hint: ToolDisplayHint | undefined): string {
-  if (!hint?.fields) return args;
-  // For shell-like tools the most useful preview is the command itself;
-  // generic tools show the raw JSON.
-  const commandField = hint.fields.command;
-  if (!commandField) return args;
-  try {
-    const parsed = JSON.parse(args);
-    return parsed[commandField] ?? args;
-  } catch {
-    return args;
-  }
-}
-
-export function ToolCallBlock({
-  toolCall,
-  toolMsg,
-}: {
-  toolCall: { id: string; function: { name: string; arguments: string } };
-  toolMsg?: ChatMessage;
-}) {
-  const name = toolCall.function.name;
-  const args = toolCall.function.arguments;
-  const hint = useToolDisplay(name);
-
-  const result = toolMsg?.toolResult;
-  const hasResult = result !== undefined;
-  const spinner = useSpinner(!hasResult);
-  const verb = hint?.verb ?? 'executing';
-  const argSummary = getArgSummary(args, hint);
-
-  return (
-    <Box flexDirection="column" flexShrink={0} marginTop={1} marginBottom={1}>
-      {!hasResult ? (
-        <Box>
-          <Text dimColor={true}>
-            {' '}
-            {spinner} {verb}... <Text dimColor={true}>{argSummary}</Text>
-          </Text>
-        </Box>
-      ) : (
-        renderToolOutput(name, args, result.content, result.error ?? false, hint)
-      )}
-    </Box>
-  );
-}
-
-function renderToolOutput(
-  name: string,
-  args: string,
-  content: string,
-  error: boolean,
-  hint: ToolDisplayHint | undefined,
-) {
-  switch (hint?.kind) {
-    case 'file-read':
-      return <ReadOutput args={args} error={error} />;
-    case 'file-write':
-      return <WriteOutput args={args} content={content} error={error} />;
-    case 'diff':
-      return <EditOutput args={args} content={content} error={error} hint={hint} />;
-    case 'webfetch':
-      return <WebFetchOutput args={args} error={error} />;
-    default:
-      return <GenericToolOutput name={name} args={args} content={content} error={error} hint={hint} />;
-  }
-}
-
-interface GenericProps {
-  name: string;
-  args: string;
-  content: string;
-  error: boolean;
-  hint: ToolDisplayHint | undefined;
-}
-
-function GenericToolOutput({ name, args, content, error, hint }: GenericProps) {
+export function ToolCallBlock({ call }: { call: ToolCall }) {
   const theme = useTheme();
-  const summary = getArgSummary(args, hint);
-  const showSummary = summary !== args;
-
-  const preview = content.length > 200 ? `${content.slice(0, 200)}…` : content;
+  let argsPreview = '';
+  try {
+    const parsed = JSON.parse(call.function.arguments) as Record<string, unknown>;
+    argsPreview = Object.entries(parsed)
+      .map(([k, v]) => `${k}=${truncate(String(v), 40)}`)
+      .join(' ');
+  } catch {
+    argsPreview = truncate(call.function.arguments, 80);
+  }
   return (
-    <Box flexDirection="column" flexShrink={0}>
-      <Text color={error ? theme.tool.error : theme.tool.success} bold={true}>
-        {error ? '✗' : '✓'} {name}
-        {showSummary && (
-          <>
-            {' '}
-            <Text dimColor={true}>{summary}</Text>
-          </>
-        )}
-      </Text>
-      <Box flexDirection="column" backgroundColor={theme.tool.previewBackground} paddingX={1} paddingY={0}>
-        <Text color={theme.tool.previewText}>{preview}</Text>
-      </Box>
+    <Box flexDirection="row">
+      <Text color={theme.colors.tool}>⚙ {call.function.name}</Text>
+      {argsPreview ? <Text dimColor> {argsPreview}</Text> : null}
     </Box>
   );
+}
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
 }
