@@ -298,7 +298,7 @@ function ListBlock({
         return (
           // biome-ignore lint/suspicious/noArrayIndexKey: list items have no stable id
           <Box key={idx}>
-            <Text color={theme.colors.muted}>{`  ${marker} `}</Text>
+            <Text color={theme.colors.heading}>{`  ${marker} `}</Text>
             <Box flexShrink={1} flexGrow={1}>
               <Text wrap="wrap" color={color}>
                 {renderInline(item, theme, color)}

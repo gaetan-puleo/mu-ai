@@ -140,7 +140,6 @@ export function App({ commands, listSessions, switchSession, setModel }: AppProp
         onSubmit={handleSubmit}
         onChange={handleChange}
         disabled={!!modal}
-        placeholder="type a message, /command, or @agent"
         picker={
           picker.kind === 'none'
             ? undefined

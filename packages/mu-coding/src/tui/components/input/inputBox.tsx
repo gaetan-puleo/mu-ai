@@ -1,28 +1,21 @@
 import { Box, Text, useInput } from 'ink';
-import type { AgentsHandle } from 'mu-agents';
+import type { AgentsHandle, MentionCompletion } from 'mu-agents';
 import type { Command } from 'mu-core';
 import { useState } from 'react';
 import { useTheme } from '../../theme/ThemeContext';
+import type { Theme } from '../../theme/types';
 import { sanitizeTerminalInput } from '../../utils/sanitize';
 import { filterCommands } from './commandPicker';
 
 /**
- * Visual restore of the old `InputBox` look (5c5ae8c) re-applied to the
- * current architecture. Differences from the previous (post-rewrite)
- * version:
- *  - Background-filled container with paddingY=1 + margins instead of a
- *    border-only frame.
- *  - First-line command-mode coloring (text typed after `/` shows in the
- *    accent colour to mirror the old "you are entering a command" cue).
- *  - Inline `CommandHints` / `MentionHints` rendered ABOVE the text
- *    inside the same box — the floating PickerModal that App.tsx used
- *    to render alongside is replaced by these inline panes.
- *  - Footer row with the active model name, attachment indicator, and a
- *    dynamic right-aligned hint (`/ commands · @ mentions`,
- *    `↑↓ Tab accept`, `↑↓ Enter run`).
- *
- * Key/cursor handling is unchanged — the minimal-but-correct logic from
- * the previous revision worked, so we keep it.
+ * Pixel-faithful port of the v0.15.0 `InputBoxView` (5c5ae8c) onto the
+ * current state-driven plumbing. The render tree mirrors the old one
+ * exactly — no `❯` prefix glyph, `<Box flexDirection="column" minHeight={2}>`
+ * around the buffer, inline CommandHints / MentionHints stacked above the
+ * text, footer with terse `↑↓ · Tab accept` / `↑↓ · Enter run` /
+ * `/ commands · @ mentions` hints. Key handling stays simple — paste
+ * sanitisation, arrow nav, Shift+Enter newline — since the old behaviour
+ * lived in a 1600-line input subsystem we're intentionally not restoring.
  */
 
 export interface InputBoxPicker {
@@ -38,7 +31,6 @@ export interface InputBoxProps {
   onChange?: (text: string) => void;
   /** Disable focus/typing. */
   disabled?: boolean;
-  placeholder?: string;
   /** Currently active inline picker (rendered inside the box). */
   picker?: InputBoxPicker;
   /** Commands list — required when `picker.kind === 'command'`. */
@@ -51,187 +43,213 @@ export interface InputBoxProps {
   streaming?: boolean;
 }
 
+// ─── Inline hint panes ───────────────────────────────────────────────────────
+
 function CommandHints({
-  partial,
-  selectedIndex,
   commands,
+  selectedIndex,
   theme,
 }: {
-  partial: string;
-  selectedIndex: number;
   commands: readonly Command[];
-  theme: ReturnType<typeof useTheme>;
+  selectedIndex: number;
+  theme: Theme;
 }) {
-  const matches = filterCommands(partial, commands);
-  if (matches.length === 0) {
-    return (
-      <Box paddingX={1} marginBottom={1}>
-        <Text dimColor italic>
-          (no matching commands)
-        </Text>
-      </Box>
-    );
-  }
+  if (commands.length === 0) return null;
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {matches.slice(0, 8).map((cmd, i) => (
+      {commands.map((cmd, i) => (
         <Box key={cmd.name} paddingX={1}>
-          <Text color={i === selectedIndex ? theme.colors.inputAccent : undefined} bold={i === selectedIndex} wrap="truncate-end">
+          <Text color={i === selectedIndex ? theme.colors.inputAccent : undefined} bold={i === selectedIndex}>
             {i === selectedIndex ? '▸ ' : '  '}
-            /{cmd.name}
-            <Text dimColor> — {cmd.description}</Text>
+            {cmd.name}
           </Text>
+          <Text dimColor> {cmd.description}</Text>
         </Box>
       ))}
     </Box>
   );
 }
 
-function renderHighlightedLabel(label: string, partial: string, theme: ReturnType<typeof useTheme>) {
-  if (!partial) return label;
+function renderHighlightedLabel(label: string, partial: string, theme: Theme) {
+  if (!partial) return <>{label}</>;
   const idx = label.toLowerCase().indexOf(partial.toLowerCase());
-  if (idx < 0) return label;
+  if (idx < 0) return <>{label}</>;
+  const head = label.slice(0, idx);
+  const match = label.slice(idx, idx + partial.length);
+  const tail = label.slice(idx + partial.length);
   return (
     <>
-      {label.slice(0, idx)}
+      {head}
       <Text color={theme.colors.inputAccent} bold>
-        {label.slice(idx, idx + partial.length)}
+        {match}
       </Text>
-      {label.slice(idx + partial.length)}
+      {tail}
     </>
   );
 }
 
 function MentionHints({
-  partial,
+  completions,
   selectedIndex,
-  agents,
+  partial,
   theme,
 }: {
-  partial: string;
+  completions: MentionCompletion[];
   selectedIndex: number;
-  agents: AgentsHandle;
-  theme: ReturnType<typeof useTheme>;
+  partial: string;
+  theme: Theme;
 }) {
-  const completions = agents.getCompletions(partial);
-  if (completions.length === 0) {
-    return (
-      <Box paddingX={1} marginBottom={1}>
-        <Text dimColor italic>
-          (no matching agents)
-        </Text>
-      </Box>
-    );
-  }
+  if (completions.length === 0) return null;
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {completions.slice(0, 8).map((c, i) => (
-        <Box key={c.value} paddingX={1}>
-          <Text color={i === selectedIndex ? theme.colors.inputAccent : undefined} bold={i === selectedIndex} wrap="truncate-end">
-            {i === selectedIndex ? '▸ @' : '  @'}
-            {renderHighlightedLabel(c.value, partial, theme)}
+      {completions.map((c, i) => {
+        const selected = i === selectedIndex;
+        const labelText = c.label ?? c.value;
+        return (
+          <Box key={c.value} paddingX={1}>
+            <Text
+              wrap="truncate-start"
+              color={selected ? theme.colors.inputAccent : undefined}
+              bold={selected}
+            >
+              {selected ? '▸ @' : '  @'}
+              {renderHighlightedLabel(labelText, partial, theme)}
+            </Text>
             {c.description ? <Text dimColor> {c.description}</Text> : null}
-          </Text>
-        </Box>
-      ))}
+          </Box>
+        );
+      })}
     </Box>
   );
 }
 
-function Footer({
+// ─── Footer ──────────────────────────────────────────────────────────────────
+
+function InputFooter({
   model,
   hasContent,
-  pickerKind,
+  isCommandMode,
+  hasMentions,
   theme,
 }: {
   model?: string;
   hasContent: boolean;
-  pickerKind: 'command' | 'mention' | undefined;
-  theme: ReturnType<typeof useTheme>;
+  isCommandMode: boolean;
+  hasMentions: boolean;
+  theme: Theme;
 }) {
-  const hint = pickerKind === 'mention'
-    ? '↑↓ navigate · Enter accept · Esc cancel'
-    : pickerKind === 'command'
-      ? '↑↓ navigate · Enter run · Esc cancel'
-      : hasContent
-        ? 'Enter submit · Shift+Enter newline'
-        : '/ commands · @ mentions';
+  const hint = hasMentions
+    ? '↑↓ · Tab accept'
+    : hasContent
+      ? isCommandMode
+        ? '↑↓ · Enter run'
+        : ''
+      : '/ commands · @ mentions';
   return (
-    <Box justifyContent="space-between" marginTop={1}>
+    <Box justifyContent="space-between">
       <Box gap={1}>
         {model ? (
           <Text color={theme.colors.info} bold>
             {model}
           </Text>
-        ) : (
-          <Text color={theme.colors.muted} dimColor>
-            no model
-          </Text>
-        )}
+        ) : null}
       </Box>
       <Text color={theme.colors.inputFooterHint}>{hint}</Text>
     </Box>
   );
 }
 
-function renderWithCursor(value: string, cursor: number, accent: string, isCommandMode: boolean, cursorColor: string) {
-  if (value.length === 0) {
-    return (
-      <Text inverse color={cursorColor}>
+// ─── Buffer display ──────────────────────────────────────────────────────────
+
+interface RowProps {
+  line: string;
+  cursorCol: number | null;
+  isCommandLine: boolean;
+  theme: Theme;
+}
+
+function InputRow({ line, cursorCol, isCommandLine, theme }: RowProps) {
+  const colorize = (text: string) =>
+    isCommandLine ? <Text color={theme.colors.inputAccent}>{text}</Text> : <>{text}</>;
+  if (cursorCol === null) {
+    return <Text wrap="wrap">{colorize(line)}</Text>;
+  }
+  const before = line.slice(0, cursorCol);
+  const after = line.slice(cursorCol);
+  return (
+    <Text wrap="wrap">
+      {colorize(before)}
+      <Text color={theme.colors.inputCursor} inverse>
         ▎
+      </Text>
+      {colorize(after)}
+    </Text>
+  );
+}
+
+function InputDisplay({
+  value,
+  cursor,
+  isCommandMode,
+  streaming,
+  isActive,
+  theme,
+}: {
+  value: string;
+  cursor: number;
+  isCommandMode: boolean;
+  streaming: boolean;
+  isActive: boolean;
+  theme: Theme;
+}) {
+  const showCursor = !streaming && isActive;
+  if (!value.length) {
+    return (
+      <Text>
+        {showCursor ? (
+          <Text color={theme.colors.inputCursor} inverse>
+            ▎
+          </Text>
+        ) : null}
       </Text>
     );
   }
   const lines = value.split('\n');
-  // Find cursor row/col by walking the buffer.
+  // Walk newline offsets to locate cursor row/col.
   let row = 0;
   let consumed = 0;
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] ?? '';
-    const end = consumed + line.length;
-    if (cursor <= end) {
+    const lineEnd = consumed + (lines[i] ?? '').length;
+    if (cursor <= lineEnd) {
       row = i;
       break;
     }
-    consumed = end + 1;
+    consumed = lineEnd + 1; // +1 for the newline
     row = i + 1;
   }
   const col = cursor - consumed;
   return (
     <>
-      {lines.map((line, i) => {
-        const accentLine = i === 0 && isCommandMode;
-        const cursorOnThis = i === row;
-        if (!cursorOnThis) {
-          return (
-            // biome-ignore lint/suspicious/noArrayIndexKey: positional render of buffer rows
-            <Text key={i} wrap="wrap" color={accentLine ? accent : undefined}>
-              {line || ' '}
-            </Text>
-          );
-        }
-        const before = line.slice(0, col);
-        const after = line.slice(col);
-        return (
+      {lines.map((line, i) => (
+        <InputRow
           // biome-ignore lint/suspicious/noArrayIndexKey: positional render of buffer rows
-          <Text key={i} wrap="wrap" color={accentLine ? accent : undefined}>
-            {before}
-            <Text inverse color={cursorColor}>
-              ▎
-            </Text>
-            {after}
-          </Text>
-        );
-      })}
+          key={`${i}-${line}`}
+          line={line}
+          cursorCol={showCursor && i === row ? col : null}
+          isCommandLine={i === 0 && isCommandMode}
+          theme={theme}
+        />
+      ))}
     </>
   );
 }
+
+// ─── InputBox ────────────────────────────────────────────────────────────────
 
 export function InputBox({
   onSubmit,
   onChange,
   disabled,
-  placeholder,
   picker,
   commands,
   agents,
@@ -299,8 +317,6 @@ export function InputBox({
         return;
       }
       if (input && !key.ctrl && !key.meta) {
-        // Strip terminal mouse / control bytes; keep \n (for paste) by
-        // letting sanitizeTerminalInput preserve it.
         const clean = sanitizeTerminalInput(input);
         if (clean) {
           const next = value.slice(0, cursor) + clean + value.slice(cursor);
@@ -312,7 +328,10 @@ export function InputBox({
   );
 
   const isCommandMode = value.startsWith('/');
-  const showPlaceholder = value.length === 0 && !!placeholder && !streaming;
+  const isActive = !disabled;
+  const filteredCommands = picker?.kind === 'command' && commands ? filterCommands(picker.partial, commands) : [];
+  const mentionCompletions =
+    picker?.kind === 'mention' && agents ? agents.getCompletions(picker.partial) : [];
 
   return (
     <Box
@@ -326,44 +345,34 @@ export function InputBox({
     >
       {picker?.kind === 'command' && commands ? (
         <CommandHints
-          partial={picker.partial}
+          commands={filteredCommands}
           selectedIndex={picker.index}
-          commands={commands}
           theme={theme}
         />
       ) : null}
       {picker?.kind === 'mention' && agents ? (
         <MentionHints
-          partial={picker.partial}
+          completions={mentionCompletions}
           selectedIndex={picker.index}
-          agents={agents}
+          partial={picker.partial}
           theme={theme}
         />
       ) : null}
-      <Box flexDirection="row" minHeight={1}>
-        <Text color={theme.colors.user}>❯ </Text>
-        <Box flexDirection="column" flexGrow={1}>
-          {showPlaceholder ? (
-            <Text dimColor>{placeholder}</Text>
-          ) : streaming ? (
-            <Text color={theme.colors.muted} dimColor>
-              (streaming…)
-            </Text>
-          ) : (
-            renderWithCursor(
-              value,
-              cursor,
-              theme.colors.inputAccent,
-              isCommandMode,
-              theme.colors.inputCursor,
-            )
-          )}
-        </Box>
+      <Box flexDirection="column" minHeight={2}>
+        <InputDisplay
+          value={value}
+          cursor={cursor}
+          isCommandMode={isCommandMode}
+          streaming={!!streaming}
+          isActive={isActive}
+          theme={theme}
+        />
       </Box>
-      <Footer
+      <InputFooter
         model={model}
         hasContent={value.length > 0}
-        pickerKind={picker?.kind}
+        isCommandMode={isCommandMode}
+        hasMentions={picker?.kind === 'mention'}
         theme={theme}
       />
     </Box>
