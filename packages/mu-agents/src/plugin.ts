@@ -5,6 +5,7 @@ import {
   type ApprovalRequest,
   ApprovalGateway,
 } from './approval';
+import type { KeybindChannel } from './keybinds';
 import { type Agent, loadAgentsFromDir } from './markdown';
 import {
   type MentionCompletion,
@@ -35,6 +36,15 @@ export interface AgentsPluginOptions {
   defaultAgent?: string;
   /** Plugged-in approval channel. Required when any agent has `ask` rules. */
   approval?: ApprovalChannel;
+  /**
+   * Host-provided keybind channel. When set, mu-agents registers its
+   * interactive shortcuts (currently: Shift+Tab → cycle active agent).
+   * When unset (e.g. headless host, tests) the plugin silently skips
+   * keybind wiring. mu-agents does NOT depend on any concrete TUI
+   * implementation — the host (mu-coding) implements `KeybindChannel`
+   * by adapting its TUI_KEYBINDS singleton.
+   */
+  keybinds?: KeybindChannel;
 }
 
 export interface AgentsHandle {
@@ -98,6 +108,13 @@ export function createAgentsPlugin(options: AgentsPluginOptions = {}): Plugin & 
   const bus: SubAgentBus = createSubAgentBus();
   const gateway = new ApprovalGateway(options.approval);
   const inFlightSubAgents = new Set<Session>();
+  /**
+   * Detacher for the host-provided keybind registration. Populated in
+   * `register()` when `options.keybinds` is set; invoked in `deactivate()`
+   * so unloading mu-agents (or restarting the host) cleanly drops the
+   * binding from the registry.
+   */
+  let detachKeybind: (() => void) | null = null;
 
   // The subagent tools need to know "what session is currently invoking me?".
   // Tools don't receive the session today, so we track the most-recent
@@ -155,6 +172,33 @@ export function createAgentsPlugin(options: AgentsPluginOptions = {}): Plugin & 
       }
       knownNames = new Set(agents.keys());
       if (!defaultAgent) defaultAgent = agents.keys().next().value;
+
+      // Host-provided keybind: Shift+Tab cycles the active agent for the
+      // session the host says is currently focused. Registered here (not
+      // in mu-coding) so the binding lives with the plugin that owns the
+      // agent UX; mu-agents stays TUI-agnostic by going through the
+      // structural KeybindChannel interface. When no channel is provided
+      // (headless host, tests) we silently skip.
+      if (options.keybinds) {
+        const { registry, currentSession } = options.keybinds;
+        // Plain Tab cycles the active agent. The command palette also
+        // intercepts Tab (to advance its cursor), but that branch lives
+        // in the host's reserved-keys block and runs BEFORE the plugin
+        // dispatcher — so the palette wins while it's open. ink-text-
+        // input also ignores Tab (see its useInput handler), so the
+        // prompt textfield never absorbs the keystroke.
+        detachKeybind = registry.register({
+          chord: { tab: true },
+          description: 'cycle active agent',
+          when: () => currentSession() !== null,
+          run: () => {
+            const session = currentSession();
+            if (!session) return false;
+            handle.cycleActive(session);
+            return true;
+          },
+        });
+      }
 
       // Register the sub-agent tools so the LLM can delegate.
       const deps = {
@@ -264,6 +308,12 @@ export function createAgentsPlugin(options: AgentsPluginOptions = {}): Plugin & 
       }
       inFlightSubAgents.clear();
       bus.clear();
+      try {
+        detachKeybind?.();
+      } catch {
+        /* keybind cleanup is best-effort */
+      }
+      detachKeybind = null;
     },
   };
 

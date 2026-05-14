@@ -29,8 +29,11 @@
       "dependencies": {
         "ink": "^7.0.1",
         "ink-text-input": "^6.0.0",
+        "mu-agents": "workspace:*",
+        "mu-coding-agents": "workspace:*",
         "mu-core": "workspace:*",
-        "mu-openai-provider": "workspace:*",
+        "mu-local-provider": "workspace:*",
+        "mu-tools": "workspace:*",
         "react": "^19.2.5",
       },
       "devDependencies": {
@@ -48,6 +51,14 @@
     "packages/mu-core": {
       "name": "mu-core",
       "version": "0.15.0",
+    },
+    "packages/mu-local-provider": {
+      "name": "mu-local-provider",
+      "version": "0.15.0",
+      "dependencies": {
+        "mu-core": "workspace:*",
+        "openai": "^6.35.0",
+      },
     },
     "packages/mu-openai-provider": {
       "name": "mu-openai-provider",
@@ -300,6 +311,8 @@
     "mu-coding-agents": ["mu-coding-agents@workspace:packages/mu-coding-agents"],
 
     "mu-core": ["mu-core@workspace:packages/mu-core"],
+
+    "mu-local-provider": ["mu-local-provider@workspace:packages/mu-local-provider"],
 
     "mu-openai-provider": ["mu-openai-provider@workspace:packages/mu-openai-provider"],
 

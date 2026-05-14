@@ -25,3 +25,10 @@ export { runSubAgent, createSubagentTool, createSubagentParallelTool } from './s
 
 export type { AgentsHandle, AgentsPluginOptions } from './plugin';
 export { contributeAgentsDir, createAgentsPlugin, default } from './plugin';
+
+export type {
+  KeyChord,
+  KeybindChannel,
+  KeybindHandler,
+  KeybindRegistry,
+} from './keybinds';

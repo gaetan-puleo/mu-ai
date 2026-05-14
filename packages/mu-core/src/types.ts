@@ -67,6 +67,12 @@ export interface ProviderConfig {
    */
   model?: string;
   systemPrompt?: string;
+  /**
+   * Required to actually run a turn. mu-core has no default provider —
+   * hosts must select one that matches the `id` of a registered Provider
+   * plugin (e.g. `'openai'`, `'local'`). When omitted, `session.run()`
+   * yields a `turn_end` error.
+   */
   providerId?: string;
 }
 

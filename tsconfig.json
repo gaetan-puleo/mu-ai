@@ -17,6 +17,7 @@
   "references": [
     { "path": "packages/mu-core" },
     { "path": "packages/mu-openai-provider" },
+    { "path": "packages/mu-local-provider" },
     { "path": "packages/mu-agents" },
     { "path": "packages/mu-repomap" },
     { "path": "packages/mu-coding-agents" },

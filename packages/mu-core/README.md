@@ -23,8 +23,10 @@ const config: ProviderConfig = {
   maxTokens: 4096,
   temperature: 0.7,
   streamTimeoutMs: 30000,
-  // providerId defaults to 'openai' — register at least one provider
-  // implementation (e.g. via createOpenAIProviderPlugin) before running.
+  // providerId is REQUIRED — mu-core has no default. Set it to match the
+  // `id` of whichever Provider plugin you register (e.g. 'openai' for
+  // createOpenAIProviderPlugin, 'local' for createLocalProviderPlugin).
+  providerId: 'openai',
 };
 
 const registry = new PluginRegistry({ cwd: process.cwd(), config: {} });
@@ -86,7 +88,7 @@ shared between mu-coding and arya — keeps the SDK host-agnostic.
 
 ### Agent loop
 - `runAgent(messages, config, model, signal, registry)` — async generator yielding `AgentEvent` (`content`, `reasoning`, `messages`, `usage`, `turn_end`).
-- Provider resolution: looks up `config.providerId ?? 'openai'` in the registered `ProviderRegistry`. Throws if no provider is registered.
+- Provider resolution: looks up `config.providerId` in the registered `ProviderRegistry`. mu-core has no default; hosts MUST set `providerId` explicitly. A missing or unmatched id yields a `turn_end` error.
 
 ### Sessions
 - `createSessionManager({ registry, config, model })` returns a `SessionManager`.

@@ -11,7 +11,8 @@
   },
   "files": [
     "bin",
-    "src"
+    "src",
+    "SYSTEM.md"
   ],
   "scripts": {
     "dev": "bun --watch bin/mu.js",
@@ -21,8 +22,11 @@
   "dependencies": {
     "ink": "^7.0.1",
     "ink-text-input": "^6.0.0",
+    "mu-agents": "workspace:*",
+    "mu-coding-agents": "workspace:*",
     "mu-core": "workspace:*",
-    "mu-openai-provider": "workspace:*",
+    "mu-local-provider": "workspace:*",
+    "mu-tools": "workspace:*",
     "react": "^19.2.5"
   },
   "devDependencies": {

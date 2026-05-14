@@ -7,7 +7,10 @@
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/**/*.test.tsx"],
   "references": [
+    { "path": "../mu-agents" },
+    { "path": "../mu-coding-agents" },
     { "path": "../mu-core" },
-    { "path": "../mu-openai-provider" }
+    { "path": "../mu-local-provider" },
+    { "path": "../mu-tools" }
   ]
 }

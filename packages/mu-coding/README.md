@@ -13,8 +13,7 @@ npm install -g mu-coding
 ```bash
 mu                    # Start interactive chat
 mu -m model           # Interactive with specific model
-mu -c                 # Continue most recent session
-mu --session <path>   # Resume a specific session file
+mu -b <baseUrl>       # Override the provider base URL
 ```
 
 ## Configuration
@@ -24,7 +23,7 @@ Config files follow XDG conventions:
 | Path | Purpose |
 |------|---------|
 | `~/.config/mu/config.json` | Settings (baseUrl, model, maxTokens, temperature) |
-| `~/.config/mu/SYSTEM.md` | System prompt |
+| `~/.config/mu/SYSTEM.md` | System prompt override (replaces the bundled default identity prompt; plugin-contributed prompts still append below) |
 | `~/.local/share/mu/sessions/` | Saved conversation sessions (JSONL) |
 | `~/.cache/mu/repomap/` | Code index cache |
 
@@ -36,9 +35,22 @@ Config files follow XDG conventions:
   "model": "qwen2.5",
   "maxTokens": 4096,
   "temperature": 0.7,
-  "streamTimeoutMs": 30000
+  "streamTimeoutMs": 30000,
+  "plugins": ["mu-coding-agents", "mu-agents"]
 }
 ```
+
+### Plugins
+
+`plugins` is an optional array of plugin names to enable. Supported values:
+
+| Name | What it adds |
+|------|--------------|
+| `mu-agents` | Agents runtime: `@mention` dispatch, permission gating, sub-agent tools |
+| `mu-coding-agents` | Bundled `build` / `plan` / `explore` / `review` agents. Requires `mu-agents` to also be listed. |
+
+File/shell tools (`read`, `write`, `edit`, `bash`, `list_dir`) are always
+available — no need to list them. Unknown names are ignored with a warning.
 
 ### Theming
 
@@ -106,18 +118,46 @@ Sections available: `input`, `user`, `assistant`, `tool`, `reasoning`,
 
 | Command | Action |
 |---------|--------|
-| `/model` | Select a model |
-| `/sessions` | List project sessions |
-| `/new` | New conversation |
+| `/help` | Show available commands |
+| `/quit` | Exit the TUI |
+| `/new` | Start a new conversation (the previous one stays saved) |
+| `/sessions` | List and resume saved sessions |
+
+## Sessions
+
+Each conversation is saved as a JSONL file under
+`$XDG_DATA_HOME/mu/sessions/` (default: `~/.local/share/mu/sessions/`). The
+first line is a session header (id, cwd, model, …); subsequent lines are the
+appended messages. Writes are append-only — messages flagged `transient` are
+skipped so replay produces a clean transcript.
+
+- `/new` opens a fresh session file. The previous conversation remains
+  accessible via `/sessions`.
+- `/sessions` opens a chronological picker. Selecting a session resumes it:
+  the on-screen transcript is rebuilt from disk and further messages are
+  appended to the same file.
+
+When `mu-agents` + `mu-coding-agents` are enabled, mention an agent by name to
+switch for one turn — e.g. `@plan refactor the session store`. The agent
+loaded first (alphabetical scan of `*.md`) is the default.
+
+## Approvals
+
+Some agents (e.g. `build`) mark certain tool calls as requiring approval. When
+that happens, the TUI shows a modal:
+
+| Key | Action |
+|-----|--------|
+| `y` / `Enter` | Approve once |
+| `a` | Approve for this session (remembered until you exit) |
+| `n` / `Esc` | Deny |
 
 ## Features
 
 - Streams responses with live token/s display
-- Multi-turn tool calling (bash, read, write, edit files)
-- Optional code indexing via the `mu-repomap` plugin (enable via `config.plugins`)
-- Optional default agents (build/plan/explore/review) via `mu-coding-agents` (enable via `config.plugins`)
-- Image attachment support
-- Session persistence and resume
+- Multi-turn tool calling (`bash`, `read`, `write`, `edit`, `list_dir`)
+- Optional default agents (`build` / `plan` / `explore` / `review`) via `mu-coding-agents` (enable via `config.plugins`)
+- Approval modal for gated tool calls
 - Mouse wheel scrolling
 
 ## License

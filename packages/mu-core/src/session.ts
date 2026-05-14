@@ -147,7 +147,22 @@ export class Session {
       const baseConfig: ProviderConfig = { ...mu._config, ...(input.config ?? {}) };
       const systemPrompt = await resolveSystemPrompt(mu._systemPrompts, baseConfig.systemPrompt);
       const config: ProviderConfig = { ...baseConfig, systemPrompt };
-      const providerId = config.providerId ?? 'openai';
+      // mu-core has no default provider. Hosts must set `config.providerId`
+      // explicitly — see e.g. mu-coding wiring `providerId: 'local'` when it
+      // starts the session. Yielding a turn_end error here keeps the
+      // failure mode identical to "provider id was set but unmatched",
+      // which the TUI already surfaces inline.
+      const providerId = config.providerId;
+      if (!providerId) {
+        yield {
+          type: 'turn_end',
+          reason: 'error',
+          error: new Error(
+            'No providerId set on ProviderConfig. mu-core has no default provider; hosts must select one explicitly.',
+          ),
+        };
+        return;
+      }
       const provider = mu._providers.find((p) => p.id === providerId);
       if (!provider) {
         yield {
@@ -207,7 +222,30 @@ export class Session {
             aborted: signal.aborted,
           });
 
-          if (signal.aborted) break;
+          if (signal.aborted) {
+            // Abort fired mid-stream. Commit whatever was streamed so far as
+            // a partial assistant message so the user (and JSONL persist
+            // layer) keep the partial reply. Tool calls accumulated before
+            // abort are intentionally dropped — we never got a chance to
+            // dispatch them and re-running them on resume would be wrong.
+            // `afterLlmCall` hooks are skipped: they assume a complete turn.
+            if (content || reasoning) {
+              const partial = newMessage({
+                role: 'assistant',
+                content,
+                reasoning: reasoning || undefined,
+              });
+              const appendedPartial = await session.append(partial);
+              debugLog('core', 'appended.partial-on-abort', {
+                id: partial.id,
+                contentLen: appendedPartial ? appendedPartial.content.length : -1,
+                reasoningLen: appendedPartial?.reasoning?.length ?? 0,
+                dropped: !appendedPartial,
+              });
+              if (appendedPartial) yield { type: 'message', message: appendedPartial };
+            }
+            break;
+          }
 
           const initial: TurnResult = { content, reasoning, toolCalls, usage };
           const turn = await compose(hooks, 'afterLlmCall', initial, (fn, r) => fn(r, session));

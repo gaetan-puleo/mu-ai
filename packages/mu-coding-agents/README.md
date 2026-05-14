@@ -15,12 +15,12 @@ The plugin only points the host's agent source registry at this package's
 
 ```ts
 import { startMu } from 'mu-core';
-import openai from 'mu-openai-provider';
+import local from 'mu-local-provider';
 import agents from 'mu-agents';
 import codingAgents from 'mu-coding-agents';
 
 await startMu({
   configPath: '~/.config/mu/config.json',
-  plugins: [openai(), agents(), codingAgents()],
+  plugins: [local(), agents(), codingAgents()],
 });
 ```

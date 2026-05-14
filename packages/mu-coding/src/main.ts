@@ -1,12 +1,9 @@
 import { loadConfig } from './config';
-import { runHeadless } from './headless';
 import { runTui } from './tui';
 
 export interface MainOptions {
   baseUrl?: string;
   model?: string;
-  headless?: boolean;
-  reasoning?: boolean;
 }
 
 function parseArgs(argv: string[]): MainOptions {
@@ -15,8 +12,6 @@ function parseArgs(argv: string[]): MainOptions {
     const arg = argv[i];
     if (arg === '--model' || arg === '-m') out.model = argv[++i];
     else if (arg === '--base-url' || arg === '-b') out.baseUrl = argv[++i];
-    else if (arg === '--headless') out.headless = true;
-    else if (arg === '--reasoning') out.reasoning = true;
   }
   return out;
 }
@@ -27,28 +22,20 @@ function parseArgs(argv: string[]): MainOptions {
  *
  * Resolution order (first wins): CLI flag → env var → ~/.config/mu/config.json
  * → built-in default (baseUrl only).
- *
- * `--headless` bypasses Ink and runs a plain stdin/stdout REPL. Useful for
- * isolating streaming bugs from TUI rendering bugs.
  */
 export async function main(argv: string[] = []): Promise<void> {
   const cli = parseArgs(argv);
   const file = loadConfig();
   const baseUrl = cli.baseUrl ?? process.env.MU_BASE_URL ?? file.baseUrl ?? 'http://localhost:11434/v1';
   const model = cli.model ?? process.env.MU_MODEL ?? file.model;
-  // Outer try/finally mirrors opencode's `stop()` pattern: even if runTui or
-  // runHeadless throws, we have a single place to enforce cross-cutting
-  // teardown. The normal exit paths already await `mu.shutdown()` on their
-  // own (see runTui's onClosed bridge, headless's REPL teardown), so the
-  // finally block stays empty today. It exists so future OS-level cleanup
-  // (e.g. a Windows console-mode unguard analogous to win32InstallCtrlCGuard)
-  // has an obvious home.
+  // Outer try/finally mirrors opencode's `stop()` pattern: even if runTui
+  // throws, we have a single place to enforce cross-cutting teardown. The
+  // normal exit path already awaits `mu.shutdown()` on its own (see runTui's
+  // onClosed bridge), so the finally block stays empty today. It exists so
+  // future OS-level cleanup (e.g. a Windows console-mode unguard analogous to
+  // win32InstallCtrlCGuard) has an obvious home.
   try {
-    if (cli.headless) {
-      await runHeadless({ baseUrl, model, reasoning: cli.reasoning });
-      return;
-    }
-    await runTui({ baseUrl, model });
+    await runTui({ baseUrl, model, plugins: file.plugins });
   } finally {
     // intentionally empty — see comment above
   }

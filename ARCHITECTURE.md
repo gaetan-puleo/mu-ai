@@ -7,7 +7,7 @@ Layered design. Each layer owns ONE concern; nothing reaches across.
 | Layer | Charter | Owns | Must NOT |
 |---|---|---|---|
 | **L1 — `mu-core`** (SDK) | Generic agent runtime. Channel/host agnostic. | `PluginRegistry`, `SessionManager`, `ChannelRegistry`, `ProviderRegistry`, `ActivityBus`, `SessionStore` + `attachAutoPersist`, session-scoped `MessageBus`, `runHostTurn`, message factories, `projectMessage`, session grouping, utilities (`prettyToolArgs`, `formatDuration`, `readMeta*`), strict `ChatMessageMeta`. | Know about agents, tools, channels, or UI. |
-| **L2 — mu plugins** (`mu-agents`, `mu-tools`, `mu-scheduler`, `mu-openai-provider`, `mu-repomap`, …) | Domain logic. Plug into L1 via `Plugin`. | mu-agents: state machines for agents + sub-agent runs + approvals (with snapshot APIs). mu-tools: shell/fs tools. mu-scheduler: cron. mu-openai-provider: LLM. | Render UI; know what channel they run under. |
+| **L2 — mu plugins** (`mu-agents`, `mu-tools`, `mu-scheduler`, `mu-local-provider`, `mu-openai-provider`, `mu-repomap`, …) | Domain logic. Plug into L1 via `Plugin`. | mu-agents: state machines for agents + sub-agent runs + approvals (with snapshot APIs). mu-tools: shell/fs tools. mu-scheduler: cron. mu-local-provider: LLM (local-server-aware, used by mu-coding). mu-openai-provider: LLM (strict OpenAI). | Render UI; know what channel they run under. |
 | **L3 — hosts** (`mu-coding`, future `arya`, future Telegram, …) | Glue L1 + L2 to a channel. | Wire protocol, persistence layout, channel-specific routing, host-specific slash commands. | Reimplement turn orchestration; re-derive state already in L2. |
 
 ## Module map (post-refactor)
