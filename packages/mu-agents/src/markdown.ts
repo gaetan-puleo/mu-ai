@@ -14,6 +14,12 @@ export interface Agent {
   permissions?: PermissionMap;
   /** Optional display color (host UIs choose how to use it). */
   color?: string;
+  /**
+   * Role hint: `primary` agents are user-facing (selectable as the active
+   * agent for a session), `subagent`s are spawned via the subagent tool.
+   * Defaults to `primary` when omitted.
+   */
+  kind: 'primary' | 'subagent';
 }
 
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?/;
@@ -24,6 +30,7 @@ interface RawFrontmatter {
   description?: string;
   color?: string;
   tools?: unknown;
+  agent?: string;
 }
 
 export function loadAgentFile(filePath: string): Agent | null {
@@ -45,6 +52,8 @@ export function loadAgentFile(filePath: string): Agent | null {
   const name = fm.id ?? fm.name ?? fallbackName;
   const { permissions, allowList } = parsePermissions(fm.tools);
 
+  const kind: Agent['kind'] = fm.agent === 'subagent' ? 'subagent' : 'primary';
+
   return {
     name,
     description: fm.description ?? '',
@@ -52,6 +61,7 @@ export function loadAgentFile(filePath: string): Agent | null {
     tools: allowList,
     permissions,
     color: fm.color,
+    kind,
   };
 }
 

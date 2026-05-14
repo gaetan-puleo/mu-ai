@@ -24,4 +24,4 @@ export type { SubAgentResult, SubAgentRunOptions } from './subagent';
 export { runSubAgent, createSubagentTool, createSubagentParallelTool } from './subagent';
 
 export type { AgentsHandle, AgentsPluginOptions } from './plugin';
-export { createAgentsPlugin, default } from './plugin';
+export { contributeAgentsDir, createAgentsPlugin, default } from './plugin';

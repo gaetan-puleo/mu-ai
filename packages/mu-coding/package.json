@@ -20,10 +20,9 @@
   },
   "dependencies": {
     "ink": "^7.0.1",
-    "mu-agents": "workspace:*",
+    "ink-text-input": "^6.0.0",
     "mu-core": "workspace:*",
     "mu-openai-provider": "workspace:*",
-    "mu-tools": "workspace:*",
     "react": "^19.2.5"
   },
   "devDependencies": {

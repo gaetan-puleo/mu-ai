@@ -15,9 +15,6 @@ function msg(role: Role, content: string): Message {
 const baseConfig: ProviderConfig = {
   baseUrl: 'http://test.invalid/v1',
   model: 'm',
-  maxTokens: 1024,
-  temperature: 0.7,
-  streamTimeoutMs: 5_000,
 };
 
 function sseStream(events: string[]): ReadableStream<Uint8Array> {

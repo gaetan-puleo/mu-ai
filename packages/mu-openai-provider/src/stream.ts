@@ -1,4 +1,4 @@
-import type { Message, ProviderConfig, StreamChunk, StreamOptions, Tool, Usage } from 'mu-core';
+import { type Message, type ProviderConfig, type StreamChunk, type StreamOptions, type Tool, type Usage, debugLog } from 'mu-core';
 import OpenAI from 'openai';
 import type {
   ChatCompletionChunk,
@@ -95,35 +95,12 @@ function processChunkDeltas(delta: DeltaWithReasoning): StreamChunk[] {
   }
   if (delta.content) {
     chunks.push({ type: 'content', text: delta.content });
+    debugLog('provider', 'delta.content', { len: delta.content.length });
+  } else if (delta.content === '') {
+    // Empty-string content deltas — informational, no chunk yielded.
+    debugLog('provider', 'delta.content.empty', {});
   }
   return chunks;
-}
-
-// --- Inactivity timeout helper ---
-//
-// The OpenAI SDK exposes the streamed chunks as an async iterable but doesn't
-// surface a per-chunk inactivity timeout. We wrap the iterator and race each
-// `next()` against a timer so a stalled connection still raises promptly.
-async function* withInactivityTimeout<T>(iter: AsyncIterable<T>, timeoutMs: number): AsyncGenerator<T> {
-  const iterator = iter[Symbol.asyncIterator]();
-  while (true) {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const result = await Promise.race([
-        iterator.next(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(
-            () => reject(new Error(`Stream timed out after ${timeoutMs / 1000}s of inactivity`)),
-            timeoutMs,
-          );
-        }),
-      ]);
-      if (result.done) return;
-      yield result.value;
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  }
 }
 
 // --- Main entry point ---
@@ -154,8 +131,6 @@ export async function* streamChat(
   const params: ChatCompletionCreateParamsStreaming & { cache_prompt?: boolean } = {
     model: config.model,
     messages: buildMessages(messages, config),
-    max_tokens: config.maxTokens,
-    temperature: config.temperature,
     stream: true,
     stream_options: { include_usage: true },
     cache_prompt: true,
@@ -169,20 +144,24 @@ export async function* streamChat(
     signal: options?.signal,
   });
 
-  yield* processStream(stream, config.streamTimeoutMs ?? 60_000, options);
+  yield* processStream(stream, options);
 }
 
 async function* processStream(
   stream: AsyncIterable<ChatCompletionChunk>,
-  timeoutMs: number,
   options?: StreamOptions,
 ): AsyncGenerator<StreamChunk> {
   let usage: Usage | undefined;
   const toolCalls: ToolCallAccumulator = {};
   let toolCallsEmitted = false;
+  let cumulativeContent = 0;
+  let chunkCount = 0;
+  let lastFinishReason: string | null | undefined;
 
+  debugLog('provider', 'processStream.start', {});
   try {
-    for await (const event of withInactivityTimeout(stream, timeoutMs)) {
+    for await (const event of stream) {
+      chunkCount++;
       if (event.usage) {
         // `prompt_tokens_details.cached_tokens` is reported by OpenAI's hosted
         // API and recent llama.cpp/llama-server builds. Older servers omit it;
@@ -200,8 +179,12 @@ async function* processStream(
       }
 
       const delta = event.choices?.[0]?.delta as DeltaWithReasoning | undefined;
-      if (!delta) continue;
+      if (!delta) {
+        debugLog('provider', 'chunk.no_delta', { hasUsage: !!event.usage, choices: event.choices?.length ?? 0 });
+        continue;
+      }
 
+      if (delta.content) cumulativeContent += delta.content.length;
       yield* processChunkDeltas(delta);
       accumulateToolCallFragments(toolCalls, delta.tool_calls);
 
@@ -209,6 +192,10 @@ async function* processStream(
       // Some providers send a trailing usage-only chunk that re-emits the same
       // finish_reason — guarding on `toolCallsEmitted` avoids duplicate yields.
       const finishReason = event.choices[0]?.finish_reason;
+      if (finishReason) {
+        lastFinishReason = finishReason;
+        debugLog('provider', 'finish_reason', { reason: finishReason, cumulativeContent });
+      }
       if (!toolCallsEmitted && (finishReason === 'tool_calls' || finishReason === 'stop')) {
         const completed = getCompletedToolCalls(toolCalls);
         yield* completed;
@@ -222,6 +209,19 @@ async function* processStream(
     if (!toolCallsEmitted) {
       yield* getCompletedToolCalls(toolCalls);
     }
+    debugLog('provider', 'processStream.end', {
+      chunkCount,
+      cumulativeContent,
+      lastFinishReason: lastFinishReason ?? 'none',
+    });
+  } catch (err) {
+    debugLog('provider', 'processStream.error', {
+      chunkCount,
+      cumulativeContent,
+      lastFinishReason: lastFinishReason ?? 'none',
+      message: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
   } finally {
     if (usage && options?.onUsage) {
       options.onUsage(usage);

@@ -39,11 +39,15 @@ export interface AgentsPluginOptions {
 
 export interface AgentsHandle {
   list(): Agent[];
+  /** Only `kind === 'primary'` agents — those a user can drive interactively. */
+  listPrimary(): Agent[];
   get(name: string): Agent | undefined;
   /** Agent active for the *next* turn (mention override > persistent > default). */
   getActive(session: Session): Agent | undefined;
   /** Programmatic persistent switch. Returns false if the name is unknown. */
   setActive(session: Session, name: string): boolean;
+  /** Cycle the persistent active agent to the next primary in registration order. */
+  cycleActive(session: Session): Agent | undefined;
 
   switches(sessionId: string): readonly SwitchEvent[];
   onSwitch(fn: (event: SwitchEvent) => void): () => void;
@@ -60,10 +64,31 @@ function buildAgents(options: AgentsPluginOptions): Map<string, Agent> {
   return out;
 }
 
+// ─── Plugin-contributed agent directories ────────────────────────────────────
+// Other plugins (e.g. `mu-coding-agents`) call `contributeAgentsDir(...)` from
+// their `register()` to ship default agent packs. The directories are drained
+// inside `mu-agents`' own `register()`, so contribution must happen *before*
+// the agents plugin registers. `Mu.start` runs plugin `register()` calls in
+// declaration order, so list contributor plugins before `agents` in the
+// `plugins` array.
+const contributedDirs: string[] = [];
+
+export function contributeAgentsDir(dir: string): void {
+  contributedDirs.push(dir);
+}
+
+function drainContributedDirs(): string[] {
+  const drained = contributedDirs.slice();
+  contributedDirs.length = 0;
+  return drained;
+}
+
 export function createAgentsPlugin(options: AgentsPluginOptions = {}): Plugin & { handle: AgentsHandle } {
   const agents = buildAgents(options);
-  const knownNames = new Set(agents.keys());
-  const defaultAgent = options.defaultAgent ?? agents.keys().next().value;
+  // `knownNames` and `defaultAgent` are recomputed after register() so any
+  // plugin-contributed dirs (e.g. mu-coding-agents) are picked up.
+  let knownNames = new Set(agents.keys());
+  let defaultAgent = options.defaultAgent ?? agents.keys().next().value;
 
   // Per-session state — kept in plugin closure, not on Session itself.
   const active = new Map<string, string>();
@@ -86,8 +111,12 @@ export function createAgentsPlugin(options: AgentsPluginOptions = {}): Plugin & 
     return persistent ? agents.get(persistent) : undefined;
   };
 
+  const listPrimary = (): Agent[] =>
+    Array.from(agents.values()).filter((a) => a.kind === 'primary');
+
   const handle: AgentsHandle = {
     list: () => Array.from(agents.values()),
+    listPrimary,
     get: (name) => agents.get(name),
     getActive: (session) => resolveActiveForTurn(session),
     setActive: (session, name) => {
@@ -96,6 +125,18 @@ export function createAgentsPlugin(options: AgentsPluginOptions = {}): Plugin & 
       active.set(session.id, name);
       tracker.log({ sessionId: session.id, from, to: name, reason: 'programmatic' });
       return true;
+    },
+    cycleActive: (session) => {
+      const primaries = listPrimary();
+      if (primaries.length === 0) return undefined;
+      const currentName = active.get(session.id) ?? defaultAgent;
+      const idx = primaries.findIndex((a) => a.name === currentName);
+      const next = primaries[(idx + 1) % primaries.length];
+      if (!next) return undefined;
+      const from = active.get(session.id);
+      active.set(session.id, next.name);
+      tracker.log({ sessionId: session.id, from, to: next.name, reason: 'programmatic' });
+      return next;
     },
     switches: (sessionId) => tracker.history(sessionId),
     onSwitch: (fn) => tracker.subscribe(fn),
@@ -106,6 +147,15 @@ export function createAgentsPlugin(options: AgentsPluginOptions = {}): Plugin & 
   const plugin: Plugin = {
     name: 'mu-agents',
     register(api) {
+      // Merge any dirs contributed by other plugins that registered earlier
+      // (see `contributeAgentsDir`). Later entries override earlier names,
+      // matching the constructor-time merge order.
+      for (const dir of drainContributedDirs()) {
+        for (const agent of loadAgentsFromDir(dir)) agents.set(agent.name, agent);
+      }
+      knownNames = new Set(agents.keys());
+      if (!defaultAgent) defaultAgent = agents.keys().next().value;
+
       // Register the sub-agent tools so the LLM can delegate.
       const deps = {
         api,

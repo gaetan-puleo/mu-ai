@@ -66,10 +66,7 @@ export interface ProviderConfig {
    * defined and will throw otherwise.
    */
   model?: string;
-  maxTokens?: number;
-  temperature?: number;
   systemPrompt?: string;
-  streamTimeoutMs?: number;
   providerId?: string;
 }
 

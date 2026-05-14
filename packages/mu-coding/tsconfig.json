@@ -8,8 +8,6 @@
   "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/**/*.test.tsx"],
   "references": [
     { "path": "../mu-core" },
-    { "path": "../mu-openai-provider" },
-    { "path": "../mu-agents" },
-    { "path": "../mu-tools" }
+    { "path": "../mu-openai-provider" }
   ]
 }

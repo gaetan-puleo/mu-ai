@@ -36,3 +36,4 @@ export { newMessage } from './message';
 export type { NewMessageInit } from './message';
 
 export { newId, newMessageId, newSessionId, nowMs } from './ids';
+export { debugLog } from './debug';

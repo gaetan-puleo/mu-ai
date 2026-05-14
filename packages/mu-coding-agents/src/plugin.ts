@@ -1,12 +1,16 @@
 /**
  * mu-coding-agents — packages the default coding agents (build / plan /
  * explore / review) as a plugin. The markdown files in ../agents carry the
- * prompts + permissions; this plugin just exposes the directory path for
- * whichever agents-registry consumer wants it.
+ * prompts + permissions; on `register()` we contribute the directory to
+ * `mu-agents` so the host doesn't need any wiring code.
+ *
+ * Ordering note: this plugin's `register()` must run BEFORE `mu-agents`'
+ * `register()` — `Mu.start` honours the order of the `plugins` array.
  */
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { contributeAgentsDir } from 'mu-agents';
 import type { Plugin } from 'mu-core';
 
 export function getCodingAgentsDir(): string {
@@ -18,8 +22,7 @@ export function createCodingAgentsPlugin(): Plugin {
   return {
     name: 'mu-coding-agents',
     register() {
-      // Agents directory is exposed via getCodingAgentsDir(); hosts wire it
-      // into their agent registry directly.
+      contributeAgentsDir(getCodingAgentsDir());
     },
   };
 }

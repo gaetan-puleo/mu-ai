@@ -1,3 +1,4 @@
+import { debugLog } from './debug';
 import { nowMs } from './ids';
 import { newMessage } from './message';
 import { resolveSystemPrompt } from './mu';
@@ -179,6 +180,7 @@ export class Session {
           let usage: Usage | undefined;
           const toolCalls: ToolCall[] = [];
 
+          debugLog('core', 'stream.start', { providerId, sessionId: session.id });
           for await (const chunk of provider.streamChat(prepared, config, {
             signal,
             tools,
@@ -198,10 +200,23 @@ export class Session {
             }
           }
 
+          debugLog('core', 'stream.end', {
+            contentLen: content.length,
+            reasoningLen: reasoning.length,
+            toolCalls: toolCalls.length,
+            aborted: signal.aborted,
+          });
+
           if (signal.aborted) break;
 
           const initial: TurnResult = { content, reasoning, toolCalls, usage };
           const turn = await compose(hooks, 'afterLlmCall', initial, (fn, r) => fn(r, session));
+
+          debugLog('core', 'post-hooks', {
+            contentLen: turn.content.length,
+            reasoningLen: turn.reasoning.length,
+            toolCalls: turn.toolCalls.length,
+          });
 
           if (turn.usage) yield { type: 'usage', usage: turn.usage };
 
@@ -212,6 +227,11 @@ export class Session {
             toolCalls: turn.toolCalls.length > 0 ? turn.toolCalls : undefined,
           });
           const appended = await session.append(assistant);
+          debugLog('core', 'appended', {
+            id: assistant.id,
+            contentLen: appended ? appended.content.length : -1,
+            dropped: !appended,
+          });
           if (appended) yield { type: 'message', message: appended };
 
           if (turn.toolCalls.length === 0) return;
@@ -259,6 +279,10 @@ export class Session {
       } catch (err) {
         reason = 'error';
         error = err instanceof Error ? err : new Error(String(err));
+        debugLog('core', 'turn.exception', {
+          message: error.message,
+          contentLen: 0, // content var is out of scope here; logged separately above
+        });
       } finally {
         for (const h of mu._hooks) {
           if (h.onTurnEnd) {
