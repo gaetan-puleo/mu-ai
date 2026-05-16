@@ -11,6 +11,7 @@
     { "path": "../mu-coding-agents" },
     { "path": "../mu-core" },
     { "path": "../mu-local-provider" },
+    { "path": "../mu-skill-runner" },
     { "path": "../mu-tools" }
   ]
 }

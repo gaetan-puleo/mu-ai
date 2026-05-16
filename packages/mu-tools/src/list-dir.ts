@@ -36,6 +36,7 @@ export function createListDirTool(opts: ListDirToolOptions): Tool {
   return {
     name: 'list_dir',
     description: 'List the contents of a directory. Optionally recurse with a depth limit.',
+    systemPrompt: 'Use `list_dir` to inspect directory contents (optionally recursive with `depth`).',
     parameters: {
       type: 'object',
       properties: {
@@ -47,6 +48,12 @@ export function createListDirTool(opts: ListDirToolOptions): Tool {
       additionalProperties: false,
     },
     matchKey: (args) => (typeof args.path === 'string' ? args.path : undefined),
+    formatArgs: (args) => {
+      const path = typeof args.path === 'string' ? args.path : String(args.path ?? '');
+      const suffix = args.recursive === true ? ' (recursive)' : '';
+      const full = `${path}${suffix}`;
+      return [{ label: 'path', value: full.length > 120 ? `${full.slice(0, 120)}…` : full }];
+    },
     execute(args) {
       const rawPath = args.path as string;
       const cwd = getCwd();

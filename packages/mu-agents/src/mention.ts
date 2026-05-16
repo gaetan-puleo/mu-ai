@@ -26,7 +26,7 @@ export function parseMention(text: string, knownAgents: Set<string>): ParsedMent
   const match = text.match(LEADING_MENTION);
   if (!match) return { raw: text, cleaned: text };
   const [, agent, rest] = match;
-  if (!agent || !knownAgents.has(agent)) return { raw: text, cleaned: text };
+  if (!(agent && knownAgents.has(agent))) return { raw: text, cleaned: text };
   const task = (rest ?? '').trim();
   return {
     raw: text,
@@ -41,9 +41,7 @@ export interface MentionCompletion {
   description?: string;
 }
 
-export function createAgentCompletions(
-  agents: () => Agent[],
-): (partial: string) => MentionCompletion[] {
+export function createAgentCompletions(agents: () => Agent[]): (partial: string) => MentionCompletion[] {
   return (partial) => {
     const prefix = partial.toLowerCase();
     return agents()

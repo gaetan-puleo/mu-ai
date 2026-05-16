@@ -50,6 +50,7 @@ export function createReadFileTool(opts: ReadFileToolOptions): Tool {
   return {
     name: 'read',
     description: 'Read text file(s) with line numbers. `path` may be a single path or array.',
+    systemPrompt: 'Prefer `read` over `cat`/`sed`; pass `start`/`end` for large files.',
     parameters: {
       type: 'object',
       properties: {
@@ -65,6 +66,13 @@ export function createReadFileTool(opts: ReadFileToolOptions): Tool {
       if (typeof p === 'string') return p;
       if (Array.isArray(p) && typeof p[0] === 'string') return p[0];
       return undefined;
+    },
+    formatArgs: (args) => {
+      const raw = args.path;
+      const pathStr = Array.isArray(raw) ? raw.join(', ') : String(raw ?? '');
+      const range = args.start != null && args.end != null ? `:${args.start}-${args.end}` : '';
+      const full = `${pathStr}${range}`;
+      return [{ label: 'path', value: full.length > 120 ? `${full.slice(0, 120)}…` : full }];
     },
     execute(args) {
       const paths = Array.isArray(args.path) ? (args.path as string[]) : [args.path as string];

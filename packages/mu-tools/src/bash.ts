@@ -89,8 +89,9 @@ export function createBashTool(opts: BashToolOptions): Tool {
   const { getCwd } = opts;
   return {
     name: 'bash',
-    description:
-      'Run a shell command via bash in the project cwd. Returns stdout+stderr; non-zero exit is an error.',
+    description: 'Run a shell command via bash in the project cwd. Returns stdout+stderr; non-zero exit is an error.',
+    systemPrompt:
+      'Use `bash` for ops without a dedicated tool (rg, build, tests). Avoid using it to read or rewrite files.',
     parameters: {
       type: 'object',
       properties: {
@@ -100,6 +101,11 @@ export function createBashTool(opts: BashToolOptions): Tool {
       additionalProperties: false,
     },
     matchKey: (args) => (typeof args.cmd === 'string' ? args.cmd : undefined),
+    formatArgs: (args) => {
+      const cmd = typeof args.cmd === 'string' ? args.cmd : String(args.cmd ?? '');
+      const truncated = cmd.length > 200 ? `${cmd.slice(0, 200)}…` : cmd;
+      return [{ label: 'cmd', value: truncated }];
+    },
     execute(args, signal) {
       return executeBash(args.cmd as string, getCwd(), signal);
     },

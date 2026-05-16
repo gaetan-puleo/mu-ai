@@ -1,0 +1,18 @@
+{
+  "name": "mu-skill-runner",
+  "version": "0.15.0",
+  "description": "Discover and execute SKILL.md skills inside a mu session",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "mu-core": "workspace:*",
+    "yaml": "^2.8.4"
+  }
+}

@@ -25,9 +25,7 @@ function debugEnabled(): boolean {
 
 function logPath(): string {
   if (cachedPath) return cachedPath;
-  const base = process.env.XDG_CACHE_HOME
-    ? join(process.env.XDG_CACHE_HOME, 'mu')
-    : join(homedir(), '.cache', 'mu');
+  const base = process.env.XDG_CACHE_HOME ? join(process.env.XDG_CACHE_HOME, 'mu') : join(homedir(), '.cache', 'mu');
   cachedPath = join(base, 'debug.log');
   try {
     mkdirSync(dirname(cachedPath), { recursive: true });
@@ -50,9 +48,7 @@ export function debugLog(subsystem: string, event: string, fields?: Record<strin
   } catch (err) {
     if (!warned) {
       warned = true;
-      process.stderr.write(
-        `[mu-debug] failed to write log: ${err instanceof Error ? err.message : String(err)}\n`,
-      );
+      process.stderr.write(`[mu-debug] failed to write log: ${err instanceof Error ? err.message : String(err)}\n`);
     }
   }
 }

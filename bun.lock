@@ -33,6 +33,7 @@
         "mu-coding-agents": "workspace:*",
         "mu-core": "workspace:*",
         "mu-local-provider": "workspace:*",
+        "mu-skill-runner": "workspace:*",
         "mu-tools": "workspace:*",
         "react": "^19.2.5",
       },
@@ -84,6 +85,14 @@
         "croner": "^9.1.0",
         "mu-core": "0.15.0",
         "yaml": "^2.8.0",
+      },
+    },
+    "packages/mu-skill-runner": {
+      "name": "mu-skill-runner",
+      "version": "0.15.0",
+      "dependencies": {
+        "mu-core": "workspace:*",
+        "yaml": "^2.8.4",
       },
     },
     "packages/mu-tools": {
@@ -319,6 +328,8 @@
     "mu-repomap": ["mu-repomap@workspace:packages/mu-repomap"],
 
     "mu-scheduler": ["mu-scheduler@workspace:packages/mu-scheduler"],
+
+    "mu-skill-runner": ["mu-skill-runner@workspace:packages/mu-skill-runner"],
 
     "mu-tools": ["mu-tools@workspace:packages/mu-tools"],
 

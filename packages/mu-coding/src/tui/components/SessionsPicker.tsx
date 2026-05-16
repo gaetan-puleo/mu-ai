@@ -1,14 +1,12 @@
 import { Box, Text, useInput } from 'ink';
 import React from 'react';
-import { listSessions, type SessionFileSummary } from '../sessionStore/jsonl';
-import { getSessionsDir } from '../sessionStore/paths';
+import { listSessions, type SessionFileSummary } from '../../sessionStore/jsonl';
+import { getSessionsDir } from '../../sessionStore/paths';
 
 const { useEffect, useState } = React;
 
 export interface SessionsPickerProps {
-  /** Called with the picked session's id and file path. */
   onSelect: (summary: SessionFileSummary) => void;
-  /** Called when the user dismisses without picking (Esc / q). */
   onCancel: () => void;
 }
 
@@ -17,14 +15,14 @@ function formatTime(ms: number): string {
   return d.toLocaleString();
 }
 
-/**
- * Read-only picker that lists session files from `getSessionsDir()`.
- *
- * Intentionally minimal — no per-row preview, no grouping. Both are good
- * follow-ups but cost: preview means a second file read per row, grouping
- * needs a relative-time formatter and a more complex layout. Today the list
- * is short enough that a flat newest-first view is fine.
- */
+const MAX_VISIBLE = 8;
+
+function clamp(value: number, min: number, max: number): number {
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+
 export function SessionsPicker({ onSelect, onCancel }: SessionsPickerProps): React.ReactElement {
   const [summaries, setSummaries] = useState<SessionFileSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +50,14 @@ export function SessionsPicker({ onSelect, onCancel }: SessionsPickerProps): Rea
 
   if (error) {
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor="red" paddingX={1}>
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderColor="red"
+        borderBackgroundColor="#0a0a0a"
+        backgroundColor="#0a0a0a"
+        paddingX={1}
+      >
         <Text color="red">Failed to list sessions: {error}</Text>
         <Text dimColor={true}>Press Esc to dismiss.</Text>
       </Box>
@@ -61,7 +66,13 @@ export function SessionsPicker({ onSelect, onCancel }: SessionsPickerProps): Rea
 
   if (!summaries) {
     return (
-      <Box flexDirection="column" borderStyle="round" paddingX={1}>
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderBackgroundColor="#0a0a0a"
+        backgroundColor="#0a0a0a"
+        paddingX={1}
+      >
         <Text dimColor={true}>Loading sessions…</Text>
       </Box>
     );
@@ -69,26 +80,44 @@ export function SessionsPicker({ onSelect, onCancel }: SessionsPickerProps): Rea
 
   if (summaries.length === 0) {
     return (
-      <Box flexDirection="column" borderStyle="round" paddingX={1}>
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderBackgroundColor="#0a0a0a"
+        backgroundColor="#0a0a0a"
+        paddingX={1}
+      >
         <Text dimColor={true}>No saved sessions in {getSessionsDir()}.</Text>
         <Text dimColor={true}>Press Esc to dismiss.</Text>
       </Box>
     );
   }
 
-  // Cap to the most recent 12 so very long lists don't overflow the modal.
-  const visible = summaries.slice(0, 12);
-  const hidden = summaries.length - visible.length;
+  let start = 0;
+  let end = summaries.length;
+  if (summaries.length > MAX_VISIBLE) {
+    const half = Math.floor(MAX_VISIBLE / 2);
+    start = clamp(cursor - half, 0, summaries.length - MAX_VISIBLE);
+    end = start + MAX_VISIBLE;
+  }
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="cyan"
+      borderBackgroundColor="#0a0a0a"
+      backgroundColor="#0a0a0a"
+      paddingX={1}
+    >
       <Box marginBottom={1}>
         <Text bold={true} color="cyan">
           Sessions
         </Text>
       </Box>
-      {visible.map((s, i) => {
-        const isCursor = i === cursor;
+      {summaries.slice(start, end).map((s, i) => {
+        const absolute = start + i;
+        const isCursor = absolute === cursor;
         const cwd = s.header.cwd ?? '';
         const model = s.header.model ?? 'unknown';
         return (
@@ -102,7 +131,6 @@ export function SessionsPicker({ onSelect, onCancel }: SessionsPickerProps): Rea
           </Text>
         );
       })}
-      {hidden > 0 ? <Text dimColor={true}>… {hidden} older</Text> : null}
       <Box marginTop={1}>
         <Text dimColor={true}>↑/↓ navigate · Enter resume · Esc cancel</Text>
       </Box>

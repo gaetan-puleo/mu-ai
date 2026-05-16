@@ -21,9 +21,9 @@ afterEach(() => {
 const pluginNames = (plugins: { name: string }[]) => plugins.map((p) => p.name);
 
 describe('assemblePlugins', () => {
-  it('empty configPlugins → just provider + mu-tools', () => {
+  it('empty configPlugins → just provider + always-on plugins', () => {
     const { plugins, agentsHandle, localProviderHandle } = assemblePlugins({ configPlugins: [] });
-    expect(pluginNames(plugins)).toEqual(['mu-local-provider', 'mu-tools']);
+    expect(pluginNames(plugins)).toEqual(['mu-local-provider', 'mu-tools', 'mu-skill-runner']);
     expect(agentsHandle).toBeUndefined();
     expect(localProviderHandle).toBeDefined();
     expect(stderrBuf).toBe('');
@@ -33,7 +33,13 @@ describe('assemblePlugins', () => {
     const { plugins, agentsHandle } = assemblePlugins({
       configPlugins: ['mu-coding-agents', 'mu-agents'],
     });
-    expect(pluginNames(plugins)).toEqual(['mu-local-provider', 'mu-tools', 'mu-coding-agents', 'mu-agents']);
+    expect(pluginNames(plugins)).toEqual([
+      'mu-local-provider',
+      'mu-tools',
+      'mu-skill-runner',
+      'mu-coding-agents',
+      'mu-agents',
+    ]);
     expect(agentsHandle).toBeDefined();
   });
 
@@ -41,14 +47,14 @@ describe('assemblePlugins', () => {
     const { plugins, agentsHandle } = assemblePlugins({
       configPlugins: ['mu-coding-agents'],
     });
-    expect(pluginNames(plugins)).toEqual(['mu-local-provider', 'mu-tools']);
+    expect(pluginNames(plugins)).toEqual(['mu-local-provider', 'mu-tools', 'mu-skill-runner']);
     expect(agentsHandle).toBeUndefined();
     expect(stderrBuf).toContain('"mu-coding-agents" requires "mu-agents"');
   });
 
   it('mu-agents alone → wires it but warns about no provider', () => {
     const { plugins, agentsHandle } = assemblePlugins({ configPlugins: ['mu-agents'] });
-    expect(pluginNames(plugins)).toEqual(['mu-local-provider', 'mu-tools', 'mu-agents']);
+    expect(pluginNames(plugins)).toEqual(['mu-local-provider', 'mu-tools', 'mu-skill-runner', 'mu-agents']);
     expect(agentsHandle).toBeDefined();
     expect(stderrBuf).toContain('no agents will be available');
   });
@@ -61,9 +67,15 @@ describe('assemblePlugins', () => {
     expect(stderrBuf).toContain('"mu-tools" is always enabled');
   });
 
+  it('"mu-skill-runner" listed → warned and dropped (always on)', () => {
+    const { plugins } = assemblePlugins({ configPlugins: ['mu-skill-runner'] });
+    expect(pluginNames(plugins).filter((n) => n === 'mu-skill-runner')).toHaveLength(1);
+    expect(stderrBuf).toContain('"mu-skill-runner" is always enabled');
+  });
+
   it('unknown name → warned and dropped', () => {
     const { plugins } = assemblePlugins({ configPlugins: ['bogus'] });
-    expect(pluginNames(plugins)).toEqual(['mu-local-provider', 'mu-tools']);
+    expect(pluginNames(plugins)).toEqual(['mu-local-provider', 'mu-tools', 'mu-skill-runner']);
     expect(stderrBuf).toContain('unknown plugin "bogus"');
   });
 });

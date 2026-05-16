@@ -1,5 +1,5 @@
 import { Box, useWindowSize } from 'ink';
-import React from 'react';
+import type React from 'react';
 
 export interface ScreenProps {
   children: React.ReactNode;
@@ -8,7 +8,7 @@ export interface ScreenProps {
 export function Screen({ children }: ScreenProps): React.ReactElement {
   const { rows, columns } = useWindowSize();
   return (
-    <Box flexDirection="column" height={rows} width={columns}>
+    <Box flexDirection="column" height={rows} width={columns} backgroundColor="#0a0a0a">
       {children}
     </Box>
   );

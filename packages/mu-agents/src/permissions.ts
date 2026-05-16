@@ -7,7 +7,10 @@ export type Action = 'allow' | 'deny' | 'ask';
  */
 export function globMatch(input: string, pattern: string): boolean {
   // Escape regex metacharacters except our two glob wildcards.
-  const re = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+  const re = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '.');
   return new RegExp(`^${re}$`, 's').test(input);
 }
 

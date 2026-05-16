@@ -42,12 +42,21 @@ export interface Message {
   meta?: MessageMeta;
 }
 
+export interface ArgLine {
+  label: string;
+  value: string;
+}
+
 export interface Tool {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
+  /** Usage guidance injected into the system prompt when this tool is available. */
+  systemPrompt?: string | (() => string | undefined);
   /** Extract the arg value used for permission glob-matching. Optional. */
   matchKey?: (args: Record<string, unknown>) => string | undefined;
+  /** Format args for approval display. Optional — falls back to generic key/value. */
+  formatArgs?: (args: Record<string, unknown>) => ArgLine[];
   execute: (args: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResult> | ToolResult;
 }
 
@@ -96,11 +105,7 @@ export interface StreamOptions {
 
 export interface Provider {
   id: string;
-  streamChat: (
-    messages: Message[],
-    config: ProviderConfig,
-    options: StreamOptions,
-  ) => AsyncIterable<StreamChunk>;
+  streamChat: (messages: Message[], config: ProviderConfig, options: StreamOptions) => AsyncIterable<StreamChunk>;
 }
 
 export interface TurnResult {
@@ -121,11 +126,9 @@ export interface Hooks {
   ) => Message | null | undefined | Promise<Message | null | undefined>;
   beforeLlmCall?: (messages: Message[], session: Session) => Message[] | Promise<Message[]>;
   afterLlmCall?: (result: TurnResult, session: Session) => TurnResult | Promise<TurnResult>;
-  beforeToolExec?: (
-    call: ToolCall,
-    session: Session,
-  ) => ToolCall | ToolBlock | Promise<ToolCall | ToolBlock>;
+  beforeToolExec?: (call: ToolCall, session: Session) => ToolCall | ToolBlock | Promise<ToolCall | ToolBlock>;
   afterToolExec?: (call: ToolCall, result: ToolResult, session: Session) => ToolResult | Promise<ToolResult>;
+  filterTools?: (tools: Tool[], session: Session) => Tool[] | Promise<Tool[]>;
   onTurnEnd?: (reason: TurnReason, session: Session) => void | Promise<void>;
 }
 
@@ -191,6 +194,16 @@ export interface PluginAPI {
 }
 
 export interface SessionCreateOptions {
+  /**
+   * Reuse a specific session id. Required for in-place resume of a
+   * persisted session: passing the original id keeps the in-memory
+   * Session and any disk file (named by id) consistent. If a Session with
+   * this id already exists in this process it is returned as-is and
+   * `initialMessages` is ignored (mu-core de-dupes by id).
+   *
+   * When omitted, a fresh id is generated.
+   */
+  id?: string;
   initialMessages?: Message[];
   /** Tag the session's origin (e.g. 'mu-agents-subagent') so listeners can filter. */
   meta?: { source?: string };

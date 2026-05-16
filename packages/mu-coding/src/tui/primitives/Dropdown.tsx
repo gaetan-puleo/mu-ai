@@ -14,7 +14,7 @@ export interface DropdownItem<T = string> {
 
 export interface DropdownProps<T = string> {
   /** List of items to pick from. */
-  items: ReadonlyArray<DropdownItem<T>>;
+  items: readonly DropdownItem<T>[];
   /** Called with the item's `value` (or `id` if no value) when the user confirms. */
   onSelect: (value: T, item: DropdownItem<T>) => void;
   /** Optional cancel handler (esc / q). */
@@ -29,7 +29,7 @@ export interface DropdownProps<T = string> {
   itemPrefix?: string;
   /** Color of the highlighted row text + cursor. */
   highlightColor?: string;
-  /** Maximum number of items visible at once. When exceeded, the list windows around the cursor. */
+  /** Maximum number of items visible at once. When exceeded, the viewport scrolls to follow the cursor. */
   maxVisible?: number;
 }
 
@@ -75,8 +75,8 @@ export function Dropdown<T = string>({
   if (items.length === 0) {
     return (
       <Box flexDirection="column">
-        {title ? <Text bold>{title}</Text> : null}
-        <Text dimColor>(no items)</Text>
+        {title ? <Text bold={true}>{title}</Text> : null}
+        <Text dimColor={true}>(no items)</Text>
       </Box>
     );
   }
@@ -89,13 +89,10 @@ export function Dropdown<T = string>({
     start = clamp(cursor - half, 0, items.length - maxVisible);
     end = start + maxVisible;
   }
-  const hiddenAbove = start;
-  const hiddenBelow = items.length - end;
 
   return (
     <Box flexDirection="column">
-      {title ? <Text bold>{title}</Text> : null}
-      {hiddenAbove > 0 ? <Text dimColor>↑ {hiddenAbove} more</Text> : null}
+      {title ? <Text bold={true}>{title}</Text> : null}
       {items.slice(start, end).map((item, i) => {
         const absolute = start + i;
         const isCursor = absolute === cursor;
@@ -106,7 +103,6 @@ export function Dropdown<T = string>({
           </Text>
         );
       })}
-      {hiddenBelow > 0 ? <Text dimColor>↓ {hiddenBelow} more</Text> : null}
     </Box>
   );
 }

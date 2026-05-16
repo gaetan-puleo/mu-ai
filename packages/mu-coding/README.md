@@ -122,6 +122,22 @@ Sections available: `input`, `user`, `assistant`, `tool`, `reasoning`,
 | `/quit` | Exit the TUI |
 | `/new` | Start a new conversation (the previous one stays saved) |
 | `/sessions` | List and resume saved sessions |
+| `/model` | Switch the active model (opens picker) |
+
+## Shell Escape
+
+Prefix any input line with `!` to run it as a shell command in the project
+working directory **without triggering an LLM turn**. Both the command and
+its output are appended to the conversation so the model sees them on the
+next real exchange (and they persist to the JSONL session file).
+
+```
+> !git status
+> !rg "TODO" --count
+```
+
+Output is wrapped in `<shell-output>...</shell-output>` tags. Non-zero
+exit codes are surfaced as `<shell-output exit="error">`.
 
 ## Sessions
 

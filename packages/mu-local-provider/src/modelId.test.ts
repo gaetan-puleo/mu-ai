@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { bareModelId, formatModelId, parseModelId, PROVIDER_PREFIX } from './modelId';
+import { bareModelId, formatModelId, PROVIDER_PREFIX, parseModelId } from './modelId';
 
 describe('parseModelId', () => {
   it('one-segment input → bare id, no kind', () => {
@@ -67,9 +67,7 @@ describe('parseModelId', () => {
 
 describe('formatModelId', () => {
   it('canonicalises a parsed id', () => {
-    expect(formatModelId({ kind: 'llama-swap', id: 'qwen-3.6-35b' })).toBe(
-      'local/llama-swap/qwen-3.6-35b',
-    );
+    expect(formatModelId({ kind: 'llama-swap', id: 'qwen-3.6-35b' })).toBe('local/llama-swap/qwen-3.6-35b');
   });
   it('falls back to unknown when kind is missing', () => {
     expect(formatModelId({ id: 'qwen-3.6-35b' })).toBe('local/unknown/qwen-3.6-35b');

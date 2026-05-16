@@ -1,10 +1,4 @@
-export type SubAgentEventType =
-  | 'started'
-  | 'content'
-  | 'tool_call'
-  | 'tool_result'
-  | 'completed'
-  | 'error';
+export type SubAgentEventType = 'started' | 'content' | 'tool_call' | 'tool_result' | 'completed' | 'error';
 
 export interface SubAgentEvent {
   runId: string;

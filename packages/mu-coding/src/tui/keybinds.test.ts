@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import type { Key } from 'ink';
-import { keyMatches, type KeyChord, TUI_KEYBINDS } from './keybinds';
+import { type KeyChord, keyMatches, TUI_KEYBINDS } from './keybinds';
 
 afterEach(() => {
   TUI_KEYBINDS.reset();

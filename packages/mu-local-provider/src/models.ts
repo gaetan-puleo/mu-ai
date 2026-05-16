@@ -100,11 +100,7 @@ function propsUrl(kind: LocalServerKind, root: string, modelId: string): string 
   return undefined;
 }
 
-async function discoverContext(
-  kind: LocalServerKind,
-  baseUrl: string,
-  modelId: string,
-): Promise<number | undefined> {
+async function discoverContext(kind: LocalServerKind, baseUrl: string, modelId: string): Promise<number | undefined> {
   const url = propsUrl(kind, originRoot(baseUrl), modelId);
   if (!url) return undefined;
   const body = await fetchJsonWithTimeout(url);

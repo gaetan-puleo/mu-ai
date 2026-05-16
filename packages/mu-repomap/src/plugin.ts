@@ -50,6 +50,11 @@ function createListSymbolsTool(opts: RepomapOptions, getCwd: () => string): Tool
       required: [],
       additionalProperties: false,
     },
+    formatArgs: (args) => {
+      const query = typeof args.query === 'string' ? args.query : '';
+      const display = query || '(root)';
+      return [{ label: 'query', value: display.length > 120 ? `${display.slice(0, 120)}…` : display }];
+    },
     async execute(args) {
       const cwd = getCwd();
       const manager = RepomapManager.getInstance(cwd);

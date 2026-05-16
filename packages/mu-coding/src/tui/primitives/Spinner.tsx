@@ -107,18 +107,12 @@ export function Spinner({
       );
     } else {
       cellNodes.push(
-        <Text key={i} color={trackColor} dimColor>
+        <Text key={i} color={trackColor} dimColor={true}>
           {DOT}
         </Text>,
       );
     }
   }
 
-  // Interleave with single-space separators so the row reads "· · ■ · ·".
-  const out: React.ReactNode[] = [];
-  cellNodes.forEach((node, i) => {
-    if (i > 0) out.push(<Text key={`s${i}`}> </Text>);
-    out.push(node);
-  });
-  return <>{out}</>;
+  return <>{cellNodes}</>;
 }

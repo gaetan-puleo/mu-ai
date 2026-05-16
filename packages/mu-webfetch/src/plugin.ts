@@ -214,10 +214,7 @@ async function renderBody(buf: ArrayBuffer, contentType: string, format: WebFetc
   return format === 'markdown' ? convertHtmlToMarkdown(body) : await extractTextFromHtml(body);
 }
 
-async function executeWebFetch(
-  args: Record<string, unknown>,
-  signal: AbortSignal | undefined,
-): Promise<ToolResult> {
+async function executeWebFetch(args: Record<string, unknown>, signal: AbortSignal | undefined): Promise<ToolResult> {
   const url = typeof args.url === 'string' ? args.url : '';
   if (!url) return err('Error: url is required');
   if (!isHttpUrl(url)) return err('Error: URL must start with http:// or https://');
@@ -274,6 +271,10 @@ function createWebFetchTool(): Tool {
       additionalProperties: false,
     },
     matchKey: (args) => (typeof args.url === 'string' ? args.url : undefined),
+    formatArgs: (args) => {
+      const url = typeof args.url === 'string' ? args.url : String(args.url ?? '');
+      return [{ label: 'url', value: url.length > 200 ? `${url.slice(0, 200)}…` : url }];
+    },
     execute: executeWebFetch,
   };
 }

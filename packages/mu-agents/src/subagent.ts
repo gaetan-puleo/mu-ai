@@ -21,10 +21,15 @@ export interface SubAgentDeps {
   bus: SubAgentBus;
   /** Track in-flight sub-agent sessions for abort propagation on deactivate. */
   inFlight: Set<Session>;
+  /** Bind an agent name to a child session so hooks resolve the correct agent. */
+  bindAgentToSession?: (session: Session, agentName: string) => void;
+  /** Unbind the agent name when the child session ends. */
+  unbindAgentFromSession?: (session: Session) => void;
 }
 
 const SUBAGENT_SOURCE = 'mu-agents-subagent';
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: subagent runner coordinates session lifecycle and event forwarding
 export async function runSubAgent(opts: SubAgentRunOptions, deps: SubAgentDeps): Promise<SubAgentResult> {
   const { parentSession, agentName, task } = opts;
   const runId = newId('subrun');
@@ -48,16 +53,17 @@ export async function runSubAgent(opts: SubAgentRunOptions, deps: SubAgentDeps):
 
   const child = deps.api.createSession({ meta: { source: SUBAGENT_SOURCE } });
   deps.inFlight.add(child);
+  deps.bindAgentToSession?.(child, agentName);
 
   // Propagate parent abort to the child.
   const abortListener = (event: import('mu-core').SessionEvent): void => {
-    if (event.type === 'session_ended' || event.type === 'turn_ended' && event.reason === 'aborted') {
+    if (event.type === 'session_ended' || (event.type === 'turn_ended' && event.reason === 'aborted')) {
       child.abort();
     }
   };
   const offParent = parentSession.on(abortListener);
 
-  emit('started', { task });
+  emit('started', { task, sessionId: child.id });
 
   let lastContent = '';
   let finalContent = '';
@@ -74,10 +80,11 @@ export async function runSubAgent(opts: SubAgentRunOptions, deps: SubAgentDeps):
       } else if (ev.type === 'message') {
         if (ev.message.role === 'assistant' && ev.message.toolCalls?.length) {
           for (const tc of ev.message.toolCalls) {
-            emit('tool_call', { name: tc.function.name, arguments: tc.function.arguments });
+            emit('tool_call', { id: tc.id, name: tc.function.name, arguments: tc.function.arguments });
           }
         } else if (ev.message.role === 'tool' && ev.message.toolResult) {
           emit('tool_result', {
+            toolCallId: ev.message.toolCallId,
             name: ev.message.toolResult.name,
             content: ev.message.toolResult.content,
             error: ev.message.toolResult.error,
@@ -94,6 +101,7 @@ export async function runSubAgent(opts: SubAgentRunOptions, deps: SubAgentDeps):
     errorMessage = err instanceof Error ? err.message : String(err);
   } finally {
     offParent();
+    deps.unbindAgentFromSession?.(child);
     child.end();
     deps.inFlight.delete(child);
   }
@@ -116,8 +124,7 @@ function buildAgentEnum(agents: Map<string, Agent>): string[] {
 export function createSubagentTool(deps: SubAgentDeps, parentSession: () => Session | undefined): Tool {
   return {
     name: 'subagent',
-    description:
-      'Delegate an isolated task to a named sub-agent. Returns the sub-agent’s final answer.',
+    description: 'Delegate an isolated task to a named sub-agent. Returns the sub-agent’s final answer.',
     parameters: {
       type: 'object',
       properties: {
@@ -132,6 +139,14 @@ export function createSubagentTool(deps: SubAgentDeps, parentSession: () => Sess
       additionalProperties: false,
     },
     matchKey: (args) => (typeof args.agent === 'string' ? args.agent : undefined),
+    formatArgs: (args) => {
+      const agent = typeof args.agent === 'string' ? args.agent : String(args.agent ?? '');
+      const task = typeof args.task === 'string' ? args.task : String(args.task ?? '');
+      return [
+        { label: 'agent', value: agent },
+        { label: 'task', value: task.length > 120 ? `${task.slice(0, 120)}…` : task },
+      ];
+    },
     async execute(args) {
       const parent = parentSession();
       if (!parent) {
@@ -139,7 +154,7 @@ export function createSubagentTool(deps: SubAgentDeps, parentSession: () => Sess
       }
       const agentName = String(args.agent ?? '');
       const task = String(args.task ?? '');
-      if (!agentName || !task) {
+      if (!(agentName && task)) {
         return { content: 'Error: subagent requires both `agent` and `task`', error: true };
       }
       const result = await runSubAgent({ parentSession: parent, agentName, task }, deps);
@@ -170,6 +185,16 @@ export function createSubagentParallelTool(deps: SubAgentDeps, parentSession: ()
       },
       required: ['runs'],
       additionalProperties: false,
+    },
+    formatArgs: (args) => {
+      const runs = Array.isArray(args.runs) ? args.runs : [];
+      return runs.map((r, i) => {
+        const item = r as { agent?: unknown; task?: unknown };
+        const agent = typeof item.agent === 'string' ? item.agent : '?';
+        const taskRaw = typeof item.task === 'string' ? item.task : '?';
+        const task = taskRaw.length > 80 ? `${taskRaw.slice(0, 80)}…` : taskRaw;
+        return { label: `#${i + 1}`, value: `${agent}: ${task}` };
+      });
     },
     async execute(args) {
       const parent = parentSession();

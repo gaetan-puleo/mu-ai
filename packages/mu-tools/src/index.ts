@@ -27,15 +27,6 @@ export interface MuToolsPluginOptions {
 
 const DEFAULT_TOOLS = ['read', 'write', 'edit', 'bash', 'list_dir'] as const;
 
-const SYSTEM_PROMPT = [
-  'File & shell tools:',
-  '- Prefer `read` over `cat`/`sed`; pass `start`/`end` for large files.',
-  '- Use `edit` for surgical changes; include enough context in `from` to be unique. One `edit` call per change site.',
-  '- Use `write` only for new files or full rewrites.',
-  '- Use `list_dir` to inspect directory contents (optionally recursive with `depth`).',
-  '- Use `bash` for ops without a dedicated tool (rg, build, tests). Avoid using it to read or rewrite files.',
-].join('\n');
-
 export function createMuToolsPlugin(options: MuToolsPluginOptions = {}): Plugin {
   const getCwd = options.getCwd ?? ((): string => process.cwd());
   const restrictToCwd = options.restrictToCwd ?? false;
@@ -51,7 +42,6 @@ export function createMuToolsPlugin(options: MuToolsPluginOptions = {}): Plugin 
   return {
     name: 'mu-tools',
     register(api) {
-      api.systemPrompt(SYSTEM_PROMPT);
       for (const t of tools) api.tool(t);
     },
   };

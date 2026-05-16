@@ -64,14 +64,10 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
  */
 async function probeLlamaSwap(root: string): Promise<boolean> {
   const res = await fetchWithTimeout(`${root}/running`, PROBE_TIMEOUT_MS);
-  if (!res || !res.ok) return false;
+  if (!(res && res.ok)) return false;
   try {
     const body = (await res.json()) as unknown;
-    return (
-      !!body &&
-      typeof body === 'object' &&
-      Array.isArray((body as { running?: unknown }).running)
-    );
+    return !!body && typeof body === 'object' && Array.isArray((body as { running?: unknown }).running);
   } catch {
     return false;
   }
@@ -85,14 +81,10 @@ async function probeLlamaSwap(root: string): Promise<boolean> {
  */
 async function probeLlamaCpp(root: string): Promise<boolean> {
   const res = await fetchWithTimeout(`${root}/props`, PROBE_TIMEOUT_MS);
-  if (!res || !res.ok) return false;
+  if (!(res && res.ok)) return false;
   try {
     const body = (await res.json()) as unknown;
-    return (
-      !!body &&
-      typeof body === 'object' &&
-      'default_generation_settings' in (body as Record<string, unknown>)
-    );
+    return !!body && typeof body === 'object' && 'default_generation_settings' in (body as Record<string, unknown>);
   } catch {
     return false;
   }

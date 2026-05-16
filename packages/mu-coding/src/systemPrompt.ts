@@ -24,9 +24,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 function userSystemPromptPath(): string {
-  const dir = process.env.XDG_CONFIG_HOME
-    ? join(process.env.XDG_CONFIG_HOME, 'mu')
-    : join(homedir(), '.config', 'mu');
+  const dir = process.env.XDG_CONFIG_HOME ? join(process.env.XDG_CONFIG_HOME, 'mu') : join(homedir(), '.config', 'mu');
   return join(dir, 'SYSTEM.md');
 }
 

@@ -1,21 +1,19 @@
-import { newMessage, type Message, type Plugin, type Session } from 'mu-core';
-import {
-  type ApprovalChannel,
-  type ApprovalDecision,
-  type ApprovalRequest,
-  ApprovalGateway,
-} from './approval';
+import { type Message, newMessage, type Plugin, type Session, type Tool } from 'mu-core';
+import { type ApprovalChannel, type ApprovalDecision, ApprovalGateway, type ApprovalRequest } from './approval';
 import type { KeybindChannel } from './keybinds';
 import { type Agent, loadAgentsFromDir } from './markdown';
-import {
-  type MentionCompletion,
-  createAgentCompletions,
-  parseMention,
-} from './mention';
+import { createAgentCompletions, type MentionCompletion, parseMention } from './mention';
 import { createSubAgentBus, type SubAgentBus, type SubAgentEvent } from './subAgentBus';
-import { createSubagentParallelTool, createSubagentTool } from './subagent';
-import { type SwitchEvent, createSwitchTracker, type SwitchTracker } from './switches';
+import {
+  createSubagentParallelTool,
+  createSubagentTool,
+  runSubAgent,
+  type SubAgentDeps,
+  type SubAgentResult,
+} from './subagent';
+import { createSwitchTracker, type SwitchEvent, type SwitchTracker } from './switches';
 
+export type { Action, PermissionMap, ToolPermission } from './permissions';
 export type {
   Agent,
   ApprovalChannel,
@@ -25,7 +23,6 @@ export type {
   SubAgentEvent,
   SwitchEvent,
 };
-export type { Action, PermissionMap, ToolPermission } from './permissions';
 
 export interface AgentsPluginOptions {
   /** Directly-provided agents. Merged with any loaded from `dirs`. */
@@ -48,21 +45,22 @@ export interface AgentsPluginOptions {
 }
 
 export interface AgentsHandle {
-  list(): Agent[];
+  list: () => Agent[];
   /** Only `kind === 'primary'` agents — those a user can drive interactively. */
-  listPrimary(): Agent[];
-  get(name: string): Agent | undefined;
+  listPrimary: () => Agent[];
+  get: (name: string) => Agent | undefined;
   /** Agent active for the *next* turn (mention override > persistent > default). */
-  getActive(session: Session): Agent | undefined;
+  getActive: (session: Session) => Agent | undefined;
   /** Programmatic persistent switch. Returns false if the name is unknown. */
-  setActive(session: Session, name: string): boolean;
+  setActive: (session: Session, name: string) => boolean;
   /** Cycle the persistent active agent to the next primary in registration order. */
-  cycleActive(session: Session): Agent | undefined;
+  cycleActive: (session: Session) => Agent | undefined;
 
-  switches(sessionId: string): readonly SwitchEvent[];
-  onSwitch(fn: (event: SwitchEvent) => void): () => void;
-  onSubAgentEvent(parentSessionId: string, fn: (e: SubAgentEvent) => void): () => void;
-  getCompletions(partial: string): MentionCompletion[];
+  switches: (sessionId: string) => readonly SwitchEvent[];
+  onSwitch: (fn: (event: SwitchEvent) => void) => () => void;
+  onSubAgentEvent: (parentSessionId: string, fn: (e: SubAgentEvent) => void) => () => void;
+  runSubAgent: (parentSession: Session, agentName: string, task: string) => Promise<SubAgentResult>;
+  getCompletions: (partial: string) => MentionCompletion[];
 }
 
 function buildAgents(options: AgentsPluginOptions): Map<string, Agent> {
@@ -93,6 +91,7 @@ function drainContributedDirs(): string[] {
   return drained;
 }
 
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: plugin wiring is intentionally centralized
 export function createAgentsPlugin(options: AgentsPluginOptions = {}): Plugin & { handle: AgentsHandle } {
   const agents = buildAgents(options);
   // `knownNames` and `defaultAgent` are recomputed after register() so any
@@ -103,6 +102,8 @@ export function createAgentsPlugin(options: AgentsPluginOptions = {}): Plugin & 
   // Per-session state — kept in plugin closure, not on Session itself.
   const active = new Map<string, string>();
   const pendingMention = new Map<string, string>();
+  // Maps subagent child sessions to their agent name so hooks resolve correctly.
+  const subAgentOf = new Map<string, string>();
 
   const tracker: SwitchTracker = createSwitchTracker();
   const bus: SubAgentBus = createSubAgentBus();
@@ -120,16 +121,18 @@ export function createAgentsPlugin(options: AgentsPluginOptions = {}): Plugin & 
   // Tools don't receive the session today, so we track the most-recent
   // active session per turn via beforeToolExec and expose it through a getter.
   let activeParent: Session | undefined;
+  let subAgentDeps: SubAgentDeps | undefined;
 
   const resolveActiveForTurn = (session: Session): Agent | undefined => {
+    const subAgentName = subAgentOf.get(session.id);
+    if (subAgentName) return agents.get(subAgentName);
     const mentionName = pendingMention.get(session.id);
     if (mentionName) return agents.get(mentionName);
     const persistent = active.get(session.id) ?? defaultAgent;
     return persistent ? agents.get(persistent) : undefined;
   };
 
-  const listPrimary = (): Agent[] =>
-    Array.from(agents.values()).filter((a) => a.kind === 'primary');
+  const listPrimary = (): Agent[] => Array.from(agents.values()).filter((a) => a.kind === 'primary');
 
   const handle: AgentsHandle = {
     list: () => Array.from(agents.values()),
@@ -158,11 +161,16 @@ export function createAgentsPlugin(options: AgentsPluginOptions = {}): Plugin & 
     switches: (sessionId) => tracker.history(sessionId),
     onSwitch: (fn) => tracker.subscribe(fn),
     onSubAgentEvent: (parentSessionId, fn) => bus.onParent(parentSessionId, fn),
+    runSubAgent: (parentSession, agentName, task) => {
+      if (!subAgentDeps) throw new Error('agents plugin is not registered');
+      return runSubAgent({ parentSession, agentName, task }, subAgentDeps);
+    },
     getCompletions: createAgentCompletions(() => Array.from(agents.values())),
   };
 
   const plugin: Plugin = {
     name: 'mu-agents',
+    // biome-ignore lint/complexity/noExcessiveLinesPerFunction: plugin registration wires related hooks/tools together
     register(api) {
       // Merge any dirs contributed by other plugins that registered earlier
       // (see `contributeAgentsDir`). Later entries override earlier names,
@@ -206,7 +214,14 @@ export function createAgentsPlugin(options: AgentsPluginOptions = {}): Plugin & 
         agents,
         bus,
         inFlight: inFlightSubAgents,
+        bindAgentToSession: (session: Session, agentName: string) => {
+          subAgentOf.set(session.id, agentName);
+        },
+        unbindAgentFromSession: (session: Session) => {
+          subAgentOf.delete(session.id);
+        },
       };
+      subAgentDeps = deps;
       api.tool(createSubagentTool(deps, () => activeParent));
       api.tool(createSubagentParallelTool(deps, () => activeParent));
 
@@ -272,7 +287,16 @@ export function createAgentsPlugin(options: AgentsPluginOptions = {}): Plugin & 
             /* leave args empty */
           }
           const matchKey = tool?.matchKey?.(args);
-          return await gateway.check({ session, agent, call, matchKey });
+          const argLines = tool?.formatArgs?.(args);
+          return await gateway.check({ session, agent, call, matchKey, argLines });
+        },
+
+        filterTools(tools: Tool[], session: Session): Tool[] {
+          const agent = resolveActiveForTurn(session);
+          if (!agent) return tools;
+          if (agent.tools.includes('*')) return tools;
+          const allowed = new Set(agent.tools);
+          return tools.filter((t) => allowed.has(t.name));
         },
 
         onTurnEnd(_reason, session) {
@@ -295,6 +319,7 @@ export function createAgentsPlugin(options: AgentsPluginOptions = {}): Plugin & 
           tracker.clearSession(session.id);
           active.delete(session.id);
           pendingMention.delete(session.id);
+          subAgentOf.delete(session.id);
         },
       });
     },
@@ -307,6 +332,7 @@ export function createAgentsPlugin(options: AgentsPluginOptions = {}): Plugin & 
         }
       }
       inFlightSubAgents.clear();
+      subAgentOf.clear();
       bus.clear();
       try {
         detachKeybind?.();

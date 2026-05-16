@@ -36,10 +36,7 @@ function remove<T>(arr: T[], item: T): void {
   if (i >= 0) arr.splice(i, 1);
 }
 
-export async function resolveSystemPrompt(
-  prompts: SystemPrompt[],
-  base?: string,
-): Promise<string | undefined> {
+export async function resolveSystemPrompt(prompts: SystemPrompt[], base?: string): Promise<string | undefined> {
   const parts: string[] = [];
   if (base) parts.push(base);
   for (const p of prompts) {
@@ -179,52 +176,51 @@ export class Mu {
   }
 
   private _api(_pluginName: string, unregisters: Array<() => void>): PluginAPI {
-    const mu = this;
     const track = (fn: () => void) => {
       unregisters.push(fn);
       return fn;
     };
 
     return {
-      config: mu._pluginConfig,
+      config: this._pluginConfig,
       hook: (hooks) => {
-        mu._hooks.push(hooks);
-        return track(() => remove(mu._hooks, hooks));
+        this._hooks.push(hooks);
+        return track(() => remove(this._hooks, hooks));
       },
       tool: (tool) => {
-        mu._tools.push(tool);
-        return track(() => remove(mu._tools, tool));
+        this._tools.push(tool);
+        return track(() => remove(this._tools, tool));
       },
       provider: (provider) => {
-        mu._providers.push(provider);
-        return track(() => remove(mu._providers, provider));
+        this._providers.push(provider);
+        return track(() => remove(this._providers, provider));
       },
       channel: (channel) => {
-        mu._channels.push(channel);
-        return track(() => remove(mu._channels, channel));
+        this._channels.push(channel);
+        return track(() => remove(this._channels, channel));
       },
       command: (command) => {
-        if (mu._commands.some((c) => c.name === command.name)) {
+        if (this._commands.some((c) => c.name === command.name)) {
           throw new Error(`Command "${command.name}" is already registered.`);
         }
-        mu._commands.push(command);
-        return track(() => remove(mu._commands, command));
+        this._commands.push(command);
+        return track(() => remove(this._commands, command));
       },
       systemPrompt: (prompt) => {
-        mu._systemPrompts.push(prompt);
-        return track(() => remove(mu._systemPrompts, prompt));
+        this._systemPrompts.push(prompt);
+        return track(() => remove(this._systemPrompts, prompt));
       },
-      createSession: (createOpts) => mu.session(undefined, createOpts),
-      getTool: (name) => mu._tools.find((t) => t.name === name),
-      getTools: () => mu._tools,
-      getProvider: (id) => mu._providers.find((p) => p.id === id),
-      getCommand: (name) => mu._commands.find((c) => c.name === name),
-      listCommands: () => mu._commands,
-      getSession: (id) => mu._sessions.get(id),
-      listSessions: () => Array.from(mu._sessions.values()),
+      createSession: (createOpts) => this.session(createOpts?.id, createOpts),
+      getTool: (name) => this._tools.find((t) => t.name === name),
+      getTools: () => this._tools,
+      getProvider: (id) => this._providers.find((p) => p.id === id),
+      getCommand: (name) => this._commands.find((c) => c.name === name),
+      listCommands: () => this._commands,
+      getSession: (id) => this._sessions.get(id),
+      listSessions: () => Array.from(this._sessions.values()),
       onSession: (fn) => {
-        mu._sessionListeners.add(fn);
-        return track(() => mu._sessionListeners.delete(fn));
+        this._sessionListeners.add(fn);
+        return track(() => this._sessionListeners.delete(fn));
       },
     };
   }

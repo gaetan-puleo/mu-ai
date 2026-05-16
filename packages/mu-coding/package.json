@@ -21,11 +21,13 @@
   },
   "dependencies": {
     "ink": "^7.0.1",
+    "ink-multiline-input": "^0.1.0",
     "ink-text-input": "^6.0.0",
     "mu-agents": "workspace:*",
     "mu-coding-agents": "workspace:*",
     "mu-core": "workspace:*",
     "mu-local-provider": "workspace:*",
+    "mu-skill-runner": "workspace:*",
     "mu-tools": "workspace:*",
     "react": "^19.2.5"
   },

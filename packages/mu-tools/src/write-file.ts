@@ -13,6 +13,7 @@ export function createWriteFileTool(opts: WriteFileToolOptions): Tool {
   return {
     name: 'write',
     description: 'Create or overwrite a file. Use `edit` for partial changes to existing files.',
+    systemPrompt: 'Use `write` only for new files or full rewrites.',
     parameters: {
       type: 'object',
       properties: {
@@ -23,6 +24,15 @@ export function createWriteFileTool(opts: WriteFileToolOptions): Tool {
       additionalProperties: false,
     },
     matchKey: (args) => (typeof args.path === 'string' ? args.path : undefined),
+    formatArgs: (args) => {
+      const path = typeof args.path === 'string' ? args.path : String(args.path ?? '');
+      const content = typeof args.content === 'string' ? args.content : '';
+      const lineCount = content.split('\n').length;
+      return [
+        { label: 'path', value: path.length > 120 ? `${path.slice(0, 120)}…` : path },
+        { label: 'size', value: `${lineCount} line${lineCount !== 1 ? 's' : ''}` },
+      ];
+    },
     execute(args) {
       const rawPath = args.path as string;
       const path = sanitizePath(rawPath, getCwd(), restrictToCwd);

@@ -1,4 +1,12 @@
-import { type Message, type ProviderConfig, type StreamChunk, type StreamOptions, type Tool, type Usage, debugLog } from 'mu-core';
+import {
+  debugLog,
+  type Message,
+  type ProviderConfig,
+  type StreamChunk,
+  type StreamOptions,
+  type Tool,
+  type Usage,
+} from 'mu-core';
 import OpenAI from 'openai';
 import type {
   ChatCompletionChunk,
@@ -110,7 +118,10 @@ function processChunkDeltas(delta: DeltaWithReasoning): StreamChunk[] {
 // every registered `Tool`. This is the structured channel for tool
 // information — textual usage hints from `api.systemPrompt(...)`
 // contributions ride along inside the leading `system` message.
-function toOpenAITool(t: Tool): { type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } } {
+function toOpenAITool(t: Tool): {
+  type: 'function';
+  function: { name: string; description: string; parameters: Record<string, unknown> };
+} {
   return {
     type: 'function',
     function: { name: t.name, description: t.description, parameters: t.parameters },

@@ -1,4 +1,13 @@
+export { debugLog } from './debug';
+export { newId, newMessageId, newSessionId, nowMs } from './ids';
+export type { NewMessageInit } from './message';
+export { newMessage } from './message';
+export type { MuOptions, SessionOptions } from './mu';
+export { Mu } from './mu';
+export type { DumpPayload } from './session';
+export { Session } from './session';
 export type {
+  ArgLine,
   Channel,
   ChannelContext,
   Command,
@@ -27,13 +36,3 @@ export type {
   Usage,
   Visibility,
 } from './types';
-
-export { Session } from './session';
-export { Mu } from './mu';
-export type { MuOptions, SessionOptions } from './mu';
-
-export { newMessage } from './message';
-export type { NewMessageInit } from './message';
-
-export { newId, newMessageId, newSessionId, nowMs } from './ids';
-export { debugLog } from './debug';

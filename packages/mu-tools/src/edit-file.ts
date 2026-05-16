@@ -12,6 +12,8 @@ export function createEditFileTool(opts: EditFileToolOptions): Tool {
   return {
     name: 'edit',
     description: 'Replace an exact substring in an existing file.',
+    systemPrompt:
+      'Use `edit` for surgical changes; include enough context in `from` to be unique. One `edit` call per change site.',
     parameters: {
       type: 'object',
       properties: {
@@ -27,6 +29,17 @@ export function createEditFileTool(opts: EditFileToolOptions): Tool {
       additionalProperties: false,
     },
     matchKey: (args) => (typeof args.path === 'string' ? args.path : undefined),
+    formatArgs: (args) => {
+      const path = typeof args.path === 'string' ? args.path : String(args.path ?? '');
+      const from = typeof args.from === 'string' ? args.from : String(args.from ?? '');
+      const to = typeof args.to === 'string' ? args.to : String(args.to ?? '');
+      const t = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n)}…` : s);
+      return [
+        { label: 'path', value: t(path, 120) },
+        { label: 'from', value: t(from, 80) },
+        { label: 'to', value: t(to, 80) },
+      ];
+    },
     execute(args): ToolResult {
       const rawPath = args.path as string;
       const path = sanitizePath(rawPath, getCwd(), restrictToCwd);

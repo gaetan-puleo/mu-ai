@@ -1,4 +1,4 @@
-import { newId, type Session, type ToolBlock, type ToolCall } from 'mu-core';
+import { type ArgLine, newId, type Session, type ToolBlock, type ToolCall } from 'mu-core';
 import type { Agent } from './markdown';
 import { resolveAction } from './permissions';
 
@@ -9,6 +9,8 @@ export interface ApprovalRequest {
   toolName: string;
   args: Record<string, unknown>;
   matchedRule: string;
+  /** Pre-formatted lines from the tool's formatArgs. Undefined if tool didn't provide one. */
+  argLines?: ArgLine[];
 }
 
 export interface ApprovalDecision {
@@ -56,8 +58,9 @@ export class ApprovalGateway {
     agent: Agent;
     call: ToolCall;
     matchKey: string | undefined;
+    argLines?: ArgLine[];
   }): Promise<ToolCall | ToolBlock> {
-    const { session, agent, call, matchKey } = opts;
+    const { session, agent, call, matchKey, argLines } = opts;
     const toolName = call.function.name;
 
     // No detailed permission map → defer to the simple allow-list.
@@ -82,7 +85,7 @@ export class ApprovalGateway {
     if (!this.channel) {
       throw new Error(
         `Tool "${toolName}" requires approval (rule "${rule}" on agent "${agent.name}") ` +
-          `but no ApprovalChannel is registered.`,
+          'but no ApprovalChannel is registered.',
       );
     }
 
@@ -94,6 +97,7 @@ export class ApprovalGateway {
       toolName,
       args,
       matchedRule: rule,
+      argLines,
     });
 
     if (decision.outcome === 'deny') {

@@ -303,6 +303,8 @@ export function findRowAtLine(cumLines: readonly number[], line: number): { rowI
  *  - Home / End   — top / bottom
  *  - mouse wheel  — 3 lines per notch
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: viewport rendering combines scroll state and clipping math
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: kept together so scroll/clipping calculations stay local
 export function MessagesViewport({
   rows,
   minHeight = 3,
@@ -312,6 +314,12 @@ export function MessagesViewport({
   const containerRef = useRef<DOMElement | null>(null);
   const [measuredHeight, setMeasuredHeight] = useState<number>(Math.max(minHeight, termRows - 6));
 
+  // Re-measure the container height when terminal size changes or when the
+  // total content height might have shifted (new rows arrived or streaming
+  // text grew). We track content length as a proxy — any change in row count
+  // or streaming text length warrants a re-measure. Runs synchronously to
+  // avoid a one-frame flash from stale height.
+  const contentLen = rows.reduce((sum, r) => sum + r.text.length + (r.marginBottom ?? 0), 0);
   useLayoutEffect(() => {
     const node = containerRef.current;
     if (!node) return;
@@ -319,7 +327,7 @@ export function MessagesViewport({
     if (height > 0 && height !== measuredHeight) {
       setMeasuredHeight(height);
     }
-  });
+  }, [columns, termRows, contentLen, measuredHeight]);
 
   const available = Math.max(minHeight, measuredHeight);
 
@@ -399,19 +407,16 @@ export function MessagesViewport({
   const [stickToBottom, setStickToBottom] = useState(true);
   const [firstLine, setFirstLine] = useState(0);
 
-  // When sticking to bottom, follow new content automatically.
-  useEffect(() => {
-    if (stickToBottom) setFirstLine(maxFirstLine);
-  }, [stickToBottom, maxFirstLine]);
-
-  // Clamp when transcript shrinks or grows past the cursor.
+  // Stick-to-bottom follow + clamping in a single effect to avoid an
+  // intermediate render where firstLine is stale.
   useEffect(() => {
     setFirstLine((f) => {
+      if (stickToBottom) return maxFirstLine;
       if (f > maxFirstLine) return maxFirstLine;
       if (f < 0) return 0;
       return f;
     });
-  }, [maxFirstLine]);
+  }, [stickToBottom, maxFirstLine]);
 
   // Scroll helpers — line-based.
   const scrollUp = (n: number): void => {
@@ -535,33 +540,11 @@ export function MessagesViewport({
     }
   }
 
-  // Scrollbar geometry — in line space.
-  const viewLines = Math.min(totalLines, available);
-  const showScrollbar = totalLines > available && available >= 2;
-  const { thumbTop, thumbHeight } = showScrollbar
-    ? computeScrollbar(totalLines, viewLines, firstLine, available)
-    : { thumbTop: 0, thumbHeight: 0 };
-
   return (
-    <Box ref={containerRef} flexDirection="row" flexGrow={1} flexShrink={1} overflow="hidden">
-      <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden">
-        {renderItems.map((it) => (
-          <React.Fragment key={it.key}>{it.node}</React.Fragment>
-        ))}
-      </Box>
-      {showScrollbar ? (
-        <Box flexDirection="column" flexShrink={0} width={1} marginLeft={1}>
-          {Array.from({ length: available }, (_, i) => {
-            const inThumb = i >= thumbTop && i < thumbTop + thumbHeight;
-            return (
-              // biome-ignore lint/suspicious/noArrayIndexKey: bar cells have no per-position state; index is the natural key.
-              <Text key={`bar-${i}`} dimColor={!inThumb} color={inThumb ? 'cyan' : undefined}>
-                {inThumb ? '█' : '│'}
-              </Text>
-            );
-          })}
-        </Box>
-      ) : null}
+    <Box ref={containerRef} flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden">
+      {renderItems.map((it) => (
+        <React.Fragment key={it.key}>{it.node}</React.Fragment>
+      ))}
     </Box>
   );
 }

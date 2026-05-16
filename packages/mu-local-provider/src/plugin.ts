@@ -17,8 +17,8 @@
 
 import type { Plugin, Provider } from 'mu-core';
 import { detectServer, type LocalServerInfo } from './detect';
-import { getModelInfo, type LocalModelInfo } from './models';
 import { bareModelId } from './modelId';
+import { getModelInfo, type LocalModelInfo } from './models';
 import { streamChat as innerStreamChat } from './stream';
 
 export interface LocalProviderPluginConfig {
@@ -50,9 +50,7 @@ function adaptStreamChat(): Provider['streamChat'] {
   };
 }
 
-export function createLocalProviderPlugin(
-  config: LocalProviderPluginConfig = {},
-): LocalProviderPlugin {
+export function createLocalProviderPlugin(config: LocalProviderPluginConfig = {}): LocalProviderPlugin {
   const provider: Provider = {
     id: config.id ?? 'local',
     streamChat: adaptStreamChat(),

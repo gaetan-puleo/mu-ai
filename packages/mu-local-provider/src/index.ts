@@ -17,14 +17,14 @@ export {
   type LocalServerKind,
   originRoot,
 } from './detect';
-export { type ApiModel, getModelInfo, listModels, type LocalModelInfo } from './models';
 export {
   bareModelId,
   formatModelId,
-  parseModelId,
   type ParsedModelId,
   PROVIDER_PREFIX,
+  parseModelId,
 } from './modelId';
+export { type ApiModel, getModelInfo, type LocalModelInfo, listModels } from './models';
 export {
   createLocalProviderPlugin,
   default,

@@ -246,8 +246,6 @@ describe('streamChat error handling', () => {
 
     // The OpenAI SDK formats non-2xx responses as `<status> <body>` and throws
     // an `APIError` subclass.
-    await expect(collect(streamChat([msg('user', 'x')], baseConfig))).rejects.toThrow(
-      /429.*rate limited/,
-    );
+    await expect(collect(streamChat([msg('user', 'x')], baseConfig))).rejects.toThrow(/429.*rate limited/);
   });
 });

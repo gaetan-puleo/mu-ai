@@ -66,7 +66,7 @@ export function loadAgentFile(filePath: string): Agent | null {
 }
 
 export function loadAgentsFromDir(dir: string): Agent[] {
-  if (!existsSync(dir) || !statSync(dir).isDirectory()) return [];
+  if (!(existsSync(dir) && statSync(dir).isDirectory())) return [];
   const out: Agent[] = [];
   for (const file of readdirSync(dir)) {
     if (!file.endsWith('.md')) continue;

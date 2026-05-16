@@ -1,30 +1,28 @@
 /**
  * Plugin assembly for mu-coding.
  *
- * The TUI host always wires `mu-local-provider` and `mu-tools`. Additional
- * plugins are opted-in via `config.plugins` in ~/.config/mu/config.json.
+ * The TUI host always wires `mu-local-provider`, `mu-tools`, and
+ * `mu-skill-runner`. Additional plugins are opted-in via `config.plugins`
+ * in ~/.config/mu/config.json.
  *
  * Supported optional names today:
  *   - "mu-agents"          — agents runtime
  *   - "mu-coding-agents"   — bundled default agents (requires "mu-agents")
  *
- * `mu-tools` is always-on. Listing it explicitly is a no-op (with a one-line
- * note on stderr). Unknown names are ignored with a warning.
+ * `mu-tools` and `mu-skill-runner` are always-on. Listing them explicitly is
+ * a no-op (with a one-line note on stderr). Unknown names are ignored with a
+ * warning.
  *
  * `mu-coding-agents` does NOT auto-include `mu-agents` — that was an explicit
  * design choice to keep config behaviour predictable. Listing `mu-coding-
  * agents` alone emits a warning and drops both (no agents available).
  */
 
-import {
-  type AgentsHandle,
-  type ApprovalChannel,
-  createAgentsPlugin,
-  type KeybindChannel,
-} from 'mu-agents';
+import { type AgentsHandle, type ApprovalChannel, createAgentsPlugin, type KeybindChannel } from 'mu-agents';
 import { createCodingAgentsPlugin } from 'mu-coding-agents';
 import type { Plugin } from 'mu-core';
 import { createLocalProviderPlugin, type LocalProviderHandle } from 'mu-local-provider';
+import { createSkillRunnerPlugin } from 'mu-skill-runner';
 import { createMuToolsPlugin } from 'mu-tools';
 
 export interface AssembleOptions {
@@ -61,8 +59,8 @@ export function assemblePlugins(opts: AssembleOptions): Assembled {
   // Surface configuration mistakes up-front. We do not throw — mu-coding is
   // a TUI, surfacing a startup warning is friendlier than a stack trace.
   for (const name of requested) {
-    if (name === 'mu-tools') {
-      warn('"mu-tools" is always enabled; ignoring its entry in config.plugins.');
+    if (name === 'mu-tools' || name === 'mu-skill-runner') {
+      warn(`"${name}" is always enabled; ignoring its entry in config.plugins.`);
       continue;
     }
     if (!KNOWN_OPTIONAL.has(name)) {
@@ -81,7 +79,11 @@ export function assemblePlugins(opts: AssembleOptions): Assembled {
   }
 
   const localProviderPlugin = createLocalProviderPlugin();
-  const plugins: Plugin[] = [localProviderPlugin, createMuToolsPlugin({ restrictToCwd: false })];
+  const plugins: Plugin[] = [
+    localProviderPlugin,
+    createMuToolsPlugin({ restrictToCwd: false }),
+    createSkillRunnerPlugin(),
+  ];
   let agentsHandle: AgentsHandle | undefined;
 
   // Contributor plugins MUST register before the agents plugin so
