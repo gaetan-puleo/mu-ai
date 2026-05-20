@@ -3,6 +3,7 @@ import React from 'react';
 import { USER_BACKGROUND } from '../bridges';
 import { MessagesViewport, type ViewportRow } from '../primitives';
 import type { TranscriptRow } from '../types';
+import { MarkdownText, markdownToPlainText } from './MarkdownText';
 
 const { useMemo } = React;
 
@@ -38,10 +39,10 @@ const thinking = (text: string): React.ReactElement => (
   </Box>
 );
 
-const plain = (text: string): React.ReactElement => (
+const assistantMarkdown = (text: string): React.ReactElement => (
   <Box flexDirection="column" marginBottom={1}>
     <Box paddingX={1}>
-      <Text>{text}</Text>
+      <MarkdownText>{text}</MarkdownText>
     </Box>
   </Box>
 );
@@ -143,11 +144,12 @@ function buildViewportRows(
           node: dim(row.content),
         });
       } else {
+        const text = markdownToPlainText(row.content);
         result.push({
           id: row.id,
-          text: row.content,
+          text,
           marginBottom: 1,
-          node: plain(row.content),
+          node: assistantMarkdown(row.content),
         });
       }
     }
@@ -165,11 +167,12 @@ function buildViewportRows(
     }
   }
   if (streaming) {
+    const text = markdownToPlainText(streaming);
     result.push({
       id: '__streaming__',
-      text: streaming,
+      text,
       marginBottom: 1,
-      node: plain(streaming),
+      node: assistantMarkdown(streaming),
     });
   }
   for (const q of queuedView) {

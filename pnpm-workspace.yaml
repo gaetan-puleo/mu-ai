@@ -1,0 +1,4 @@
+packages:
+  - 'packages/*'
+allowBuilds:
+  '@ast-grep/cli': set this to true or false

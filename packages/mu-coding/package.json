@@ -25,11 +25,12 @@
     "ink-text-input": "^6.0.0",
     "mu-agents": "workspace:*",
     "mu-coding-agents": "workspace:*",
-    "mu-core": "workspace:*",
+    "mu-core-old": "workspace:*",
     "mu-local-provider": "workspace:*",
     "mu-skill-runner": "workspace:*",
     "mu-tools": "workspace:*",
-    "react": "^19.2.5"
+    "react": "^19.2.5",
+    "shiki": "^3.20.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.5"

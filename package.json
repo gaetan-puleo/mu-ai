@@ -1,9 +1,6 @@
 {
   "name": "mu-workspace",
   "private": true,
-  "workspaces": [
-    "packages/*"
-  ],
   "scripts": {
     "dev": "bun --watch packages/mu-coding/bin/mu.js",
     "start": "bun packages/mu-coding/bin/mu.js",
@@ -11,7 +8,7 @@
     "lint:fix": "biome check --fix --unsafe packages/",
     "format": "biome format --write packages/",
     "check": "biome check packages/ && tsc -b",
-    "test": "bun test packages/",
+    "test": "vitest run",
     "knip": "knip",
     "sg": "sg",
     "publish": "bun scripts/publish.ts"
@@ -21,6 +18,7 @@
     "@types/node": "^22.15.3",
     "@types/react": "^19.2.14",
     "knip": "^6.4.1",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.6"
   }
 }

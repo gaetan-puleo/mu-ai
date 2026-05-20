@@ -12,7 +12,7 @@
     "src"
   ],
   "dependencies": {
-    "mu-core": "workspace:*",
+    "mu-core-old": "workspace:*",
     "openai": "^6.35.0"
   }
 }

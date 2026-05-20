@@ -1,0 +1,20 @@
+{
+  "name": "mu-tui",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./features": "./src/features/index.ts",
+    "./components": "./src/components/index.ts",
+    "./layout": "./src/layout/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.19",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.6"
+  }
+}
