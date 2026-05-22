@@ -18,7 +18,7 @@ export class ReasoningBlock implements Component {
   constructor(props: ReasoningBlockProps) {
     this.content = props.content;
     this.onToggle = props.onToggle;
-    this.layout = { width: 'fill', height: 'auto', ...props.layout };
+    this.layout = { width: 'fill', height: 'auto', margin: { bottom: 1 }, ...props.layout };
   }
 
   setContent(content: string): void {

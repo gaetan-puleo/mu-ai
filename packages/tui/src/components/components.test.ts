@@ -557,6 +557,31 @@ describe('ScrollView', () => {
     expect(scrollView.scrollY).toBe(16);
   });
 
+  it('applies pending stick-to-bottom before laying out inner content', () => {
+    const scrollView = new ScrollView({ layout: { width: 'fill', height: 'fill' } });
+    scrollView.setChildren([{ render: () => [''], layout: { width: 'fill', height: 10 } }], { stickToBottom: true });
+
+    const root = new Box({ layout: { width: 'fill', height: 'fill' }, children: [scrollView] });
+    const entries = layoutTree([root], { x: 0, y: 0, width: 10, height: 4 }, scrollView, caps);
+    const innerEntry = entries.find((entry) => entry.component === scrollView.children[0]);
+
+    expect(scrollView.scrollY).toBe(6);
+    expect(innerEntry?.rect.y).toBe(-6);
+  });
+
+  it('includes child vertical margins when clamping bottom scroll', () => {
+    const children: Component[] = [
+      { render: () => [''], layout: { width: 'fill', height: 2, margin: { bottom: 1 } } },
+      { render: () => [''], layout: { width: 'fill', height: 2, margin: { bottom: 1 } } },
+    ];
+    const scrollView = new ScrollView({ layout: { width: 'fill', height: 'fill' }, children });
+
+    scrollView.render(ctx(10, 4));
+    scrollView.scrollToBottom();
+
+    expect(scrollView.scrollY).toBe(2);
+  });
+
   it('does not render scrolled content over a later fixed footer', () => {
     const scrollView = new ScrollView({
       layout: { width: 'fill', height: 'fill' },

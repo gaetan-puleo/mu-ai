@@ -1,5 +1,6 @@
 import type { InputEvent } from '../events';
-import type { Constraints, EventContext, LayoutStyle, RenderContext, Size } from '../layout/types';
+import { insetsForAxis, normalizeInsets } from '../layout/insets';
+import type { Constraints, EventContext, LayoutStyle, Rect, RenderContext, Size } from '../layout/types';
 import type { Component, Focusable } from '../types/component';
 
 export interface ScrollViewProps {
@@ -101,6 +102,13 @@ export class ScrollView implements Focusable {
   scrollToBottom(): void {
     this.refreshMetricsAndClamp();
     this.scrollTo(this.contentHeight);
+  }
+
+  prepareLayout(contentRect: Rect): void {
+    this.viewportWidth = contentRect.width;
+    this.viewportHeight = contentRect.height;
+    this.refreshMetricsAndClamp();
+    this.applyPendingStickToBottom();
   }
 
   render(ctx?: RenderContext): string[] {
@@ -216,6 +224,7 @@ class InnerContainer implements Component {
   measureNaturalHeight(maxWidth = Number.POSITIVE_INFINITY): number {
     let total = 0;
     for (const child of this.children) {
+      const margin = normalizeInsets(child.layout?.margin);
       const h = child.layout?.height;
       if (typeof h === 'number') total += h;
       else if (child.measure) {
@@ -229,6 +238,7 @@ class InnerContainer implements Component {
       } else {
         total += 1;
       }
+      total += insetsForAxis(margin, 'height');
     }
     return total;
   }

@@ -133,7 +133,7 @@ describe('createRuntime', () => {
 
   it('publishes reasoning messages', async () => {
     const provider: LLMProvider = async () => ({
-      reasoning: 'Thinking...',
+      reasoning: '\n  Thinking...\n',
       content: 'The answer is 42',
     });
 
@@ -163,6 +163,39 @@ describe('createRuntime', () => {
     expect(events).toContainEqual({
       type: 'assistant_message',
       message: { role: 'assistant', content: 'The answer is 42' },
+    });
+  });
+
+  it('publishes trimmed streamed reasoning messages', async () => {
+    const provider: LLMProvider = async () =>
+      (async function* () {
+        yield { type: 'reasoning_delta', content: '\n  Thinking...' };
+        yield { type: 'reasoning_delta', content: '\n' };
+        yield { type: 'done', response: { content: 'The answer is 42' } };
+      })();
+
+    const bus = createBus<CoreEvent>();
+    const events = collectEvents(bus);
+
+    const runtime = createRuntime({
+      provider,
+      tools: {},
+      bus,
+    });
+
+    runtime.start();
+
+    bus.publish({
+      type: 'user_message',
+      message: { role: 'user', content: 'Question' },
+    });
+
+    await waitForAsync();
+    await waitForAsync();
+
+    expect(events).toContainEqual({
+      type: 'reasoning_message',
+      message: { role: 'reasoning', content: 'Thinking...' },
     });
   });
 

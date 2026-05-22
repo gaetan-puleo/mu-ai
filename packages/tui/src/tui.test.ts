@@ -79,6 +79,26 @@ describe('TUI rendering', () => {
     expect(diffWrite).not.toContain('\r\n');
   });
 
+  it('redraws from the saved anchor when rendered line count grows', () => {
+    const terminal = new CapturingTerminal();
+    const component: Component = {
+      render: () => ['one', 'two'],
+    };
+    const tui = new TUI(terminal, { synchronizedOutput: false });
+    tui.addChild(component);
+
+    (tui as unknown as { doRender: () => void }).doRender();
+    (tui as unknown as { doRender: () => void }).doRender();
+    component.render = () => ['one', 'two', 'three'];
+    (tui as unknown as { doRender: () => void }).doRender();
+
+    const growthWrite = terminal.writes.at(-1) ?? '';
+    expect(growthWrite.startsWith('\x1b8')).toBe(true);
+    expect(growthWrite).toContain('\r\n');
+    expect(growthWrite).toContain('\x1b7');
+    expect(growthWrite).not.toContain('\x1b[2J');
+  });
+
   it('lets input interceptors consume events before focus handling', () => {
     const terminal = new CapturingTerminal();
     let handled = 0;

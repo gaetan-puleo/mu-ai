@@ -575,6 +575,12 @@ export class TUI {
       return;
     }
 
+    if (newLines.length > this.previousLines.length) {
+      debugLog({ stage: 'doRender:fullRender(growth)', frame });
+      this.fullRender(newLines, false);
+      return;
+    }
+
     this.differentialRender(newLines, firstChanged, lastChanged, width, height);
   }
 
@@ -582,6 +588,8 @@ export class TUI {
     let buffer = this.frameStart();
     if (clear) {
       buffer += '\x1b[2J\x1b[H\x1b[3J';
+    } else if (this.previousLines.length > 0) {
+      buffer += '\x1b8'; // Restore the saved top-left anchor before repainting.
     }
     for (let i = 0; i < lines.length; i++) {
       if (i > 0) buffer += '\r\n';

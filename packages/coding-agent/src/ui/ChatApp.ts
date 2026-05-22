@@ -159,7 +159,7 @@ class ToolLine implements Component {
     private readonly name: string,
     private readonly argsPreview: string,
   ) {
-    this.layout = { width: 'fill', height: 1, padding: { left: 1, right: 1 } };
+    this.layout = { width: 'fill', height: 1, padding: { left: 1, right: 1 }, margin: { bottom: 1 } };
   }
 
   render(ctx: RenderContext): string[] {
@@ -175,7 +175,7 @@ class ToolLine implements Component {
 }
 
 class HiddenThinkingLine implements Component {
-  layout: LayoutStyle = { width: 'fill', height: 1, padding: { left: 1, right: 1 } };
+  layout: LayoutStyle = { width: 'fill', height: 1, padding: { left: 1, right: 1 }, margin: { bottom: 1 } };
 
   constructor(private readonly onToggle: () => void) {}
 

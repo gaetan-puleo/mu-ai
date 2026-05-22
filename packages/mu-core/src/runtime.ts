@@ -157,8 +157,9 @@ export function createRuntime(config: RuntimeConfig): Runtime {
   function publishResponse(response: LLMResponse): boolean {
     publishContext(response);
 
-    if (response.reasoning) {
-      const message: Message = { role: 'reasoning', content: response.reasoning };
+    const reasoning = response.reasoning?.trim();
+    if (reasoning) {
+      const message: Message = { role: 'reasoning', content: reasoning };
       messages.push(message);
       bus.publish({ type: 'reasoning_message', message });
     }
@@ -207,8 +208,9 @@ export function createRuntime(config: RuntimeConfig): Runtime {
           doneToolCalls: doneCalls?.length ?? 0,
         });
 
-        if (reasoning && !event.response?.reasoning) {
-          const message: Message = { role: 'reasoning', content: reasoning };
+        const finalReasoning = (event.response?.reasoning ?? reasoning).trim();
+        if (finalReasoning) {
+          const message: Message = { role: 'reasoning', content: finalReasoning };
           messages.push(message);
           bus.publish({ type: 'reasoning_message', message });
         }
