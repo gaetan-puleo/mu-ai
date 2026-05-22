@@ -1,0 +1,211 @@
+import type { LLMResponseContext, LLMResponseContextSlot } from 'mu-core';
+import type { LocalBackendInfo, LocalModel } from '../types';
+
+export const LLAMA_SWAP_KIND = 'llama-swap' as const;
+
+export function normalizeLlamaSwapBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, '').replace(/\/v1$/, '');
+}
+
+export function getLlamaSwapOpenAIBaseUrl(baseUrl: string): string {
+  return `${normalizeLlamaSwapBaseUrl(baseUrl)}/v1`;
+}
+
+export async function listLlamaSwapModels(config: { baseUrl: string; apiKey?: string }): Promise<LocalModel[]> {
+  const baseUrl = normalizeLlamaSwapBaseUrl(config.baseUrl);
+
+  const response = await fetch(`${baseUrl}/v1/models`, {
+    headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : undefined,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to list llama-swap models: ${response.status} ${await response.text()}`);
+  }
+
+  const data = await response.json();
+
+  return data.data.map((model: { id: string; name?: string; description?: string; owned_by?: string }) => ({
+    id: model.id,
+    name: model.name,
+    description: model.description,
+    ownedBy: model.owned_by,
+  }));
+}
+
+export type LlamaSwapSlotInfo = {
+  id: number;
+  n_ctx: number;
+  speculative?: boolean;
+  is_processing: boolean;
+  id_task?: number;
+  next_token?: Array<{
+    has_next_token: boolean;
+    has_new_line: boolean;
+    n_remain: number;
+    n_decoded: number;
+  }>;
+  params?: Record<string, unknown>;
+};
+
+export type LlamaSwapProps = {
+  default_generation_settings: {
+    n_ctx: number;
+  };
+  total_slots: number;
+  model_path: string;
+  model_alias: string;
+};
+
+export async function getLlamaSwapProps(config: {
+  baseUrl: string;
+  apiKey?: string;
+  model?: string;
+}): Promise<LlamaSwapProps | undefined> {
+  const baseUrl = normalizeLlamaSwapBaseUrl(config.baseUrl);
+  const model = config.model ?? '';
+
+  try {
+    const response = await fetch(`${baseUrl}/upstream/${model}/props`, {
+      headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : undefined,
+    });
+
+    if (!response.ok) {
+      return undefined;
+    }
+
+    return response.json();
+  } catch {
+    return undefined;
+  }
+}
+
+export async function getLlamaSwapSlots(config: {
+  baseUrl: string;
+  apiKey?: string;
+  model?: string;
+}): Promise<LlamaSwapSlotInfo[] | undefined> {
+  const baseUrl = normalizeLlamaSwapBaseUrl(config.baseUrl);
+  const model = config.model ?? '';
+
+  try {
+    const response = await fetch(`${baseUrl}/upstream/${model}/slots`, {
+      headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : undefined,
+    });
+
+    if (!response.ok) {
+      return undefined;
+    }
+
+    return response.json();
+  } catch {
+    return undefined;
+  }
+}
+
+export function selectAvailableSlot(slots: LlamaSwapSlotInfo[]): LlamaSwapSlotInfo | undefined {
+  for (const slot of slots) {
+    if (!slot.is_processing) {
+      return slot;
+    }
+  }
+  return slots[0];
+}
+
+export type LlamaSwapChatRequestExtras = {
+  id_slot: number;
+  cache_prompt: boolean;
+};
+
+export async function prepareLlamaSwapChatRequest(config: {
+  baseUrl: string;
+  apiKey?: string;
+  model: string;
+}): Promise<LlamaSwapChatRequestExtras | undefined> {
+  const slots = await getLlamaSwapSlots(config);
+  if (!slots?.length) {
+    return undefined;
+  }
+  const slot = selectAvailableSlot(slots);
+  if (!slot) {
+    return undefined;
+  }
+  return {
+    id_slot: slot.id,
+    cache_prompt: true,
+  };
+}
+
+function normalizeSlots(slots: LlamaSwapSlotInfo[] | undefined): LLMResponseContextSlot[] | undefined {
+  if (!slots?.length) {
+    return undefined;
+  }
+  return slots.map((slot) => ({
+    id: slot.id,
+    n_ctx: slot.n_ctx,
+    is_processing: slot.is_processing,
+  }));
+}
+
+export async function collectLlamaSwapContext(config: {
+  baseUrl: string;
+  apiKey?: string;
+  model: string;
+  selectedSlotId?: number;
+}): Promise<LLMResponseContext | undefined> {
+  const [slots, props] = await Promise.all([
+    getLlamaSwapSlots(config).catch(() => undefined),
+    getLlamaSwapProps(config).catch(() => undefined),
+  ]);
+
+  if (!slots && !props) {
+    return undefined;
+  }
+
+  const context: LLMResponseContext = {};
+
+  if (props) {
+    context.props = {
+      n_ctx: props.default_generation_settings.n_ctx,
+      total_slots: props.total_slots,
+      model_path: props.model_path,
+      model_alias: props.model_alias,
+    };
+  }
+
+  const normalizedSlots = normalizeSlots(slots);
+  if (normalizedSlots) {
+    context.slots = normalizedSlots;
+
+    if (config.selectedSlotId !== undefined) {
+      const current = normalizedSlots.find((s) => s.id === config.selectedSlotId);
+      if (current) {
+        context.currentSlot = current;
+      }
+    }
+  }
+
+  return context;
+}
+
+export async function detectLlamaSwap(config: {
+  baseUrl: string;
+  apiKey?: string;
+}): Promise<LocalBackendInfo | undefined> {
+  const baseUrl = normalizeLlamaSwapBaseUrl(config.baseUrl);
+
+  try {
+    const models = await listLlamaSwapModels({ baseUrl, apiKey: config.apiKey });
+
+    if (!models.some((model) => model.ownedBy === 'llama-swap')) {
+      return undefined;
+    }
+
+    return {
+      kind: LLAMA_SWAP_KIND,
+      baseUrl,
+      models,
+    };
+  } catch {
+    return undefined;
+  }
+}

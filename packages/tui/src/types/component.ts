@@ -1,5 +1,5 @@
 import type { InputEvent } from '../events';
-import type { Constraints, EventContext, LayoutStyle, RenderContext, Size } from '../layout/types';
+import type { Constraints, EventContext, LayoutStyle, Rect, RenderContext, Size } from '../layout/types';
 
 /**
  * Component interface — all mu-tui components implement this.
@@ -31,6 +31,13 @@ export interface Component {
    * `width: 'auto'` / `height: 'auto'`. Must not call `render()`.
    */
   measure?: (constraints: Constraints) => Size;
+  /**
+   * Optional hook called by the layout engine after this component's
+   * `contentRect` has been computed, but before its children are laid out.
+   * Use this to dynamically mutate child `layout` (e.g. center a panel inside
+   * a full-screen overlay). Should not perform expensive work.
+   */
+  prepareLayout?: (contentRect: Rect) => void;
   /** Whether this component receives key release events (Kitty protocol). */
   wantsKeyRelease?: boolean;
   /** Clear any internal cache before the next render. */

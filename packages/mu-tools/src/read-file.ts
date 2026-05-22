@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import type { Tool } from 'mu-core';
-import { sanitizePath } from './utils';
+import { formatError, parseArgs, sanitizePath } from './utils';
 
 interface ReadFileToolOptions {
   getCwd: () => string;
@@ -41,7 +41,7 @@ function executeReadFileSingle(
     const header = `── ${path}${rangeLabel} (${lines.length} lines) ──`;
     return `${header}\n${numbered}`;
   } catch (err) {
-    return `Error: ${err instanceof Error ? err.message : 'Unknown error'}`;
+    return formatError(err);
   }
 }
 
@@ -50,7 +50,6 @@ export function createReadFileTool(opts: ReadFileToolOptions): Tool {
   return {
     name: 'read',
     description: 'Read text file(s) with line numbers. `path` may be a single path or array.',
-    systemPrompt: 'Prefer `read` over `cat`/`sed`; pass `start`/`end` for large files.',
     parameters: {
       type: 'object',
       properties: {
@@ -61,38 +60,24 @@ export function createReadFileTool(opts: ReadFileToolOptions): Tool {
       required: ['path'],
       additionalProperties: false,
     },
-    matchKey: (args) => {
-      const p = args.path;
-      if (typeof p === 'string') return p;
-      if (Array.isArray(p) && typeof p[0] === 'string') return p[0];
-      return undefined;
-    },
-    formatArgs: (args) => {
-      const raw = args.path;
-      const pathStr = Array.isArray(raw) ? raw.join(', ') : String(raw ?? '');
-      const range = args.start != null && args.end != null ? `:${args.start}-${args.end}` : '';
-      const full = `${pathStr}${range}`;
-      return [{ label: 'path', value: full.length > 120 ? `${full.slice(0, 120)}…` : full }];
-    },
     execute(args) {
-      const paths = Array.isArray(args.path) ? (args.path as string[]) : [args.path as string];
-      const start = args.start as number | undefined;
-      const end = args.end as number | undefined;
+      const parsed = parseArgs(args);
+      const rawPath = parsed.path;
+      const paths = Array.isArray(rawPath) ? (rawPath as string[]) : [rawPath as string];
+      const start = parsed.start as number | undefined;
+      const end = parsed.end as number | undefined;
       const cwd = getCwd();
 
       if (paths.length === 1) {
-        const content = executeReadFileSingle(paths[0], cwd, restrictToCwd, start, end);
-        return { content, error: content.startsWith('Error:') };
+        return executeReadFileSingle(paths[0], cwd, restrictToCwd, start, end);
       }
 
       const results: string[] = [];
-      let anyError = false;
-      for (const path of paths) {
-        const content = executeReadFileSingle(path, cwd, restrictToCwd, start, end);
-        if (content.startsWith('Error:')) anyError = true;
-        results.push(content);
+      for (const p of paths) {
+        results.push(executeReadFileSingle(p, cwd, restrictToCwd, start, end));
       }
-      return { content: results.join('\n\n'), error: anyError };
+      return results.join('\n\n');
     },
+    onError: formatError,
   };
 }

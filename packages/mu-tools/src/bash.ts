@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
-import type { Tool, ToolResult } from 'mu-core';
+import type { Tool } from 'mu-core';
+import { formatError, parseArgs } from './utils';
 
-function executeBash(command: string, cwd: string, signal?: AbortSignal): Promise<ToolResult> {
+function executeBash(command: string, cwd: string): Promise<string> {
   return new Promise((resolve) => {
     const proc = spawn('bash', ['-c', command], {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -27,56 +28,20 @@ function executeBash(command: string, cwd: string, signal?: AbortSignal): Promis
       }
     });
 
-    const onAbort = (): void => {
-      const pid = proc.pid;
-      if (pid) {
-        try {
-          process.kill(-pid, 'SIGTERM');
-        } catch {
-          proc.kill('SIGTERM');
-        }
-        setTimeout(() => {
-          if (!proc.killed) {
-            try {
-              process.kill(-pid, 'SIGKILL');
-            } catch {
-              proc.kill('SIGKILL');
-            }
-          }
-        }, 500);
-      }
-    };
-
-    if (signal) {
-      if (signal.aborted) {
-        onAbort();
-        return;
-      }
-      signal.addEventListener('abort', onAbort, { once: true });
-    }
-
     proc.on('close', (code) => {
-      signal?.removeEventListener('abort', onAbort);
       const output = [stdout, stderr]
         .map((s) => s.trim())
         .filter(Boolean)
         .join('\n');
-      if (signal?.aborted) {
-        resolve({ content: 'Aborted', error: true });
-        return;
-      }
       if (code !== 0 && !output) {
-        resolve({ content: `Error: Process exited with code ${code}`, error: true });
+        resolve(`Error: Process exited with code ${code}`);
         return;
       }
-      // Non-zero exit with output: treat as error so the LLM sees it as such,
-      // but preserve stdout/stderr in the content.
-      resolve({ content: output || '(no output)', error: code !== 0 });
+      resolve(output || '(no output)');
     });
 
     proc.on('error', (err) => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve({ content: `Error: ${err.message}`, error: true });
+      resolve(formatError(err));
     });
   });
 }
@@ -90,8 +55,6 @@ export function createBashTool(opts: BashToolOptions): Tool {
   return {
     name: 'bash',
     description: 'Run a shell command via bash in the project cwd. Returns stdout+stderr; non-zero exit is an error.',
-    systemPrompt:
-      'Use `bash` for ops without a dedicated tool (rg, build, tests). Avoid using it to read or rewrite files.',
     parameters: {
       type: 'object',
       properties: {
@@ -100,14 +63,10 @@ export function createBashTool(opts: BashToolOptions): Tool {
       required: ['cmd'],
       additionalProperties: false,
     },
-    matchKey: (args) => (typeof args.cmd === 'string' ? args.cmd : undefined),
-    formatArgs: (args) => {
-      const cmd = typeof args.cmd === 'string' ? args.cmd : String(args.cmd ?? '');
-      const truncated = cmd.length > 200 ? `${cmd.slice(0, 200)}…` : cmd;
-      return [{ label: 'cmd', value: truncated }];
+    execute(args) {
+      const parsed = parseArgs(args);
+      return executeBash(parsed.cmd as string, getCwd());
     },
-    execute(args, signal) {
-      return executeBash(args.cmd as string, getCwd(), signal);
-    },
+    onError: formatError,
   };
 }

@@ -14,7 +14,6 @@
     "README.md"
   ],
   "dependencies": {
-    "mu-agents": "workspace:*",
-    "mu-core-old": "workspace:*"
+    "mu-agents": "workspace:*"
   }
 }

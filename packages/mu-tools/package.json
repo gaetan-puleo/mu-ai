@@ -11,7 +11,5 @@
   "files": [
     "src"
   ],
-  "dependencies": {
-    "mu-core-old": "workspace:*"
-  }
+  "dependencies": {}
 }

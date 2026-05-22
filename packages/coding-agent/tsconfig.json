@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../mu-core" },
+    { "path": "../mu-local-provider" },
+    { "path": "../mu-tools" },
+    { "path": "../tui" }
+  ]
+}

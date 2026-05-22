@@ -6,7 +6,9 @@ export type TerminalMode =
   | 'mouseDrag'
   | 'mouseMotion'
   | 'pixelMouse'
-  | 'synchronizedOutput';
+  | 'synchronizedOutput'
+  | 'kittyKeyboard'
+  | 'modifyOtherKeys';
 
 /** Terminal interface — abstracts terminal I/O. */
 export interface Terminal {

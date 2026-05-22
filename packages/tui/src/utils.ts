@@ -169,17 +169,16 @@ export function sliceByColumn(s: string, start: number, end: number, strict = fa
     for (const ch of token.value) {
       const code = ch.codePointAt(0) ?? 0;
       const chWidth = charWidth(code);
+      const nextCol = col + chWidth;
 
-      if (col + chWidth > start) {
-        if (col >= end && strict && chWidth === 2) return result + extractTrailingAnsi(s);
+      if (nextCol > start) {
         if (col >= end) return result + extractTrailingAnsi(s);
         if (col >= start) {
-          result += ch;
+          if (!strict || nextCol <= end) result += ch;
         }
       }
 
-      if (col >= end) return result + extractTrailingAnsi(s);
-      col += chWidth;
+      col = nextCol;
     }
   }
 

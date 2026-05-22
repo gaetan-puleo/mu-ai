@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Tool } from 'mu-core';
-import { sanitizePath } from './utils';
+import { formatError, parseArgs, sanitizePath } from './utils';
 
 interface WriteFileToolOptions {
   getCwd: () => string;
@@ -13,7 +13,6 @@ export function createWriteFileTool(opts: WriteFileToolOptions): Tool {
   return {
     name: 'write',
     description: 'Create or overwrite a file. Use `edit` for partial changes to existing files.',
-    systemPrompt: 'Use `write` only for new files or full rewrites.',
     parameters: {
       type: 'object',
       properties: {
@@ -23,35 +22,25 @@ export function createWriteFileTool(opts: WriteFileToolOptions): Tool {
       required: ['path', 'content'],
       additionalProperties: false,
     },
-    matchKey: (args) => (typeof args.path === 'string' ? args.path : undefined),
-    formatArgs: (args) => {
-      const path = typeof args.path === 'string' ? args.path : String(args.path ?? '');
-      const content = typeof args.content === 'string' ? args.content : '';
-      const lineCount = content.split('\n').length;
-      return [
-        { label: 'path', value: path.length > 120 ? `${path.slice(0, 120)}…` : path },
-        { label: 'size', value: `${lineCount} line${lineCount !== 1 ? 's' : ''}` },
-      ];
-    },
     execute(args) {
-      const rawPath = args.path as string;
+      const parsed = parseArgs(args);
+      const rawPath = parsed.path as string;
       const path = sanitizePath(rawPath, getCwd(), restrictToCwd);
       if (path === null) {
-        return { content: `Error: Invalid or disallowed path: ${rawPath}`, error: true };
+        return `Error: Invalid or disallowed path: ${rawPath}`;
       }
-      const content = args.content as string;
+      const content = parsed.content as string;
       try {
-        // Auto-create missing parent directories — additive vs mu-coding's
-        // historical behaviour; safe because it only triggers on missing dirs.
         const parentDir = dirname(path);
         if (!existsSync(parentDir)) {
           mkdirSync(parentDir, { recursive: true });
         }
         writeFileSync(path, content, 'utf-8');
-        return { content: `File written: ${path}` };
+        return `File written: ${path}`;
       } catch (err) {
-        return { content: `Error: ${err instanceof Error ? err.message : 'Unknown error'}`, error: true };
+        return formatError(err);
       }
     },
+    onError: formatError,
   };
 }

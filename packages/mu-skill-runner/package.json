@@ -12,7 +12,6 @@
     "src"
   ],
   "dependencies": {
-    "mu-core-old": "workspace:*",
     "yaml": "^2.8.4"
   }
 }

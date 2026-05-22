@@ -1,6 +1,6 @@
 import type { Capabilities } from '../capabilities';
 import type { Component } from '../types/component';
-import { type Canvas, drawBorder, drawLines } from './canvas';
+import { type Canvas, drawBackground, drawBorder, drawLines } from './canvas';
 import { isEmptyRect } from './insets';
 import type { LayoutEntry, RenderContext } from './types';
 
@@ -19,8 +19,14 @@ export function drawEntry(
   entry: LayoutEntry,
   focused: Component | null,
   capabilities: Capabilities,
+  userContext?: unknown,
 ): void {
   if (isEmptyRect(entry.rect)) return;
+
+  const ownBackgroundColor = entry.component.layout?.backgroundColor;
+  if (ownBackgroundColor) {
+    drawBackground(canvas, entry.rect, ownBackgroundColor, entry.clipRect);
+  }
 
   const border = entry.component.layout?.border;
   if (border) {
@@ -34,12 +40,13 @@ export function drawEntry(
     contentRect: entry.contentRect,
     focused: entry.component === focused,
     capabilities,
+    userContext,
   };
 
   const rawLines = entry.component.render(ctx);
   const lines = clipVertically(rawLines, entry.contentRect.height);
 
-  drawLines(canvas, entry.contentRect.x, entry.contentRect.y, lines, entry.clipRect);
+  drawLines(canvas, entry.contentRect.x, entry.contentRect.y, lines, entry.clipRect, entry.backgroundColor);
 }
 
 function clipVertically(lines: string[], maxHeight: number): string[] {

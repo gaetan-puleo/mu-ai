@@ -132,7 +132,16 @@ describe('layoutTree: positioning and overflow', () => {
     const sibling = leaf('sibling', { zIndex: 10 });
     const entries: LayoutEntry[] = [
       { component: sibling, rect: root, contentRect: root, clipRect: root, zIndex: 10, depth: 1, order: 0 },
-      { component: content, rect: root, contentRect: root, clipRect: root, zIndex: 0, depth: 2, order: 2, parent: modal },
+      {
+        component: content,
+        rect: root,
+        contentRect: root,
+        clipRect: root,
+        zIndex: 0,
+        depth: 2,
+        order: 2,
+        parent: modal,
+      },
       { component: modal, rect: root, contentRect: root, clipRect: root, zIndex: 1000, depth: 1, order: 1 },
     ];
 

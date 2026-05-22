@@ -1,3 +1,4 @@
+import { appendFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import process from 'node:process';
 
@@ -22,6 +23,17 @@ import { isFocusable, isFocusableNavigation } from './types/guards';
 import type { Terminal } from './types/terminal';
 import { visibleWidth } from './utils';
 
+const DEBUG_LOG = process.env.MU_TUI_DEBUG_LOG;
+let frameCounter = 0;
+function debugLog(data: Record<string, unknown>): void {
+  if (!DEBUG_LOG) return;
+  try {
+    appendFileSync(DEBUG_LOG, `${JSON.stringify({ ts: Date.now(), ...data })}\n`);
+  } catch {
+    /* ignore */
+  }
+}
+
 interface StartableTerminal extends Terminal {
   start?: (onInput: (data: string) => void, onResize: () => void) => void;
   stop?: () => void;
@@ -34,6 +46,12 @@ export interface TuiOptions {
   escapeTimeoutMs?: number;
   maxInputBufferBytes?: number;
   maxPasteBytes?: number;
+  /**
+   * Application-defined value forwarded into every `RenderContext.userContext`
+   * and `EventContext.userContext`. The TUI core treats this as opaque data;
+   * intended for consumer-defined providers such as theming.
+   */
+  userContext?: unknown;
 }
 
 export class TUI {
@@ -43,6 +61,7 @@ export class TUI {
   private previousWidth = 0;
   private previousHeight = 0;
   private focusedComponent: Component | null = null;
+  private inputInterceptors: Array<(event: InputEvent) => boolean | undefined> = [];
   private inputListeners: Array<(event: InputEvent) => void> = [];
   private rawInputListeners: Array<(data: string) => void> = [];
   private renderRequested = false;
@@ -66,6 +85,7 @@ export class TUI {
   private readonly useSynchronizedOutput: boolean;
   private readonly escapeTimeoutMs: number;
   private started = false;
+  private userContext: unknown;
 
   onDebug?: () => void;
 
@@ -74,6 +94,7 @@ export class TUI {
     this.features = options.features ?? [];
     this.useSynchronizedOutput = options.synchronizedOutput ?? true;
     this.escapeTimeoutMs = options.escapeTimeoutMs ?? 25;
+    this.userContext = options.userContext;
     this.parser = new TerminalInputParser({
       maxBufferBytes: options.maxInputBufferBytes,
       maxPasteBytes: options.maxPasteBytes,
@@ -90,6 +111,20 @@ export class TUI {
 
   updateCapabilities(patch: PartialCapabilities): void {
     this.capabilities = mergeCapabilities(this.capabilities, patch);
+  }
+
+  /**
+   * Update the application-defined context value forwarded into render/event
+   * contexts. Triggers a full redraw so consumers immediately see the new
+   * value.
+   */
+  setUserContext(value: unknown): void {
+    this.userContext = value;
+    this.requestRender(true);
+  }
+
+  getUserContext(): unknown {
+    return this.userContext;
   }
 
   addGlobalKeybinding(binding: GlobalKeybinding): () => void {
@@ -241,6 +276,14 @@ export class TUI {
     };
   }
 
+  addInputInterceptor(listener: (event: InputEvent) => boolean | undefined): () => void {
+    this.inputInterceptors.push(listener);
+    return () => {
+      const index = this.inputInterceptors.indexOf(listener);
+      if (index !== -1) this.inputInterceptors.splice(index, 1);
+    };
+  }
+
   addRawInputListener(listener: (data: string) => void): () => void {
     this.rawInputListeners.push(listener);
     return () => {
@@ -270,15 +313,17 @@ export class TUI {
     if (this.stopped) return;
 
     const entry = hitTest(this.layoutEntries, event.x, event.y);
-    if (entry?.component.handleEvent) {
+    const target = entry ? this.findMouseEventTarget(entry) : null;
+    if (target) {
       const ctx: EventContext = {
-        rect: entry.rect,
-        contentRect: entry.contentRect,
-        localX: event.x - entry.contentRect.x,
-        localY: event.y - entry.contentRect.y,
-        focused: entry.component === this.focusedComponent,
+        rect: target.rect,
+        contentRect: target.contentRect,
+        localX: event.x - target.contentRect.x,
+        localY: event.y - target.contentRect.y,
+        focused: target.component === this.focusedComponent,
+        userContext: this.userContext,
       };
-      entry.component.handleEvent(event, ctx);
+      target.component.handleEvent?.(event, ctx);
       this.requestRender();
       return;
     }
@@ -287,6 +332,17 @@ export class TUI {
       this.focusedComponent.handleEvent(event, this.focusedEventContext());
       this.requestRender();
     }
+  }
+
+  private findMouseEventTarget(entry: LayoutEntry): LayoutEntry | null {
+    let current: LayoutEntry | undefined = entry;
+    while (current) {
+      if (current.component.handleEvent) return current;
+      current = current.parent
+        ? this.layoutEntries.find((candidate) => candidate.component === current?.parent)
+        : undefined;
+    }
+    return null;
   }
 
   private scheduleRender(): void {
@@ -342,6 +398,17 @@ export class TUI {
   }
 
   private dispatchEvent(event: InputEvent): void {
+    for (const interceptor of this.inputInterceptors) {
+      try {
+        if (interceptor(event)) {
+          this.requestRender();
+          return;
+        }
+      } catch {
+        /* interceptor errors must not break input handling */
+      }
+    }
+
     for (const listener of this.inputListeners) {
       try {
         listener(event);
@@ -411,10 +478,11 @@ export class TUI {
         rect: focusedEntry.rect,
         contentRect: focusedEntry.contentRect,
         focused: true,
+        userContext: this.userContext,
       };
     }
     const fallbackRect: Rect = { x: 0, y: 0, width: this.terminal.columns, height: this.terminal.rows };
-    return { rect: fallbackRect, contentRect: fallbackRect, focused: true };
+    return { rect: fallbackRect, contentRect: fallbackRect, focused: true, userContext: this.userContext };
   }
 
   private invalidateRecursive(component: Component): void {
@@ -431,7 +499,7 @@ export class TUI {
 
     const canvas: Canvas = createCanvas(width, height);
     for (const entry of sortForRender(entries)) {
-      drawEntry(canvas, entry, this.focusedComponent, this.capabilities);
+      drawEntry(canvas, entry, this.focusedComponent, this.capabilities, this.userContext);
     }
 
     const lines = canvasToLines(canvas);
@@ -454,12 +522,28 @@ export class TUI {
       newLines[i] += reset;
     }
 
+    const frame = ++frameCounter;
+    debugLog({
+      stage: 'doRender:start',
+      frame,
+      width,
+      height,
+      widthChanged,
+      heightChanged,
+      previousLinesLen: this.previousLines.length,
+      newLinesLen: newLines.length,
+      hardwareCursorRow: this.hardwareCursorRow,
+      cursorRow: this.cursorRow,
+    });
+
     if (this.previousLines.length === 0 && !widthChanged && !heightChanged) {
+      debugLog({ stage: 'doRender:fullRender(initial)', frame });
       this.fullRender(newLines, false);
       return;
     }
 
     if (widthChanged || heightChanged) {
+      debugLog({ stage: 'doRender:fullRender(resize)', frame });
       this.fullRender(newLines, true);
       return;
     }
@@ -475,6 +559,15 @@ export class TUI {
         lastChanged = i;
       }
     }
+
+    debugLog({
+      stage: 'doRender:diff',
+      frame,
+      firstChanged,
+      lastChanged,
+      previewOld: this.previousLines.map((l) => l.replace(/\x1b\[[^m]*m/g, '').slice(0, 40)),
+      previewNew: newLines.map((l) => l.replace(/\x1b\[[^m]*m/g, '').slice(0, 40)),
+    });
 
     if (firstChanged === -1) {
       this.positionCursor(newLines.length);
@@ -494,18 +587,35 @@ export class TUI {
       if (i > 0) buffer += '\r\n';
       buffer += lines[i];
     }
+    // After writing all lines, move cursor back to the top-left of our content
+    // and save that position. All subsequent diff renders will restore from
+    // here, giving us a stable anchor that survives terminal scroll.
+    if (lines.length > 0) {
+      buffer += `\r\x1b[${lines.length - 1}A`;
+    } else {
+      buffer += '\r';
+    }
+    buffer += '\x1b7'; // DECSC — save cursor at our top-left anchor
     buffer += this.frameEnd();
     this.terminal.write(buffer);
 
     this.cursorRow = Math.max(0, lines.length - 1);
-    this.hardwareCursorRow = this.cursorRow;
+    this.hardwareCursorRow = 0; // anchor is now at row 0 of our content
     this.maxLinesRendered = clear ? lines.length : Math.max(this.maxLinesRendered, lines.length);
     const bufferLength = Math.max(this.terminal.rows, lines.length);
     this.previousViewportTop = Math.max(0, bufferLength - this.terminal.rows);
-    this.positionCursor(lines.length);
     this.previousLines = lines;
     this.previousWidth = this.terminal.columns;
     this.previousHeight = this.terminal.rows;
+
+    debugLog({
+      stage: 'fullRender:end',
+      frame: frameCounter,
+      clear,
+      linesLen: lines.length,
+      hardwareCursorRow: this.hardwareCursorRow,
+      cursorRow: this.cursorRow,
+    });
   }
 
   private differentialRender(
@@ -515,38 +625,54 @@ export class TUI {
     width: number,
     height: number,
   ): void {
+    debugLog({
+      stage: 'diffRender:start',
+      frame: frameCounter,
+      firstChanged,
+      lastChanged,
+      newLinesLen: newLines.length,
+      previousLinesLen: this.previousLines.length,
+      hardwareCursorRowBefore: this.hardwareCursorRow,
+      cursorRowBefore: this.cursorRow,
+    });
+
     let buffer = this.frameStart();
 
-    const lineDiff = firstChanged - this.hardwareCursorRow;
-    if (lineDiff > 0) {
-      buffer += `\x1b[${lineDiff}B`;
-    } else if (lineDiff < 0) {
-      buffer += `\x1b[${-lineDiff}A`;
+    // Restore cursor to our saved anchor (top-left of content).
+    // Then move down to the first changed line.
+    buffer += '\x1b8'; // DECRC — restore cursor to anchor (row 0 of content)
+    if (firstChanged > 0) {
+      buffer += `\x1b[${firstChanged}B`;
     }
     buffer += '\r';
 
     const renderEnd = Math.min(lastChanged, newLines.length - 1);
     for (let i = firstChanged; i <= renderEnd; i++) {
-      if (i > firstChanged) buffer += '\r\n';
-      buffer += '\x1b[2K';
+      if (i > firstChanged) {
+        buffer += '\x1b8';
+        if (i > 0) buffer += `\x1b[${i}B`;
+        buffer += '\r';
+      }
+      buffer += '\r\x1b[2K';
       buffer += newLines[i];
     }
 
     if (this.previousLines.length > newLines.length) {
-      const extraLines = this.previousLines.length - newLines.length;
-      buffer += `\x1b[${newLines.length > 0 ? newLines.length - 1 : 0}A`;
-      for (let i = 0; i < extraLines; i++) {
-        buffer += '\r\n\x1b[2K';
-      }
-      if (extraLines > 0) {
-        buffer += `\x1b[${extraLines}A`;
+      for (let i = newLines.length; i < this.previousLines.length; i++) {
+        buffer += '\x1b8';
+        if (i > 0) buffer += `\x1b[${i}B`;
+        buffer += '\r';
+        buffer += '\x1b[2K';
       }
     }
+
+    // Restore cursor back to anchor so the anchor stays valid for next frame.
+    buffer += '\x1b8';
 
     buffer += this.frameEnd();
     this.terminal.write(buffer);
 
-    this.hardwareCursorRow = Math.max(0, renderEnd);
+    this.hardwareCursorRow = 0; // we restored to anchor
     this.cursorRow = Math.max(0, newLines.length - 1);
     this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
     this.previousViewportTop = Math.max(0, this.previousViewportTop, this.hardwareCursorRow - height + 1);
@@ -554,6 +680,16 @@ export class TUI {
     this.previousLines = newLines;
     this.previousWidth = width;
     this.previousHeight = height;
+
+    debugLog({
+      stage: 'diffRender:end',
+      frame: frameCounter,
+      renderEnd,
+      hardwareCursorRowAfter: this.hardwareCursorRow,
+      cursorRowAfter: this.cursorRow,
+      maxLinesRendered: this.maxLinesRendered,
+      bufferBytes: buffer.length,
+    });
   }
 
   private positionCursor(totalLines: number): void {

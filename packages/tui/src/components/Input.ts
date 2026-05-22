@@ -11,6 +11,8 @@ export interface InputProps {
   layout?: LayoutStyle;
   /** Style applied to placeholder text when value is empty. */
   placeholderStyle?: string;
+  /** Style applied to input text. */
+  textStyle?: string;
   /** Style applied to the cursor cell when focused. Default reverse video. */
   cursorStyle?: string;
 }
@@ -33,8 +35,9 @@ export class Input implements Focusable {
   private readonly placeholder: string;
   private readonly onChange?: (value: string) => void;
   private readonly onSubmit?: (value: string) => void;
-  private readonly placeholderStyle: string;
-  private readonly cursorStyle: string;
+  placeholderStyle: string;
+  textStyle: string;
+  cursorStyle: string;
   private scrollOffset = 0;
 
   constructor(props: InputProps = {}) {
@@ -44,6 +47,7 @@ export class Input implements Focusable {
     this.onChange = props.onChange;
     this.onSubmit = props.onSubmit;
     this.placeholderStyle = props.placeholderStyle ?? DEFAULT_PLACEHOLDER_STYLE;
+    this.textStyle = props.textStyle ?? '';
     this.cursorStyle = props.cursorStyle ?? DEFAULT_CURSOR_STYLE;
     this.layout = { height: 1, focusable: true, ...props.layout };
   }
@@ -58,6 +62,10 @@ export class Input implements Focusable {
     this.onChange?.(value);
   }
 
+  setCursor(cursor: number): void {
+    this._cursor = Math.max(0, Math.min(cursor, this._value.length));
+  }
+
   get cursor(): number {
     return this._cursor;
   }
@@ -65,6 +73,8 @@ export class Input implements Focusable {
   render(ctx: RenderContext): string[] {
     const width = ctx.contentRect.width;
     if (width <= 0) return [];
+
+    if (this._value.includes('\n')) return this.renderMultiline(ctx);
 
     if (this._value.length === 0 && !ctx.focused && this.placeholder.length > 0) {
       const ph = this.placeholder.slice(0, width);
@@ -77,17 +87,17 @@ export class Input implements Focusable {
     const truncatedWidth = visibleWidth(truncated);
     const padded = truncatedWidth < width ? truncated + ' '.repeat(width - truncatedWidth) : truncated;
 
-    if (!ctx.focused) return [padded];
+    if (!ctx.focused) return [this.styleText(padded)];
 
     const cursorCol = this._cursor - this.scrollOffset;
-    if (cursorCol < 0 || cursorCol >= width) return [padded];
+    if (cursorCol < 0 || cursorCol >= width) return [this.styleText(padded)];
 
     const before = sliceByColumn(padded, 0, cursorCol, true);
     const beforeWidth = visibleWidth(before);
     const beforePad = beforeWidth < cursorCol ? ' '.repeat(cursorCol - beforeWidth) : '';
     const cursorChar = sliceByColumn(padded, cursorCol, cursorCol + 1, true) || ' ';
     const after = sliceByColumn(padded, cursorCol + 1, width, true);
-    return [`${before}${beforePad}${this.cursorStyle}${cursorChar}\x1b[0m${after}`];
+    return [this.styleText(`${before}${beforePad}${this.cursorStyle}${cursorChar}\x1b[0m${this.textStyle}${after}`)];
   }
 
   handleEvent(event: InputEvent, _ctx: EventContext): void {
@@ -104,6 +114,10 @@ export class Input implements Focusable {
 
     switch (event.key) {
       case 'enter':
+        if (event.shift) {
+          this.insert('\n');
+          return;
+        }
         this.onSubmit?.(this._value);
         return;
       case 'backspace':
@@ -117,6 +131,12 @@ export class Input implements Focusable {
         return;
       case 'right':
         this.moveCursor(1);
+        return;
+      case 'up':
+        this.moveCursorLine(-1);
+        return;
+      case 'down':
+        this.moveCursorLine(1);
         return;
       case 'home':
         this._cursor = 0;
@@ -158,11 +178,77 @@ export class Input implements Focusable {
     else this._cursor = next;
   }
 
+  private moveCursorLine(delta: -1 | 1): void {
+    const lineStarts = this.lineStarts();
+    const currentLine = this.lineIndexForCursor(lineStarts);
+    const targetLine = currentLine + delta;
+    if (targetLine < 0 || targetLine >= lineStarts.length) return;
+
+    const currentColumn = this._cursor - lineStarts[currentLine];
+    const targetStart = lineStarts[targetLine];
+    const targetEnd = this.lineEnd(targetStart);
+    this._cursor = Math.min(targetStart + currentColumn, targetEnd);
+  }
+
   private adjustScrollOffset(width: number): void {
     if (this._cursor < this.scrollOffset) {
       this.scrollOffset = this._cursor;
     } else if (this._cursor >= this.scrollOffset + width) {
       this.scrollOffset = Math.max(0, this._cursor - width + 1);
     }
+  }
+
+  private renderMultiline(ctx: RenderContext): string[] {
+    const width = ctx.contentRect.width;
+    const height = Math.max(1, ctx.contentRect.height);
+    const rawLines = this._value.split('\n');
+    const cursorLine = this._value.slice(0, this._cursor).split('\n').length - 1;
+    const cursorCol = this._cursor - this._value.lastIndexOf('\n', this._cursor - 1) - 1;
+    const firstLine = Math.max(0, cursorLine - height + 1);
+    const lines = rawLines.slice(firstLine, firstLine + height).map((line, index) => {
+      const truncated = sliceByColumn(line, 0, width, true);
+      const truncatedWidth = visibleWidth(truncated);
+      const padded = truncatedWidth < width ? truncated + ' '.repeat(width - truncatedWidth) : truncated;
+      const lineIndex = firstLine + index;
+
+      if (!ctx.focused || lineIndex !== cursorLine) return this.styleText(padded);
+
+      const clampedCursorCol = Math.min(cursorCol, width - 1);
+      const before = sliceByColumn(padded, 0, clampedCursorCol, true);
+      const beforeWidth = visibleWidth(before);
+      const beforePad = beforeWidth < clampedCursorCol ? ' '.repeat(clampedCursorCol - beforeWidth) : '';
+      const cursorChar = sliceByColumn(padded, clampedCursorCol, clampedCursorCol + 1, true) || ' ';
+      const after = sliceByColumn(padded, clampedCursorCol + 1, width, true);
+      return this.styleText(`${before}${beforePad}${this.cursorStyle}${cursorChar}\x1b[0m${this.textStyle}${after}`);
+    });
+
+    while (lines.length < height) lines.push(this.styleText(' '.repeat(width)));
+    return lines;
+  }
+
+  private styleText(text: string): string {
+    return this.textStyle ? `${this.textStyle}${text}\x1b[0m` : text;
+  }
+
+  private lineStarts(): number[] {
+    const starts = [0];
+    for (let i = 0; i < this._value.length; i++) {
+      if (this._value.startsWith('\n', i)) starts.push(i + 1);
+    }
+    return starts;
+  }
+
+  private lineIndexForCursor(lineStarts: number[]): number {
+    let line = 0;
+    for (let i = 1; i < lineStarts.length; i++) {
+      if (lineStarts[i] > this._cursor) break;
+      line = i;
+    }
+    return line;
+  }
+
+  private lineEnd(lineStart: number): number {
+    const newline = this._value.indexOf('\n', lineStart);
+    return newline === -1 ? this._value.length : newline;
   }
 }

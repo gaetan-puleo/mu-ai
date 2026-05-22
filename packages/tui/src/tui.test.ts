@@ -1,13 +1,32 @@
 import { describe, expect, it } from 'vitest';
 
 import { capability, createDefaultCapabilities } from './capabilities';
+import type { InputEvent } from './events';
 import { createOsc52Sequence } from './features/clipboard';
 import { type KeyChord, keyMatches } from './keybinds';
 import { eventToMouseEvent, parseInput } from './keyboard';
 import { TerminalInputParser } from './parser';
+import { TUI } from './tui';
 import type { Component, Focusable, FocusableNavigation } from './types/component';
 import { isFocusable, isFocusableNavigation } from './types/guards';
+import type { Terminal } from './types/terminal';
 import { sliceByColumn, stripAnsi, truncateToWidth, visibleWidth, wrapText } from './utils';
+
+class CapturingTerminal implements Terminal {
+  columns = 5;
+  rows = 3;
+  writes: string[] = [];
+
+  write(data: string): void {
+    this.writes.push(data);
+  }
+  hideCursor(): void {}
+  showCursor(): void {}
+  clearScreen(): void {}
+  clearLine(): void {}
+  clearFromCursor(): void {}
+  moveBy(): void {}
+}
 
 describe('component guards', () => {
   it('detects focusable components', () => {
@@ -40,6 +59,45 @@ describe('component guards', () => {
       { rect: { x: 0, y: 0, width: 1, height: 1 }, contentRect: { x: 0, y: 0, width: 1, height: 1 }, focused: true },
     );
     expect(events).toEqual(['text']);
+  });
+});
+
+describe('TUI rendering', () => {
+  it('does not use CRLF row advances during diff renders after full-width lines', () => {
+    const terminal = new CapturingTerminal();
+    const component: Component = {
+      render: () => ['aaaaa', 'bbbbb', 'ccccc'],
+    };
+    const tui = new TUI(terminal, { synchronizedOutput: false });
+    tui.addChild(component);
+
+    (tui as unknown as { doRender: () => void }).doRender();
+    component.render = () => ['aXaaa', 'bXbbb', 'ccccc'];
+    (tui as unknown as { doRender: () => void }).doRender();
+
+    const diffWrite = terminal.writes.at(-1) ?? '';
+    expect(diffWrite).not.toContain('\r\n');
+  });
+
+  it('lets input interceptors consume events before focus handling', () => {
+    const terminal = new CapturingTerminal();
+    let handled = 0;
+    const component: Component = {
+      render: () => [''],
+      handleEvent: () => handled++,
+    };
+    const tui = new TUI(terminal, { synchronizedOutput: false });
+    tui.addChild(component);
+    tui.setFocus(component);
+    tui.addInputInterceptor((event) => event.type === 'text');
+
+    (tui as unknown as { dispatchEvent: (event: InputEvent) => void }).dispatchEvent({
+      type: 'text',
+      text: 'x',
+      raw: 'x',
+    });
+
+    expect(handled).toBe(0);
   });
 });
 
@@ -80,6 +138,7 @@ describe('parseInput', () => {
   it('parses modified xterm and CSI-u keys', () => {
     expect(parseInput('\x1b[1;5A')).toMatchObject({ type: 'key', key: 'up', ctrl: true });
     expect(parseInput('\x1b[97;5u')).toMatchObject({ type: 'key', key: 'a', ctrl: true, text: 'a' });
+    expect(parseInput('\x1b[13;2u')).toMatchObject({ type: 'key', key: 'enter', shift: true });
     expect(parseInput('\x1b[27;5;13~')).toMatchObject({ type: 'key', key: 'enter', ctrl: true });
   });
 
@@ -107,8 +166,9 @@ describe('parseInput', () => {
     });
     expect(parseInput('\x1b[<0;10;5m')).toMatchObject({ type: 'mouse', kind: 'release', button: 'left' });
     expect(parseInput('\x1b[<32;10;5M')).toMatchObject({ type: 'mouse', kind: 'drag', button: 'left' });
+    expect(parseInput('\x1b[<33;10;5M')).toMatchObject({ type: 'mouse', kind: 'drag', button: 'middle' });
+    expect(parseInput('\x1b[<35;10;5M')).toMatchObject({ type: 'mouse', kind: 'move', button: 'unknown' });
     expect(parseInput('\x1b[<64;10;5M')).toMatchObject({ type: 'mouse', kind: 'wheel', button: 'wheelUp' });
-    expect(parseInput('\x1b[<96;10;5M')).toMatchObject({ type: 'mouse', kind: 'move', button: 'left' });
   });
 
   it('converts mouse events to the compatibility mouse type', () => {

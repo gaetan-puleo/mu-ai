@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { canvasToLines, createCanvas, drawBorder, drawLines } from './canvas';
+import { stripAnsi, visibleWidth } from '../utils';
+import { canvasToLines, createCanvas, drawBackground, drawBorder, drawLines } from './canvas';
 
 const fullClip = { x: 0, y: 0, width: 10, height: 5 };
 
@@ -44,5 +45,43 @@ describe('canvas', () => {
     drawLines(canvas, 100, 0, ['abc'], fullClip);
     drawLines(canvas, 0, 100, ['def'], fullClip);
     expect(canvasToLines(canvas)).toEqual(['     ']);
+  });
+
+  it('draws hex backgrounds', () => {
+    const canvas = createCanvas(4, 1);
+    drawBackground(canvas, { x: 0, y: 0, width: 4, height: 1 }, '#1a2b3c', { x: 0, y: 0, width: 4, height: 1 });
+    const line = canvasToLines(canvas)[0];
+    expect(line).toContain('\x1b[48;2;26;43;60m');
+    expect(stripAnsi(line)).toBe('    ');
+    expect(visibleWidth(line)).toBe(4);
+  });
+
+  it('draws shorthand hex backgrounds', () => {
+    const canvas = createCanvas(2, 1);
+    drawBackground(canvas, { x: 0, y: 0, width: 2, height: 1 }, '#abc', { x: 0, y: 0, width: 2, height: 1 });
+    expect(canvasToLines(canvas)[0]).toContain('\x1b[48;2;170;187;204m');
+  });
+
+  it('draws named backgrounds', () => {
+    const canvas = createCanvas(3, 1);
+    drawBackground(canvas, { x: 0, y: 0, width: 3, height: 1 }, 'brightBlue', { x: 0, y: 0, width: 3, height: 1 });
+    expect(canvasToLines(canvas)[0]).toContain('\x1b[104m');
+  });
+
+  it('clips backgrounds', () => {
+    const canvas = createCanvas(6, 1);
+    drawBackground(canvas, { x: 0, y: 0, width: 6, height: 1 }, 'red', { x: 2, y: 0, width: 2, height: 1 });
+    const line = canvasToLines(canvas)[0];
+    expect(stripAnsi(line)).toBe('      ');
+    expect(line).toContain('  \x1b[41m  \x1b[0m  ');
+  });
+
+  it('does not draw a wide character into a one-column right-edge clip', () => {
+    const canvas = createCanvas(4, 1);
+    drawLines(canvas, 3, 0, ['你'], { x: 3, y: 0, width: 1, height: 1 });
+
+    const line = canvasToLines(canvas)[0];
+    expect(stripAnsi(line)).toBe('    ');
+    expect(visibleWidth(line)).toBe(4);
   });
 });

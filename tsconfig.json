@@ -26,7 +26,8 @@
     { "path": "packages/mu-tools" },
     { "path": "packages/mu-scheduler" },
     { "path": "packages/mu-webfetch" },
-    { "path": "packages/mu-coding" },
+    { "path": "packages/mu-coding-old" },
+    { "path": "packages/coding-agent" },
     { "path": "packages/tui" }
   ]
 }

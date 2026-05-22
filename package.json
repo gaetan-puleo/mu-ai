@@ -2,8 +2,9 @@
   "name": "mu-workspace",
   "private": true,
   "scripts": {
-    "dev": "bun --watch packages/mu-coding/bin/mu.js",
-    "start": "bun packages/mu-coding/bin/mu.js",
+    "dev": "NODE_ENV=development node --import tsx packages/coding-agent/bin/coding-agent.js",
+    "dev:tui-debug": "MU_TUI_DEBUG_LOG=/tmp/mu-tui.log NODE_ENV=development node --import tsx packages/coding-agent/bin/coding-agent.js",
+    "start": "node --import tsx packages/coding-agent/bin/coding-agent.js",
     "lint": "biome check packages/",
     "lint:fix": "biome check --fix --unsafe packages/",
     "format": "biome format --write packages/",
@@ -20,5 +21,8 @@
     "knip": "^6.4.1",
     "typescript": "^5.8.3",
     "vitest": "^4.1.6"
+  },
+  "dependencies": {
+    "tsx": "^4.22.3"
   }
 }

@@ -33,6 +33,7 @@ export {
 export type {
   BorderChars,
   BorderStyle,
+  Color,
   Constraints,
   EventContext,
   Insets,

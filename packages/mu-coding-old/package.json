@@ -1,0 +1,37 @@
+{
+  "name": "mu-coding",
+  "version": "0.15.0",
+  "description": "Minimal terminal AI assistant for local models",
+  "type": "module",
+  "bin": {
+    "mu": "./bin/mu.js"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "bin",
+    "src",
+    "SYSTEM.md"
+  ],
+  "scripts": {
+    "dev": "bun --watch bin/mu.js",
+    "start": "bun bin/mu.js",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "ink": "^7.0.1",
+    "ink-multiline-input": "^0.1.0",
+    "ink-text-input": "^6.0.0",
+    "mu-agents": "workspace:*",
+    "mu-coding-agents": "workspace:*",
+    "mu-local-provider": "workspace:*",
+    "mu-skill-runner": "workspace:*",
+    "mu-tools": "workspace:*",
+    "react": "^19.2.5",
+    "shiki": "^3.20.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.5"
+  }
+}

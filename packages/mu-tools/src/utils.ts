@@ -10,8 +10,7 @@ import { isAbsolute, resolve } from 'node:path';
  *
  * `restrictToCwd` (opt-in) enforces that the resolved path stays inside
  * the cwd boundary. Returns `null` when the path escapes — callers must
- * surface a tool error. mu-coding doesn't enable this (allows absolute
- * paths to anywhere); arya does, for permission-glob safety.
+ * surface a tool error.
  */
 export function sanitizePath(raw: string, cwd?: string, restrictToCwd = false): string | null {
   let p = raw.trim();
@@ -27,4 +26,26 @@ export function sanitizePath(raw: string, cwd?: string, restrictToCwd = false): 
     }
   }
   return p;
+}
+
+/**
+ * Parse a stringified JSON args payload from the LLM. Tools receive
+ * `args: string` per the mu-core contract. Returns the parsed object or
+ * throws — callers should let it propagate so `Tool.onError` can format it.
+ */
+export function parseArgs(args: string): Record<string, unknown> {
+  if (!args || args.trim() === '') return {};
+  const parsed = JSON.parse(args);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Tool arguments must be a JSON object');
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/**
+ * Normalize an unknown thrown value into a `Tool.onError` string.
+ */
+export function formatError(error: unknown): string {
+  if (error instanceof Error) return `Error: ${error.message}`;
+  return `Error: ${String(error)}`;
 }

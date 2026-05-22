@@ -7,7 +7,7 @@ import type { LayoutEntry, Rect } from './types';
 const c = (label: string): Component => ({ render: () => [label] });
 const wholeScreen: Rect = { x: 0, y: 0, width: 100, height: 100 };
 
-function entry(label: string, rect: Rect, zIndex = 0, order = 0, depth = 0): LayoutEntry {
+function entry(label: string, rect: Rect, zIndex = 0, order = 0, depth = 0, parent?: Component): LayoutEntry {
   return {
     component: c(label),
     rect,
@@ -16,6 +16,7 @@ function entry(label: string, rect: Rect, zIndex = 0, order = 0, depth = 0): Lay
     zIndex,
     depth,
     order,
+    parent,
   };
 }
 
@@ -66,5 +67,23 @@ describe('hitTest', () => {
     };
     expect(hitTestRect([e], 0, 0)?.component).toBe(e.component);
     expect(hitTest([e], 0, 0)).toBeNull();
+  });
+
+  it('descendant wins over its ancestor regardless of zIndex', () => {
+    const parent = entry('parent', { x: 0, y: 0, width: 10, height: 5 }, 1000, 0, 0);
+    const child = entry('child', { x: 0, y: 0, width: 10, height: 5 }, 0, 1, 1, parent.component);
+    expect(hitTest([parent, child], 5, 2)?.component).toBe(child.component);
+  });
+
+  it('deeper entry wins on equal zIndex when unrelated', () => {
+    const shallow = entry('shallow', { x: 0, y: 0, width: 10, height: 5 }, 0, 0, 0);
+    const deep = entry('deep', { x: 0, y: 0, width: 10, height: 5 }, 0, 1, 2);
+    expect(hitTest([shallow, deep], 5, 2)?.component).toBe(deep.component);
+  });
+
+  it('high-zIndex sibling still wins over unrelated low-zIndex entry', () => {
+    const low = entry('low', { x: 0, y: 0, width: 10, height: 5 }, 0, 0, 1);
+    const high = entry('high', { x: 0, y: 0, width: 10, height: 5 }, 100, 1, 1);
+    expect(hitTest([low, high], 5, 2)?.component).toBe(high.component);
   });
 });

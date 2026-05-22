@@ -1,0 +1,17 @@
+{
+  "name": "coding-agent",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "coding-agent": "./bin/coding-agent.js"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  },
+  "dependencies": {
+    "mu-core": "workspace:*",
+    "mu-local-provider": "workspace:*",
+    "mu-tools": "workspace:*",
+    "mu-tui": "workspace:*"
+  }
+}

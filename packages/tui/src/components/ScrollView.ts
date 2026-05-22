@@ -1,5 +1,5 @@
 import type { InputEvent } from '../events';
-import type { EventContext, LayoutStyle } from '../layout/types';
+import type { Constraints, EventContext, LayoutStyle, RenderContext, Size } from '../layout/types';
 import type { Component, Focusable } from '../types/component';
 
 export interface ScrollViewProps {
@@ -9,6 +9,10 @@ export interface ScrollViewProps {
   scrollY?: number;
   /** Whether the scroll view captures focus to handle keyboard scroll. */
   focusable?: boolean;
+}
+
+export interface SetScrollViewChildrenOptions {
+  stickToBottom?: boolean;
 }
 
 /**
@@ -38,6 +42,8 @@ export class ScrollView implements Focusable {
   private _scrollY: number;
   private contentHeight = 0;
   private viewportHeight = 0;
+  private viewportWidth = Number.POSITIVE_INFINITY;
+  private pendingStickToBottom = false;
   private readonly inner: InnerContainer;
 
   constructor(props: ScrollViewProps = {}) {
@@ -52,16 +58,21 @@ export class ScrollView implements Focusable {
   }
 
   /** Replace the children of the inner content container. */
-  setChildren(children: Component[]): void {
+  setChildren(children: Component[], options: SetScrollViewChildrenOptions = {}): void {
     this.inner.setChildren(children);
+    if (options.stickToBottom) this.pendingStickToBottom = true;
+    this.refreshMetricsAndClamp();
+    if (options.stickToBottom) this.applyPendingStickToBottom();
   }
 
   addChild(child: Component): void {
     this.inner.addChild(child);
+    this.refreshMetricsAndClamp();
   }
 
   removeChild(child: Component): void {
     this.inner.removeChild(child);
+    this.refreshMetricsAndClamp();
   }
 
   scrollBy(deltaY: number): void {
@@ -81,13 +92,31 @@ export class ScrollView implements Focusable {
     this.inner.setOffsetY(next);
   }
 
-  render(): string[] {
+  isAtBottom(tolerance = 1): boolean {
+    this.refreshMetricsAndClamp();
+    const max = Math.max(0, this.contentHeight - this.viewportHeight);
+    return this._scrollY >= max - tolerance;
+  }
+
+  scrollToBottom(): void {
+    this.refreshMetricsAndClamp();
+    this.scrollTo(this.contentHeight);
+  }
+
+  render(ctx?: RenderContext): string[] {
+    if (ctx) {
+      this.viewportWidth = ctx.contentRect.width;
+      this.viewportHeight = ctx.contentRect.height;
+    }
+    this.refreshMetricsAndClamp();
+    this.applyPendingStickToBottom();
     return [];
   }
 
   handleEvent(event: InputEvent, ctx: EventContext): void {
+    this.viewportWidth = ctx.contentRect.width;
     this.viewportHeight = ctx.contentRect.height;
-    this.contentHeight = this.inner.measureNaturalHeight();
+    this.refreshMetricsAndClamp();
 
     if (event.type === 'mouse' && event.kind === 'wheel') {
       if (event.button === 'wheelUp') this.scrollBy(-1);
@@ -116,6 +145,23 @@ export class ScrollView implements Focusable {
         this.scrollTo(this.contentHeight);
     }
   }
+
+  private refreshMetricsAndClamp(): void {
+    if (!Number.isFinite(this.viewportWidth) || this.viewportHeight <= 0) return;
+    this.contentHeight = this.inner.measureNaturalHeight(this.viewportWidth);
+    const max = Math.max(0, this.contentHeight - this.viewportHeight);
+    if (this._scrollY > max) {
+      this._scrollY = max;
+      this.inner.setOffsetY(this._scrollY);
+    }
+  }
+
+  private applyPendingStickToBottom(): void {
+    if (!this.pendingStickToBottom) return;
+    if (!Number.isFinite(this.viewportWidth) || this.viewportHeight <= 0) return;
+    this.pendingStickToBottom = false;
+    this.scrollTo(this.contentHeight);
+  }
 }
 
 /**
@@ -133,7 +179,15 @@ class InnerContainer implements Component {
       x: 0,
       y: -offsetY,
       width: 'fill',
+      height: 'auto',
       direction: 'column',
+    };
+  }
+
+  measure(_constraints: Constraints): Size {
+    return {
+      width: 0,
+      height: this.measureNaturalHeight(),
     };
   }
 
@@ -159,7 +213,7 @@ class InnerContainer implements Component {
    * declared heights (numeric specs). Children without explicit heights
    * default to 1 line.
    */
-  measureNaturalHeight(): number {
+  measureNaturalHeight(maxWidth = Number.POSITIVE_INFINITY): number {
     let total = 0;
     for (const child of this.children) {
       const h = child.layout?.height;
@@ -167,7 +221,7 @@ class InnerContainer implements Component {
       else if (child.measure) {
         const size = child.measure({
           minWidth: 0,
-          maxWidth: Number.POSITIVE_INFINITY,
+          maxWidth,
           minHeight: 0,
           maxHeight: Number.POSITIVE_INFINITY,
         });

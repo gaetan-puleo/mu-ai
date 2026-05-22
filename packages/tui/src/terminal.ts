@@ -13,6 +13,7 @@ export interface ProcessTerminalOptions {
   alternateScreen?: boolean;
   bracketedPaste?: boolean;
   focusEvents?: boolean;
+  keyboard?: boolean;
   mouse?: boolean | { drag?: boolean; motion?: boolean; pixel?: boolean };
 }
 
@@ -25,6 +26,8 @@ const MODE_ENABLE: Record<TerminalMode, string> = {
   mouseMotion: '\x1b[?1003h',
   pixelMouse: '\x1b[?1016h',
   synchronizedOutput: '\x1b[?2026h',
+  kittyKeyboard: '\x1b[>1u',
+  modifyOtherKeys: '\x1b[>4;2m',
 };
 
 const MODE_DISABLE: Record<TerminalMode, string> = {
@@ -36,6 +39,8 @@ const MODE_DISABLE: Record<TerminalMode, string> = {
   mouseMotion: '\x1b[?1003l',
   pixelMouse: '\x1b[?1016l',
   synchronizedOutput: '\x1b[?2026l',
+  kittyKeyboard: '\x1b[<u',
+  modifyOtherKeys: '\x1b[>4;0m',
 };
 
 export class ProcessTerminal implements Terminal {
@@ -211,6 +216,10 @@ export class ProcessTerminal implements Terminal {
     if (this.options.alternateScreen) this.enableMode('alternateScreen');
     if (this.options.bracketedPaste) this.enableMode('bracketedPaste');
     if (this.options.focusEvents) this.enableMode('focusEvents');
+    if (this.options.keyboard) {
+      this.enableMode('kittyKeyboard');
+      this.enableMode('modifyOtherKeys');
+    }
 
     if (this.options.mouse) {
       this.enableMode('sgrMouse');

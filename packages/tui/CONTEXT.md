@@ -102,7 +102,14 @@ tui.requestRender(true);       // force full redraw
 tui.addInputListener(listener); // runs before focused component
 tui.onDebug = () => console.log('debug');
 tui.invalidate();              // invalidate all children
+tui.setUserContext(value);     // forward an opaque app value into ctx.userContext
+tui.getUserContext();          // read the current value
 ```
+
+The `userContext` option (and matching setter) lets a consumer attach an
+arbitrary value (e.g. a theme provider) that is forwarded into every
+`RenderContext.userContext` and `EventContext.userContext`. The TUI core
+treats it as opaque data. Updating it triggers a full redraw.
 
 ### Component Interface
 

@@ -13,7 +13,6 @@
     "README.md"
   ],
   "dependencies": {
-    "mu-core-old": "workspace:*",
     "turndown": "^7.2.2"
   },
   "devDependencies": {

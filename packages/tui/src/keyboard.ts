@@ -257,13 +257,13 @@ function parseSgrMouse(raw: string, match: RegExpMatchArray): MouseInputEvent {
   const code = cb & ~(4 | 8 | 16);
   const isRelease = final === 'm' || (code & 3) === 3;
   const isWheel = code >= 64 && code <= 67;
-  const isMove = code === 96;
-  const isDrag = (code & 32) !== 0 && !isWheel;
   const buttonCode = code & 3;
+  const isMove = (code & 32) !== 0 && buttonCode === 3;
+  const isDrag = (code & 32) !== 0 && buttonCode < 3;
 
   return {
     type: 'mouse',
-    kind: isWheel ? 'wheel' : isMove ? 'move' : isRelease ? 'release' : isDrag ? 'drag' : 'press',
+    kind: isWheel ? 'wheel' : isDrag ? 'drag' : isMove ? 'move' : isRelease ? 'release' : 'press',
     button: mouseButton(code, buttonCode),
     x,
     y,

@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Tool } from 'mu-core';
-import { sanitizePath } from './utils';
+import { formatError, parseArgs, sanitizePath } from './utils';
 
 interface ListDirToolOptions {
   getCwd: () => string;
@@ -36,7 +36,6 @@ export function createListDirTool(opts: ListDirToolOptions): Tool {
   return {
     name: 'list_dir',
     description: 'List the contents of a directory. Optionally recurse with a depth limit.',
-    systemPrompt: 'Use `list_dir` to inspect directory contents (optionally recursive with `depth`).',
     parameters: {
       type: 'object',
       properties: {
@@ -47,37 +46,29 @@ export function createListDirTool(opts: ListDirToolOptions): Tool {
       required: ['path'],
       additionalProperties: false,
     },
-    matchKey: (args) => (typeof args.path === 'string' ? args.path : undefined),
-    formatArgs: (args) => {
-      const path = typeof args.path === 'string' ? args.path : String(args.path ?? '');
-      const suffix = args.recursive === true ? ' (recursive)' : '';
-      const full = `${path}${suffix}`;
-      return [{ label: 'path', value: full.length > 120 ? `${full.slice(0, 120)}…` : full }];
-    },
     execute(args) {
-      const rawPath = args.path as string;
+      const parsed = parseArgs(args);
+      const rawPath = parsed.path as string;
       const cwd = getCwd();
       const path = sanitizePath(rawPath, cwd, restrictToCwd);
       if (path === null) {
-        return { content: `Error: Invalid or disallowed path: ${rawPath}`, error: true };
+        return `Error: Invalid or disallowed path: ${rawPath}`;
       }
       if (!existsSync(path)) {
-        return { content: `Error: Directory not found: ${path}`, error: true };
+        return `Error: Directory not found: ${path}`;
       }
       if (!statSync(path).isDirectory()) {
-        return { content: `Error: Path is not a directory: ${path}`, error: true };
+        return `Error: Path is not a directory: ${path}`;
       }
       try {
-        const recursive = (args.recursive as boolean) ?? false;
-        const maxDepth = (args.depth as number) ?? 2;
+        const recursive = (parsed.recursive as boolean) ?? false;
+        const maxDepth = (parsed.depth as number) ?? 2;
         const lines = listDirRecursive(path, '', 0, maxDepth, recursive);
-        return { content: lines || '(empty directory)' };
+        return lines || '(empty directory)';
       } catch (err) {
-        return {
-          content: `Error listing directory: ${err instanceof Error ? err.message : String(err)}`,
-          error: true,
-        };
+        return formatError(err);
       }
     },
+    onError: formatError,
   };
 }

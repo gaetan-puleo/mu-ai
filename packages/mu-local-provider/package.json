@@ -1,7 +1,7 @@
 {
   "name": "mu-local-provider",
-  "version": "0.15.0",
-  "description": "Local-server-aware LLM provider plugin for mu (llama-swap + llama-cpp)",
+  "version": "0.1.0",
+  "description": "Local LLM provider for mu-core (llama-swap, Ollama, LM Studio)",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -12,7 +12,7 @@
     "src"
   ],
   "dependencies": {
-    "mu-core-old": "workspace:*",
-    "openai": "^6.35.0"
+    "mu-core": "workspace:*",
+    "openai": "^6.38.0"
   }
 }

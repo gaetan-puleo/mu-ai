@@ -1,33 +1,36 @@
 /**
  * mu-tools — shared filesystem + shell tools for mu hosts.
  *
- * Provides `read`, `write`, `edit`, `bash`, and `list_dir`. Used by both
- * mu-coding (TUI) and arya-agent (autonomous WS host).
+ * Provides `read`, `write`, `edit`, `bash`, and `list_dir` as a `Tools` map
+ * compatible with the `mu-core` runtime.
  *
- * `restrictToCwd` (opt-in) enables containment checks for path arguments:
- *  - mu-coding does NOT enable it (TUI needs absolute paths).
- *  - arya enables it for permission-glob safety.
+ * `restrictToCwd` (opt-in) enables containment checks for path arguments.
  */
 
-import type { Plugin, Tool } from 'mu-core';
+import type { Tool, Tools } from 'mu-core';
 import { createBashTool } from './bash';
 import { createEditFileTool } from './edit-file';
 import { createListDirTool } from './list-dir';
 import { createReadFileTool } from './read-file';
 import { createWriteFileTool } from './write-file';
 
-export interface MuToolsPluginOptions {
-  /** Working directory accessor. Defaults to `api.cwd` resolved at register. */
+export type MuToolName = 'read' | 'write' | 'edit' | 'bash' | 'list_dir';
+
+export interface MuToolsOptions {
+  /** Working directory accessor. Defaults to `process.cwd()`. */
   getCwd?: () => string;
   /** Enforce that path-accepting tools stay inside the cwd. Default `false`. */
   restrictToCwd?: boolean;
   /** Subset of tools to include. Default: all five. */
-  tools?: ReadonlyArray<'read' | 'write' | 'edit' | 'bash' | 'list_dir'>;
+  tools?: ReadonlyArray<MuToolName>;
 }
 
-const DEFAULT_TOOLS = ['read', 'write', 'edit', 'bash', 'list_dir'] as const;
+const DEFAULT_TOOLS: readonly MuToolName[] = ['read', 'write', 'edit', 'bash', 'list_dir'];
 
-export function createMuToolsPlugin(options: MuToolsPluginOptions = {}): Plugin {
+/**
+ * Build a `Tools` map ready to pass to `createRuntime({ tools })`.
+ */
+export function createMuTools(options: MuToolsOptions = {}): Tools {
   const getCwd = options.getCwd ?? ((): string => process.cwd());
   const restrictToCwd = options.restrictToCwd ?? false;
   const enabled = new Set(options.tools ?? DEFAULT_TOOLS);
@@ -39,17 +42,14 @@ export function createMuToolsPlugin(options: MuToolsPluginOptions = {}): Plugin 
   if (enabled.has('bash')) tools.push(createBashTool({ getCwd }));
   if (enabled.has('list_dir')) tools.push(createListDirTool({ getCwd, restrictToCwd }));
 
-  return {
-    name: 'mu-tools',
-    register(api) {
-      for (const t of tools) api.tool(t);
-    },
-  };
+  const map: Tools = {};
+  for (const t of tools) map[t.name] = t;
+  return map;
 }
 
 export { createBashTool } from './bash';
 export { createEditFileTool } from './edit-file';
 export { createListDirTool } from './list-dir';
 export { createReadFileTool } from './read-file';
-export { sanitizePath } from './utils';
 export { createWriteFileTool } from './write-file';
+export { sanitizePath } from './utils';

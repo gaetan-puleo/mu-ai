@@ -1,6 +1,6 @@
 import { sliceByColumn, visibleWidth } from '../utils';
 import { containsPoint, intersectRect, isEmptyRect } from './insets';
-import { type BorderStyle, DEFAULT_BORDER_CHARS, type Rect } from './types';
+import { type BorderStyle, type Color, DEFAULT_BORDER_CHARS, type Rect } from './types';
 
 /**
  * Line-based canvas. Each row is a single string of visible cells.
@@ -31,7 +31,7 @@ export function createCanvas(width: number, height: number): Canvas {
  * - Horizontally: clip each line to the intersection of its target span with `clip`.
  * - Pad with spaces if the line is shorter than its allotted width.
  */
-export function drawLines(canvas: Canvas, x: number, y: number, lines: string[], clip: Rect): void {
+export function drawLines(canvas: Canvas, x: number, y: number, lines: string[], clip: Rect, backgroundColor?: Color): void {
   if (canvas.width === 0 || canvas.height === 0) return;
   const canvasRect: Rect = { x: 0, y: 0, width: canvas.width, height: canvas.height };
   const safeClip = intersectRect(clip, canvasRect);
@@ -50,9 +50,27 @@ export function drawLines(canvas: Canvas, x: number, y: number, lines: string[],
 
     const sliceStart = drawRect.x - x;
     const sliceEnd = sliceStart + drawRect.width;
-    const clipped = sliceByColumn(lines[i], sliceStart, sliceEnd, true);
+    const clipped = withBackground(sliceByColumn(lines[i], sliceStart, sliceEnd, true), backgroundColor);
 
     overwriteRow(canvas, drawRect.x, targetY, clipped, drawRect.width);
+  }
+}
+
+/** Fill `rect` with background-colored spaces, clipped to `clip`. */
+export function drawBackground(canvas: Canvas, rect: Rect, color: Color, clip: Rect): void {
+  if (canvas.width === 0 || canvas.height === 0) return;
+  if (rect.width <= 0 || rect.height <= 0) return;
+
+  const prefix = backgroundColorToAnsi(color);
+  if (!prefix) return;
+
+  const safeClip = intersectRect(clip, { x: 0, y: 0, width: canvas.width, height: canvas.height });
+  const drawRect = intersectRect(rect, safeClip);
+  if (isEmptyRect(drawRect)) return;
+
+  const line = `${prefix}${' '.repeat(drawRect.width)}\x1b[0m`;
+  for (let y = drawRect.y; y < drawRect.y + drawRect.height; y++) {
+    overwriteRow(canvas, drawRect.x, y, line, drawRect.width);
   }
 }
 
@@ -74,6 +92,56 @@ export function drawBorder(canvas: Canvas, rect: Rect, style: BorderStyle | true
   drawVerticalBorder(canvas, rect, resolved, safeClip, 'left');
   drawVerticalBorder(canvas, rect, resolved, safeClip, 'right');
 }
+
+function backgroundColorToAnsi(color: Color): string | undefined {
+  if (color.startsWith('#')) return hexBackgroundToAnsi(color);
+  return NAMED_BACKGROUND_COLORS[color as NamedColor];
+}
+
+function withBackground(text: string, color: Color | undefined): string {
+  if (!color) return text;
+  const prefix = backgroundColorToAnsi(color);
+  if (!prefix) return text;
+  return `${prefix}${text.replace(/\x1b\[0m/g, `\x1b[0m${prefix}`)}\x1b[0m`;
+}
+
+function hexBackgroundToAnsi(color: string): string | undefined {
+  const hex = color.slice(1);
+  if (/^[0-9a-fA-F]{3}$/.test(hex)) {
+    const r = Number.parseInt(hex[0] + hex[0], 16);
+    const g = Number.parseInt(hex[1] + hex[1], 16);
+    const b = Number.parseInt(hex[2] + hex[2], 16);
+    return `\x1b[48;2;${r};${g};${b}m`;
+  }
+  if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+    const r = Number.parseInt(hex.slice(0, 2), 16);
+    const g = Number.parseInt(hex.slice(2, 4), 16);
+    const b = Number.parseInt(hex.slice(4, 6), 16);
+    return `\x1b[48;2;${r};${g};${b}m`;
+  }
+  return undefined;
+}
+
+type NamedColor = Exclude<Color, `#${string}`>;
+
+const NAMED_BACKGROUND_COLORS: Record<NamedColor, string> = {
+  black: '\x1b[40m',
+  red: '\x1b[41m',
+  green: '\x1b[42m',
+  yellow: '\x1b[43m',
+  blue: '\x1b[44m',
+  magenta: '\x1b[45m',
+  cyan: '\x1b[46m',
+  white: '\x1b[47m',
+  brightBlack: '\x1b[100m',
+  brightRed: '\x1b[101m',
+  brightGreen: '\x1b[102m',
+  brightYellow: '\x1b[103m',
+  brightBlue: '\x1b[104m',
+  brightMagenta: '\x1b[105m',
+  brightCyan: '\x1b[106m',
+  brightWhite: '\x1b[107m',
+};
 
 function resolveBorderStyle(style: BorderStyle | true): Required<BorderStyle> {
   if (style === true) {

@@ -42,6 +42,26 @@ export interface Constraints {
  */
 export type SizeSpec = number | `${number}%` | `${number}fr` | 'auto' | 'fill';
 
+/** Supported layout color values. Hex colors render as truecolor SGR. */
+export type Color =
+  | `#${string}`
+  | 'black'
+  | 'red'
+  | 'green'
+  | 'yellow'
+  | 'blue'
+  | 'magenta'
+  | 'cyan'
+  | 'white'
+  | 'brightBlack'
+  | 'brightRed'
+  | 'brightGreen'
+  | 'brightYellow'
+  | 'brightBlue'
+  | 'brightMagenta'
+  | 'brightCyan'
+  | 'brightWhite';
+
 /** Drawable border characters. */
 export interface BorderChars {
   horizontal: string;
@@ -95,6 +115,8 @@ export interface LayoutStyle {
   padding?: number | Partial<Insets>;
   /** Border drawn on the boundary of `rect`. Consumes cells from `contentRect`. */
   border?: boolean | BorderStyle;
+  /** Background color painted across the component's outer rect. */
+  backgroundColor?: Color;
   /** Higher draws above lower. Default 0. Overlays default to 100. */
   zIndex?: number;
   /** Overflow handling for the component's content rect. Default `'visible'`. */
@@ -115,6 +137,12 @@ export interface RenderContext {
   focused: boolean;
   /** Negotiated terminal capabilities. */
   capabilities: Capabilities;
+  /**
+   * Application-defined context value. Set via `TuiOptions.userContext` /
+   * `TUI.setUserContext()`. The TUI core treats this as opaque data; consumers
+   * (e.g. a theme provider) cast it to their own type when reading it.
+   */
+  userContext?: unknown;
 }
 
 /** Context passed to `Component.handleEvent`. */
@@ -126,6 +154,8 @@ export interface EventContext {
   /** For mouse events: y relative to `contentRect.y`. */
   localY?: number;
   focused: boolean;
+  /** Application-defined context value. See `RenderContext.userContext`. */
+  userContext?: unknown;
 }
 
 /** Internal layout entry produced by the layout engine. */
@@ -134,6 +164,8 @@ export interface LayoutEntry {
   rect: Rect;
   contentRect: Rect;
   clipRect: Rect;
+  /** Resolved visual background, inherited from ancestors when not explicitly set. */
+  backgroundColor?: Color;
   zIndex: number;
   depth: number;
   order: number;
