@@ -35,20 +35,58 @@ export function layoutTree(
     order: { current: 0 },
   };
 
-  layoutChildren(children, rootRect, rootRect, 'column', 0, undefined, ctx);
+  layoutChildren(children, rootRect, rootRect, 'column', 0, undefined, undefined, ctx);
   return ctx.entries;
 }
 
 /**
- * Sort entries for rendering: lower zIndex first, then lower depth, then earlier order.
- * Drawing in this order ensures higher zIndex / deeper children paint on top.
+ * Sort entries for rendering: lower zIndex first, then earlier layout order.
+ * Descendants always paint after their ancestors so a child is never hidden
+ * by its own parent's chrome regardless of zIndex.
  */
 export function sortForRender(entries: LayoutEntry[]): LayoutEntry[] {
+  const lookup = new Map<Component, LayoutEntry>();
+  for (const entry of entries) lookup.set(entry.component, entry);
+
   return entries.slice().sort((a, b) => {
+    if (isAncestorOf(a, b, lookup)) return -1; // b is descendant of a → b paints after a
+    if (isAncestorOf(b, a, lookup)) return 1;
+
+    const aPath = entryPath(a, lookup);
+    const bPath = entryPath(b, lookup);
+    const length = Math.min(aPath.length, bPath.length);
+    for (let i = 0; i < length; i++) {
+      if (aPath[i] === bPath[i]) continue;
+      if (aPath[i].zIndex !== bPath[i].zIndex) return aPath[i].zIndex - bPath[i].zIndex;
+      return aPath[i].order - bPath[i].order;
+    }
+
     if (a.zIndex !== b.zIndex) return a.zIndex - b.zIndex;
-    if (a.depth !== b.depth) return a.depth - b.depth;
     return a.order - b.order;
   });
+}
+
+function entryPath(entry: LayoutEntry, lookup: Map<Component, LayoutEntry>): LayoutEntry[] {
+  const path: LayoutEntry[] = [];
+  let cursor: LayoutEntry | undefined = entry;
+  while (cursor) {
+    path.unshift(cursor);
+    cursor = cursor.parent ? lookup.get(cursor.parent) : undefined;
+  }
+  return path;
+}
+
+function isAncestorOf(
+  ancestor: LayoutEntry,
+  descendant: LayoutEntry,
+  lookup: Map<Component, LayoutEntry>,
+): boolean {
+  let cursor: Component | undefined = descendant.parent;
+  while (cursor) {
+    if (cursor === ancestor.component) return true;
+    cursor = lookup.get(cursor)?.parent;
+  }
+  return false;
 }
 
 function layoutChildren(
@@ -58,6 +96,7 @@ function layoutChildren(
   direction: 'row' | 'column',
   depth: number,
   parent: Component | undefined,
+  inheritedBackgroundColor: LayoutStyle['backgroundColor'],
   ctx: BuildContext,
 ): void {
   if (children.length === 0) return;
@@ -70,10 +109,10 @@ function layoutChildren(
     else positioned.push(child);
   }
 
-  layoutRelative(relative, parentContentRect, parentClipRect, direction, depth, parent, ctx);
+  layoutRelative(relative, parentContentRect, parentClipRect, direction, depth, parent, inheritedBackgroundColor, ctx);
 
   for (const child of positioned) {
-    layoutPositioned(child, parentContentRect, parentClipRect, depth, parent, ctx);
+    layoutPositioned(child, parentContentRect, parentClipRect, depth, parent, inheritedBackgroundColor, ctx);
   }
 }
 
@@ -84,6 +123,7 @@ function layoutRelative(
   direction: 'row' | 'column',
   depth: number,
   parent: Component | undefined,
+  inheritedBackgroundColor: LayoutStyle['backgroundColor'],
   ctx: BuildContext,
 ): void {
   if (children.length === 0) return;
@@ -120,7 +160,7 @@ function layoutRelative(
             height: outerMain,
           };
 
-    placeAndRegister(child, slotRect, parentClipRect, depth, parent, ctx);
+    placeAndRegister(child, slotRect, parentClipRect, depth, parent, inheritedBackgroundColor, ctx);
     cursor += outerMain;
   }
 }
@@ -131,6 +171,7 @@ function layoutPositioned(
   parentClipRect: Rect,
   depth: number,
   parent: Component | undefined,
+  inheritedBackgroundColor: LayoutStyle['backgroundColor'],
   ctx: BuildContext,
 ): void {
   const margin = normalizeInsets(child.layout?.margin);
@@ -162,7 +203,7 @@ function layoutPositioned(
     height: innerH + insetsForAxis(margin, 'height'),
   };
 
-  placeAndRegister(child, slotRect, parentClipRect, depth, parent, ctx);
+  placeAndRegister(child, slotRect, parentClipRect, depth, parent, inheritedBackgroundColor, ctx);
 }
 
 function placeAndRegister(
@@ -171,6 +212,7 @@ function placeAndRegister(
   parentClipRect: Rect,
   depth: number,
   parent: Component | undefined,
+  inheritedBackgroundColor: LayoutStyle['backgroundColor'],
   ctx: BuildContext,
 ): void {
   const margin = normalizeInsets(child.layout?.margin);
@@ -187,12 +229,14 @@ function placeAndRegister(
   const positionMode = child.layout?.position ?? 'relative';
   const defaultZIndex = positionMode === 'overlay' ? 100 : 0;
   const zIndex = child.layout?.zIndex ?? defaultZIndex;
+  const backgroundColor = child.layout?.backgroundColor ?? inheritedBackgroundColor;
 
   const entry: LayoutEntry = {
     component: child,
     rect,
     contentRect,
     clipRect,
+    backgroundColor,
     zIndex,
     depth,
     order: ctx.order.current++,
@@ -201,10 +245,14 @@ function placeAndRegister(
   ctx.entries.push(entry);
 
   if (child.children && child.children.length > 0 && !isEmptyRect(contentRect)) {
+    // Let the parent dynamically position its children based on its own
+    // computed content rect (e.g. Modal centering a panel).
+    child.prepareLayout?.(contentRect);
+
     const childClipRect =
       overflow === 'hidden' || overflow === 'scroll' ? intersectRect(contentRect, clipRect) : clipRect;
     const childDirection = child.layout?.direction ?? 'column';
-    layoutChildren(child.children, contentRect, childClipRect, childDirection, depth + 1, child, ctx);
+    layoutChildren(child.children, contentRect, childClipRect, childDirection, depth + 1, child, backgroundColor, ctx);
   }
 }
 

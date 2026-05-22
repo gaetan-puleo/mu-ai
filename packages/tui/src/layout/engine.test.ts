@@ -115,7 +115,7 @@ describe('layoutTree: positioning and overflow', () => {
     expect(findByRender(entries, 'o')?.zIndex).toBe(100);
   });
 
-  it('sorts entries by zIndex / depth / order', () => {
+  it('sorts entries by zIndex / order', () => {
     const a = leaf('a', { zIndex: 5 });
     const b = leaf('b', { zIndex: 1 });
     const sorted = sortForRender([
@@ -124,6 +124,19 @@ describe('layoutTree: positioning and overflow', () => {
     ]);
     expect(sorted[0].zIndex).toBe(1);
     expect(sorted[1].zIndex).toBe(5);
+  });
+
+  it('keeps overlay descendants above their parent chrome', () => {
+    const modal = leaf('modal', { zIndex: 1000 });
+    const content = leaf('content');
+    const sibling = leaf('sibling', { zIndex: 10 });
+    const entries: LayoutEntry[] = [
+      { component: sibling, rect: root, contentRect: root, clipRect: root, zIndex: 10, depth: 1, order: 0 },
+      { component: content, rect: root, contentRect: root, clipRect: root, zIndex: 0, depth: 2, order: 2, parent: modal },
+      { component: modal, rect: root, contentRect: root, clipRect: root, zIndex: 1000, depth: 1, order: 1 },
+    ];
+
+    expect(sortForRender(entries).map((entry) => entry.component)).toEqual([sibling, modal, content]);
   });
 
   it('clips child clip rects under overflow:hidden parent', () => {
