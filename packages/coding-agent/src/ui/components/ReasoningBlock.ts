@@ -1,11 +1,10 @@
-import type { Component, Constraints, EventContext, InputEvent, LayoutStyle, RenderContext, Size } from 'mu-tui';
+import type { Component, Constraints, LayoutStyle, RenderContext, Size } from 'mu-tui';
 import { truncateToWidth, visibleWidth, wrapText } from 'mu-tui';
 import { getTheme, styleToAnsi } from '../theme';
 
 export interface ReasoningBlockProps {
   content: string;
   layout?: LayoutStyle;
-  onToggle?: () => void;
 }
 
 const RESET = '\x1b[0m';
@@ -13,22 +12,14 @@ const RESET = '\x1b[0m';
 export class ReasoningBlock implements Component {
   layout: LayoutStyle;
   private content: string;
-  private readonly onToggle?: () => void;
 
   constructor(props: ReasoningBlockProps) {
     this.content = props.content;
-    this.onToggle = props.onToggle;
     this.layout = { width: 'fill', height: 'auto', margin: { bottom: 1 }, ...props.layout };
   }
 
   setContent(content: string): void {
     this.content = content;
-  }
-
-  handleEvent(event: InputEvent, _ctx: EventContext): void {
-    if (event.type === 'mouse' && event.kind === 'press' && event.button === 'left') {
-      this.onToggle?.();
-    }
   }
 
   render(ctx: RenderContext): string[] {

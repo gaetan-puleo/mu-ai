@@ -1,7 +1,7 @@
 {
   "name": "mu-webfetch",
   "version": "0.9.0",
-  "description": "Webfetch tool plugin for mu — fetches a URL and returns it as text.",
+  "description": "Webfetch tool for mu — fetches a URL and returns it as text.",
   "type": "module",
   "main": "./src/plugin.ts",
   "types": "./src/plugin.ts",
@@ -13,6 +13,7 @@
     "README.md"
   ],
   "dependencies": {
+    "mu-core": "workspace:*",
     "turndown": "^7.2.2"
   },
   "devDependencies": {

@@ -1,27 +1,31 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 import type { CoreEvent, LLMResponseContext, Message, Runtime, Unsubscribe } from 'mu-core';
 import type { LocalModel } from 'mu-local-provider';
-import {
-  type Component,
-  type InputEvent,
-  type LayoutStyle,
-  ProcessTerminal,
-  type RenderContext,
-  TUI,
-  truncateToWidth,
-  visibleWidth,
-} from 'mu-tui';
+import { type Component, type InputEvent, ProcessTerminal, TUI } from 'mu-tui';
 import { Box, Input, Modal, ScrollView, SelectList } from 'mu-tui/components';
 import { AssistantMessage } from './components/AssistantMessage';
+import { CommandLine } from './components/CommandLine';
 import { CommandPalette, type CommandPaletteItem } from './components/CommandPalette';
+import { CommandResultLine } from './components/CommandResultLine';
+import { ContextMap } from './components/ContextMap';
+import { ErrorLine } from './components/ErrorLine';
+import { ErrorToast } from './components/ErrorToast';
+import { HiddenThinkingLine } from './components/HiddenThinkingLine';
 import { ReasoningBlock } from './components/ReasoningBlock';
+import { formatToolCallArgs, ToolLine } from './components/ToolLine';
 import { UserMessage } from './components/UserMessage';
+import { StatusLine } from './statusLine';
 import { STATUS_SLOTS, type StatusSlotContext } from './statusSlots';
 import { darkTheme, getTheme, lightTheme, styleToAnsi, type Theme, ThemeProvider } from './theme';
 
 type ChatLine =
   | { role: 'user'; content: string; label?: 'queued steering' | 'follow-up' }
   | { role: 'assistant' | 'error'; content: string }
-  | { role: 'reasoning'; content: string; hidden?: boolean }
+  | { role: 'command'; content: string }
+  | { role: 'command_result'; content: string }
+  | { role: 'context'; context?: unknown }
+  | { role: 'reasoning'; content: string; closed?: boolean }
   | { role: 'tool'; callId: string; name: string; argsPreview: string };
 
 type UserChatLine = Extract<ChatLine, { role: 'user' }>;
@@ -42,6 +46,7 @@ interface ChatCommand extends CommandPaletteItem {
 }
 
 interface ModelController {
+  createRuntime: () => Runtime;
   listModels: () => Promise<LocalModel[]>;
   getModel: () => string;
   setModel: (model: string) => void;
@@ -52,194 +57,11 @@ interface ChatAppOptions {
   onThinkingVisibleChange?: (visible: boolean) => void;
 }
 
-type ModalMode = 'help' | 'model';
+type ModalMode = 'model';
 
 type ChatEvent = CoreEvent | { type: 'context_update'; context: LLMResponseContext };
 
-const RESET = '\x1b[0m';
 const SPINNER_INTERVAL_MS = 100;
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-function renderSpinnerFrame(tick: number): string {
-  return `\x1b[2m${SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}${RESET}`;
-}
-
-class StatusLine implements Component {
-  layout: LayoutStyle;
-  private leftParts: string[] = [];
-  private rightParts: string[] = [];
-  private busy = false;
-  private spinnerTick = 0;
-
-  constructor() {
-    this.layout = { width: 'fill', height: 1, zIndex: 10 };
-  }
-
-  setContent(leftParts: string[], rightParts: string[]): void {
-    this.leftParts = leftParts;
-    this.rightParts = rightParts;
-  }
-
-  setBusy(busy: boolean): void {
-    this.busy = busy;
-  }
-
-  setSpinnerTick(tick: number): void {
-    this.spinnerTick = tick;
-  }
-
-  render(ctx: RenderContext): string[] {
-    const theme = getTheme(ctx);
-    const prefix = styleToAnsi(theme.styles.muted);
-    const leftText = this.leftParts.join(' · ');
-    const rightText = this.rightParts.join(' · ');
-    const styledLeftText = prefix && leftText ? `${prefix}${leftText}${RESET}` : leftText;
-    const styledRightText = prefix && rightText ? `${prefix}${rightText}${RESET}` : rightText;
-    const left = this.busy
-      ? `${renderSpinnerFrame(this.spinnerTick)}${styledLeftText ? ` ${styledLeftText}` : ''}`
-      : styledLeftText;
-    const leftWidth = visibleWidth(left);
-    const rightWidth = visibleWidth(rightText);
-    const gap = Math.max(1, ctx.contentRect.width - leftWidth - rightWidth);
-    const text = rightText ? `${left}${' '.repeat(gap)}${styledRightText}` : left;
-    const padded = text.padEnd(ctx.contentRect.width, ' ');
-    return [padded];
-  }
-}
-
-class ErrorLine implements Component {
-  layout: LayoutStyle;
-  private content: string;
-
-  constructor(content: string) {
-    this.content = content;
-    this.layout = { width: 'fill', height: 'auto' };
-  }
-
-  render(ctx: RenderContext): string[] {
-    const { width, height } = ctx.contentRect;
-    if (width <= 0 || height <= 0) return [];
-
-    const theme = getTheme(ctx);
-    const prefixSgr = styleToAnsi(theme.styles.errorPrefix);
-    const bodySgr = styleToAnsi(theme.styles.errorLine);
-    const head = prefixSgr ? `${prefixSgr}! ${RESET}` : '! ';
-    const body = bodySgr ? `${bodySgr}${this.content}${RESET}` : this.content;
-    return [`${head}${body}`];
-  }
-}
-
-class ErrorToast implements Component {
-  layout: LayoutStyle;
-
-  constructor(private readonly content: string) {
-    this.layout = { width: 'fill', height: 'auto', padding: { left: 1, right: 1, bottom: 1 }, zIndex: 20 };
-  }
-
-  render(ctx: RenderContext): string[] {
-    const { width, height } = ctx.contentRect;
-    if (width <= 0 || height <= 0) return [];
-
-    const theme = getTheme(ctx);
-    const prefixSgr = styleToAnsi(theme.styles.errorPrefix);
-    const bodySgr = styleToAnsi(theme.styles.errorLine);
-    const maxTextWidth = Math.max(0, width - 4);
-    const text =
-      this.content.length > maxTextWidth ? `${this.content.slice(0, Math.max(0, maxTextWidth - 3))}...` : this.content;
-    const prefix = prefixSgr ? `${prefixSgr}!${RESET}` : '!';
-    const body = bodySgr ? `${bodySgr}${text}${RESET}` : text;
-    return [`${prefix} ${body}`.padEnd(width, ' ')];
-  }
-}
-
-class ToolLine implements Component {
-  layout: LayoutStyle;
-
-  constructor(
-    private readonly name: string,
-    private readonly argsPreview: string,
-  ) {
-    this.layout = { width: 'fill', height: 1, padding: { left: 1, right: 1 }, margin: { bottom: 1 } };
-  }
-
-  render(ctx: RenderContext): string[] {
-    const { width, height } = ctx.contentRect;
-    if (width <= 0 || height <= 0) return [];
-
-    const theme = getTheme(ctx);
-    const prefix = styleToAnsi(theme.styles.muted);
-    const text = this.argsPreview ? `→ ${this.name} ${this.argsPreview}` : `→ ${this.name}`;
-    const fitted = visibleWidth(text) > width ? truncateToWidth(text, width) : text;
-    return [prefix ? `${prefix}${fitted}${RESET}` : fitted];
-  }
-}
-
-class HiddenThinkingLine implements Component {
-  layout: LayoutStyle = { width: 'fill', height: 1, padding: { left: 1, right: 1 }, margin: { bottom: 1 } };
-
-  constructor(private readonly onToggle: () => void) {}
-
-  handleEvent(event: InputEvent): void {
-    if (event.type === 'mouse' && event.kind === 'press' && event.button === 'left') {
-      this.onToggle();
-    }
-  }
-
-  render(ctx: RenderContext): string[] {
-    const { width, height } = ctx.contentRect;
-    if (width <= 0 || height <= 0) return [];
-
-    const theme = getTheme(ctx);
-    const prefix = styleToAnsi(theme.styles.reasoning);
-    const text = '[thinking]';
-    const fitted = visibleWidth(text) > width ? truncateToWidth(text, width) : text;
-    return [prefix ? `${prefix}${fitted}${RESET}` : fitted];
-  }
-}
-
-function formatToolCallArgs(toolName: string, rawArgs: string, maxLen = 120): string {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawArgs);
-  } catch {
-    return truncateText(rawArgs, maxLen);
-  }
-
-  if (parsed === null || typeof parsed !== 'object') {
-    return truncateText(String(parsed ?? ''), maxLen);
-  }
-
-  const args = parsed as Record<string, unknown>;
-  const path = stringifyToolArg(args.path);
-
-  if (toolName === 'edit' || toolName === 'write' || toolName === 'read' || toolName === 'list_dir') {
-    return truncateText(path, maxLen);
-  }
-
-  if (toolName === 'bash') {
-    return truncateText(stringifyToolArg(args.cmd), maxLen);
-  }
-
-  const parts = Object.values(args)
-    .map((value) => stringifyToolArg(value))
-    .filter(Boolean);
-  return truncateText(parts.join(' '), maxLen);
-}
-
-function stringifyToolArg(value: unknown): string {
-  if (value === undefined || value === null) return '';
-  if (typeof value === 'string') return value;
-  if (Array.isArray(value))
-    return value
-      .map((item) => stringifyToolArg(item))
-      .filter(Boolean)
-      .join(' ');
-  return JSON.stringify(value) ?? '';
-}
-
-function truncateText(value: string, maxLen: number): string {
-  return value.length > maxLen ? `${value.slice(0, Math.max(0, maxLen - 1))}…` : value;
-}
 
 export class ChatApp {
   private tui: TUI;
@@ -270,6 +92,7 @@ export class ChatApp {
   private stopped = false;
   private status = 'ready';
   private contextText = '';
+  private latestContext: LLMResponseContext | undefined;
   private thinkingVisible = true;
   private queuedUserLines: UserChatLine[] = [];
   private visibleQueuedLines: VisibleQueuedLine[] = [];
@@ -505,13 +328,7 @@ export class ChatApp {
 
   private interceptInput(event: InputEvent): boolean {
     if (this.modal && event.type === 'key' && event.kind !== 'release') {
-      if (this.modalMode === 'model') {
-        return this.interceptModelModal(event);
-      }
-      if (event.key === 'escape' || event.key === 'esc' || event.key === 'enter') {
-        this.closeModal();
-        return true;
-      }
+      return this.interceptModalInput(event);
     }
 
     if (event.type === 'key' && event.kind !== 'release' && (event.key === 'escape' || event.key === 'esc')) {
@@ -554,6 +371,19 @@ export class ChatApp {
     return false;
   }
 
+  private interceptModalInput(event: Extract<InputEvent, { type: 'key' }>): boolean {
+    if (this.modalMode === 'model') {
+      return this.interceptModelModal(event);
+    }
+
+    if (event.key === 'escape' || event.key === 'esc' || event.key === 'enter') {
+      this.closeModal();
+      return true;
+    }
+
+    return false;
+  }
+
   private handleFollowUpSubmit(): boolean {
     const text = this.input.value.trim();
     if (!text || this.runtime.state() === 'idle') {
@@ -575,26 +405,24 @@ export class ChatApp {
   private createCommands(): ChatCommand[] {
     return [
       {
-        name: 'help',
-        description: 'show available commands',
-        run: () => this.openHelpModal(),
-      },
-      {
-        name: 'clear',
-        description: 'clear the transcript',
-        run: () => {
-          this.transcript = [];
-          this.queuedUserLines = [];
-          this.visibleQueuedLines = [];
-          this.pendingAssistantIndex = undefined;
-          this.pendingReasoningIndex = undefined;
-          this.renderTranscript();
-        },
+        name: 'new',
+        description: 'start a new session',
+        run: () => this.startNewSession(),
       },
       {
         name: 'model',
         description: 'switch the active model',
         run: () => this.openModelModal(),
+      },
+      {
+        name: 'context',
+        description: 'show context map',
+        run: () => this.showContextMap(),
+      },
+      {
+        name: 'context-export',
+        description: 'export context map to a file',
+        run: (args) => void this.exportContext(args),
       },
       {
         name: 'thinking',
@@ -612,6 +440,63 @@ export class ChatApp {
     ];
   }
 
+  private startNewSession(): void {
+    if (!this.modelController) {
+      this.showErrorToast('No runtime controller is configured.');
+      return;
+    }
+
+    if (this.runtime.state() !== 'idle') {
+      this.showErrorToast('Cannot start a new session while a response is running.');
+      return;
+    }
+
+    this.runtime.stop();
+    this.runtime = this.modelController.createRuntime();
+    this.runtime.start();
+    this.transcript = [];
+    this.queuedUserLines = [];
+    this.visibleQueuedLines = [];
+    this.pendingAssistantIndex = undefined;
+    this.pendingReasoningIndex = undefined;
+    this.contextText = '';
+    this.latestContext = undefined;
+    this.setStatus('new session');
+    this.renderTranscript();
+  }
+
+  private showContextMap(): void {
+    this.transcript.push({ role: 'command', content: '/context' });
+    this.transcript.push({ role: 'context', context: this.latestContext });
+    this.renderTranscript();
+  }
+
+  private async exportContext(args: string): Promise<void> {
+    if (!this.latestContext) {
+      this.showErrorToast('No context available to export.');
+      return;
+    }
+
+    const outputPath = args.trim() || '.mu/context.json';
+    const resolvedPath = resolve(outputPath);
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      model: this.modelController?.getModel(),
+      context: this.latestContext,
+    };
+
+    try {
+      await mkdir(dirname(resolvedPath), { recursive: true });
+      await writeFile(resolvedPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+      this.transcript.push({ role: 'command', content: `/context-export ${outputPath}` });
+      this.transcript.push({ role: 'command_result', content: `saved context to ${outputPath}` });
+      this.renderTranscript();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.showErrorToast(`Failed to export context: ${message}`);
+    }
+  }
+
   private filteredCommands(value: string): ChatCommand[] {
     if (!value.startsWith('/') || value.includes(' ') || value === this.dismissedPaletteFor) return [];
     const query = value.slice(1).toLowerCase();
@@ -621,14 +506,15 @@ export class ChatApp {
   private toggleThinking(): void {
     this.thinkingVisible = !this.thinkingVisible;
     for (const entry of this.transcript) {
-      if (entry.role === 'reasoning') entry.hidden = !this.thinkingVisible;
+      if (entry.role === 'reasoning') entry.closed = !this.thinkingVisible;
     }
     this.options.onThinkingVisibleChange?.(this.thinkingVisible);
     this.renderTranscript();
   }
 
-  private toggleThinkingLine(line: Extract<ChatLine, { role: 'reasoning' }>): void {
-    line.hidden = !line.hidden;
+  private openThinkingLine(line: Extract<ChatLine, { role: 'reasoning' }>): void {
+    if (!line.closed) return;
+    line.closed = false;
     this.renderTranscript();
   }
 
@@ -691,16 +577,6 @@ export class ChatApp {
     }
     command.run(rest.join(' '));
     return true;
-  }
-
-  private openHelpModal(): void {
-    const body = this.commandItems.map((command) => `/${command.name} - ${command.description}`);
-    this.openModal('help', {
-      title: 'Command Palette',
-      body,
-      footer: 'Esc or Enter to close',
-      onClose: () => this.closeModal(),
-    });
   }
 
   private openModelModal(): void {
@@ -988,7 +864,11 @@ export class ChatApp {
   private appendReasoningDelta(content: string): void {
     if (this.pendingReasoningIndex === undefined) {
       const insertAt = this.pendingAssistantIndex ?? this.transcript.length;
-      this.transcript.splice(insertAt, 0, { role: 'reasoning', content: '', hidden: !this.thinkingVisible });
+      this.transcript.splice(insertAt, 0, {
+        role: 'reasoning',
+        content: '',
+        closed: !this.thinkingVisible,
+      });
       this.pendingReasoningIndex = insertAt;
       if (this.pendingAssistantIndex !== undefined) this.pendingAssistantIndex++;
     }
@@ -1007,7 +887,7 @@ export class ChatApp {
     this.transcript.splice(insertAt, 0, {
       role: 'reasoning',
       content: message.content,
-      hidden: !this.thinkingVisible,
+      closed: !this.thinkingVisible,
     });
     if (this.pendingAssistantIndex !== undefined) this.pendingAssistantIndex++;
   }
@@ -1054,6 +934,7 @@ export class ChatApp {
   }
 
   private setContext(context: LLMResponseContext): void {
+    this.latestContext = context;
     const used = context.usage?.promptTokens;
     const total = context.props?.n_ctx ?? context.currentSlot?.n_ctx;
     this.contextText =
@@ -1082,14 +963,22 @@ export class ChatApp {
         case 'assistant':
           lines.push(new AssistantMessage({ content: entry.content }));
           break;
+        case 'command':
+          lines.push(new CommandLine(entry.content));
+          break;
+        case 'command_result':
+          lines.push(new CommandResultLine(entry.content));
+          break;
+        case 'context':
+          lines.push(new ContextMap({ context: entry.context, model: this.modelController?.getModel() }));
+          break;
         case 'reasoning':
-          if (entry.hidden) {
-            lines.push(new HiddenThinkingLine(() => this.toggleThinkingLine(entry)));
+          if (entry.closed) {
+            lines.push(new HiddenThinkingLine(() => this.openThinkingLine(entry)));
           } else {
             lines.push(
               new ReasoningBlock({
                 content: entry.content,
-                onToggle: () => this.toggleThinkingLine(entry),
                 layout: { width: 'fill', height: 'auto', padding: { left: 1, right: 1 } },
               }),
             );

@@ -1,13 +1,14 @@
-import { type CoreEvent, createBus, createRuntime } from 'mu-core';
+import { type CoreEvent, createBus, createRuntime as createCoreRuntime } from 'mu-core';
 import type { LocalModel, LocalProviderConfig } from 'mu-local-provider';
 import { createLocalProvider, listLocalModels } from 'mu-local-provider';
 import { createMuTools } from 'mu-tools';
 
 export interface AgentRuntime {
   bus: ReturnType<typeof createBus<CoreEvent>>;
-  runtime: ReturnType<typeof createRuntime>;
+  runtime: ReturnType<typeof createCoreRuntime>;
   model: string;
   models: LocalModel[];
+  createRuntime: () => ReturnType<typeof createCoreRuntime>;
   listModels: () => Promise<LocalModel[]>;
   getModel: () => string;
   setModel: (model: string) => void;
@@ -46,13 +47,15 @@ export async function createAgentRuntime(config: {
   const bus = createBus<CoreEvent>();
   const provider = createLocalProvider(providerConfig);
   const tools = createMuTools({ restrictToCwd: false });
-  const runtime = createRuntime({ provider, tools, bus });
+  const createRuntime = (): ReturnType<typeof createCoreRuntime> => createCoreRuntime({ provider, tools, bus });
+  const runtime = createRuntime();
 
   return {
     bus,
     runtime,
     model,
     models,
+    createRuntime,
     listModels: fetchModels,
     getModel: () => providerConfig.model ?? '',
     setModel: (nextModel: string) => {

@@ -2,6 +2,7 @@ export type Tool = {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
+  systemPrompt?: string | (() => string | undefined | Promise<string | undefined>);
   execute: (args: string) => string | Promise<string>;
   onError: (error: unknown) => string;
 };

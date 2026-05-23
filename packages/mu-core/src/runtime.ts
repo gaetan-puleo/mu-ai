@@ -38,6 +38,7 @@ export type RuntimeConfig = {
   provider: LLMProvider;
   tools: Tools;
   bus: EventBus<CoreEvent>;
+  systemPrompt?: string | (() => string | undefined | Promise<string | undefined>);
   hooks?: ToolHooks;
   steeringMode?: QueueMode;
   followUpMode?: QueueMode;
@@ -154,9 +155,29 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     }
   }
 
-  function publishResponse(response: LLMResponse): boolean {
-    publishContext(response);
+  async function resolveSystemPrompt(
+    prompt: string | (() => string | undefined | Promise<string | undefined>) | undefined,
+  ): Promise<string | undefined> {
+    const value = typeof prompt === 'function' ? await prompt() : prompt;
+    const trimmed = value?.trim();
+    return trimmed || undefined;
+  }
 
+  async function buildProviderMessages(): Promise<Message[]> {
+    const prompts: string[] = [];
+    const runtimePrompt = await resolveSystemPrompt(config.systemPrompt);
+    if (runtimePrompt) prompts.push(runtimePrompt);
+
+    for (const tool of Object.values(tools)) {
+      const prompt = await resolveSystemPrompt(tool.systemPrompt);
+      if (prompt) prompts.push(prompt);
+    }
+
+    if (prompts.length === 0) return messages;
+    return [{ role: 'system', content: prompts.join('\n\n') }, ...messages];
+  }
+
+  function publishResponse(response: LLMResponse): boolean {
     const reasoning = response.reasoning?.trim();
     if (reasoning) {
       const message: Message = { role: 'reasoning', content: reasoning };
@@ -164,14 +185,16 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       bus.publish({ type: 'reasoning_message', message });
     }
 
+    let publishedAssistant = false;
     if (response.content) {
       const message: Message = { role: 'assistant', content: response.content };
       messages.push(message);
       bus.publish({ type: 'assistant_message', message });
-      return true;
+      publishedAssistant = true;
     }
 
-    return false;
+    publishContext(response);
+    return publishedAssistant;
   }
 
   async function processStream(stream: AsyncIterable<LLMStreamEvent>): Promise<ToolCall[]> {
@@ -199,7 +222,6 @@ export function createRuntime(config: RuntimeConfig): Runtime {
         debugLog({ stage: 'runtime.stream.tool_call', tool: event.call.tool, id: event.call.id, argsLen: event.call.args.length });
         bus.publish({ type: 'tool_call', call: event.call });
       } else if (event.type === 'done') {
-        publishContext(event.response);
         doneCalls = event.response?.tool_calls;
         debugLog({
           stage: 'runtime.stream.done',
@@ -221,6 +243,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
           messages.push(message);
           bus.publish({ type: 'assistant_message', message });
         }
+        publishContext(event.response);
         finalized = true;
       }
     }
@@ -296,8 +319,9 @@ export function createRuntime(config: RuntimeConfig): Runtime {
         }
 
         providerCalls++;
-        debugLog({ stage: 'runtime.provider.call.start', providerCalls, messages: messages.length, tools: Object.keys(tools) });
-        const result = await provider(messages, tools);
+        const providerMessages = await buildProviderMessages();
+        debugLog({ stage: 'runtime.provider.call.start', providerCalls, messages: providerMessages.length, tools: Object.keys(tools) });
+        const result = await provider(providerMessages, tools);
 
         if (isAsyncIterable(result)) {
           const streamedToolCalls = await processStream(result);

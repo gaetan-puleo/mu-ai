@@ -11,7 +11,7 @@
  *  - Cloudflare retry uses `User-Agent: mu` (vs. `opencode`).
  */
 
-import type { Plugin, Tool, ToolResult } from 'mu-core';
+import type { Tool } from 'mu-core';
 import TurndownService from 'turndown';
 
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -52,26 +52,11 @@ function buildHeaders(format: WebFetchFormat, userAgent: string): Record<string,
   };
 }
 
-/** Combine the host abort signal with an internal timeout signal. */
-function composeSignal(host: AbortSignal | undefined, timeoutMs: number): { signal: AbortSignal; cancel: () => void } {
+/** Build the internal timeout signal used by the fetch request. */
+function createTimeoutSignal(timeoutMs: number): { signal: AbortSignal; cancel: () => void } {
   const timer = new AbortController();
   const timerId = setTimeout(() => timer.abort(new Error('Request timed out')), timeoutMs);
   const cancel = () => clearTimeout(timerId);
-
-  if (!host) return { signal: timer.signal, cancel };
-
-  // AbortSignal.any is available in Bun 1.0+ and Node 20+.
-  const anyFn = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any;
-  if (typeof anyFn === 'function') {
-    return { signal: anyFn([host, timer.signal]), cancel };
-  }
-
-  // Manual fallback: forward host abort into the timer controller.
-  if (host.aborted) {
-    timer.abort(host.reason);
-  } else {
-    host.addEventListener('abort', () => timer.abort(host.reason), { once: true });
-  }
   return { signal: timer.signal, cancel };
 }
 
@@ -135,8 +120,8 @@ async function extractTextFromHtml(html: string): Promise<string> {
   return text.trim();
 }
 
-function err(content: string): ToolResult {
-  return { content, error: true };
+function err(content: string): string {
+  return content.startsWith('Error:') ? content : `Error: ${content}`;
 }
 
 function isHttpUrl(url: string): boolean {
@@ -152,13 +137,12 @@ function pickTimeoutMs(value: unknown): number {
   return Math.min(Math.max(seconds, 0) * 1000, MAX_TIMEOUT_MS);
 }
 
-type FetchAttempt = { ok: true; response: Response } | { ok: false; error: ToolResult };
+type FetchAttempt = { ok: true; response: Response } | { ok: false; error: string };
 
 async function fetchWithCloudflareRetry(
   url: string,
   format: WebFetchFormat,
   fetchSignal: AbortSignal,
-  hostSignal: AbortSignal | undefined,
   timeoutMs: number,
 ): Promise<FetchAttempt> {
   const headers = buildHeaders(format, UA_BROWSER);
@@ -167,7 +151,6 @@ async function fetchWithCloudflareRetry(
     response = await fetch(url, { signal: fetchSignal, headers });
   } catch (e) {
     if ((e as Error)?.name === 'AbortError') {
-      if (hostSignal?.aborted) return { ok: false, error: err(`Error fetching ${url}: aborted`) };
       return {
         ok: false,
         error: err(`Error fetching ${url}: request timed out after ${Math.round(timeoutMs)}ms`),
@@ -187,7 +170,7 @@ async function fetchWithCloudflareRetry(
   return { ok: true, response };
 }
 
-type BoundedRead = { ok: true; buf: ArrayBuffer } | { ok: false; error: ToolResult };
+type BoundedRead = { ok: true; buf: ArrayBuffer } | { ok: false; error: string };
 
 async function readBoundedBuffer(response: Response): Promise<BoundedRead> {
   const declaredLen = response.headers.get('content-length');
@@ -214,17 +197,31 @@ async function renderBody(buf: ArrayBuffer, contentType: string, format: WebFetc
   return format === 'markdown' ? convertHtmlToMarkdown(body) : await extractTextFromHtml(body);
 }
 
-async function executeWebFetch(args: Record<string, unknown>, signal: AbortSignal | undefined): Promise<ToolResult> {
+function parseArgs(args: string): Record<string, unknown> {
+  if (!args.trim()) return {};
+  const parsed = JSON.parse(args);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Tool arguments must be a JSON object');
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) return `Error: ${error.message}`;
+  return `Error: ${String(error)}`;
+}
+
+async function runWebFetch(args: Record<string, unknown>): Promise<string> {
   const url = typeof args.url === 'string' ? args.url : '';
   if (!url) return err('Error: url is required');
   if (!isHttpUrl(url)) return err('Error: URL must start with http:// or https://');
 
   const format = pickFormat(args.format);
   const timeoutMs = pickTimeoutMs(args.timeout);
-  const { signal: fetchSignal, cancel } = composeSignal(signal, timeoutMs);
+  const { signal: fetchSignal, cancel } = createTimeoutSignal(timeoutMs);
 
   try {
-    const attempt = await fetchWithCloudflareRetry(url, format, fetchSignal, signal, timeoutMs);
+    const attempt = await fetchWithCloudflareRetry(url, format, fetchSignal, timeoutMs);
     if (!attempt.ok) return attempt.error;
     const { response } = attempt;
     if (!response.ok) {
@@ -238,17 +235,18 @@ async function executeWebFetch(args: Record<string, unknown>, signal: AbortSigna
     const contentType = response.headers.get('content-type') ?? '';
     const mime = (contentType.split(';')[0] ?? '').trim().toLowerCase();
 
-    if (isImageMime(mime)) return { content: imageDataUrl(url, mime, buf) };
-    return { content: await renderBody(buf, contentType, format) };
+    if (isImageMime(mime)) return imageDataUrl(url, mime, buf);
+    return await renderBody(buf, contentType, format);
   } finally {
     cancel();
   }
 }
 
-function createWebFetchTool(): Tool {
+export function createWebFetchTool(): Tool {
   return {
     name: 'webfetch',
     description: 'Fetch a URL and return it as markdown (default), text, or raw HTML.',
+    systemPrompt: WEBFETCH_SYSTEM_PROMPT,
     parameters: {
       type: 'object',
       properties: {
@@ -270,23 +268,11 @@ function createWebFetchTool(): Tool {
       required: ['url'],
       additionalProperties: false,
     },
-    matchKey: (args) => (typeof args.url === 'string' ? args.url : undefined),
-    formatArgs: (args) => {
-      const url = typeof args.url === 'string' ? args.url : String(args.url ?? '');
-      return [{ label: 'url', value: url.length > 200 ? `${url.slice(0, 200)}…` : url }];
+    execute(args) {
+      return runWebFetch(parseArgs(args));
     },
-    execute: executeWebFetch,
+    onError: formatError,
   };
 }
 
-export function createWebFetchPlugin(): Plugin {
-  return {
-    name: 'mu-webfetch',
-    register(api) {
-      api.tool(createWebFetchTool());
-      api.systemPrompt(WEBFETCH_SYSTEM_PROMPT);
-    },
-  };
-}
-
-export default createWebFetchPlugin;
+export default createWebFetchTool;

@@ -5,6 +5,11 @@
   "bin": {
     "coding-agent": "./bin/coding-agent.js"
   },
+  "scripts": {
+    "dev": "NODE_ENV=development node --import tsx bin/coding-agent.js",
+    "dev:tui-debug": "MU_TUI_DEBUG_LOG=/tmp/mu-tui.log NODE_ENV=development node --import tsx bin/coding-agent.js",
+    "start": "node --import tsx bin/coding-agent.js"
+  },
   "devDependencies": {
     "tsx": "^4.21.0"
   },

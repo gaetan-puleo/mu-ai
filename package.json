@@ -2,9 +2,9 @@
   "name": "mu-workspace",
   "private": true,
   "scripts": {
-    "dev": "NODE_ENV=development node --import tsx packages/coding-agent/bin/coding-agent.js",
-    "dev:tui-debug": "MU_TUI_DEBUG_LOG=/tmp/mu-tui.log NODE_ENV=development node --import tsx packages/coding-agent/bin/coding-agent.js",
-    "start": "node --import tsx packages/coding-agent/bin/coding-agent.js",
+    "dev": "pnpm --dir packages/coding-agent dev",
+    "dev:tui-debug": "pnpm --dir packages/coding-agent dev:tui-debug",
+    "start": "pnpm --dir packages/coding-agent start",
     "lint": "biome check packages/",
     "lint:fix": "biome check --fix --unsafe packages/",
     "format": "biome format --write packages/",

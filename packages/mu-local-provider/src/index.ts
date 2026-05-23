@@ -22,11 +22,14 @@ import {
   prepareLlamaSwapChatRequest,
   collectLlamaSwapContext,
 } from './backends/llama-swap';
-import type { LocalBackendInfo, LocalModel, LocalProviderConfig } from './types';
+import type { LocalBackendInfo, LocalContextMap, LocalContextPartKind, LocalModel, LocalProviderConfig } from './types';
 export type {
   LocalBackendKind,
   LocalBackendIdentity,
   LocalBackendInfo,
+  LocalContextMap,
+  LocalContextPart,
+  LocalContextPartKind,
   LocalModel,
   LocalProviderConfig,
 } from './types';
@@ -138,6 +141,100 @@ function convertToolCalls(toolCalls: NonNullable<ChatCompletionMessage['tool_cal
       tool: toolCall.function.name,
       args: toolCall.function.arguments,
     }));
+}
+
+function estimateTokens(value: string): number {
+  const trimmed = value.trim();
+  if (!trimmed) return 0;
+  return Math.max(1, Math.ceil(trimmed.length / 4));
+}
+
+function estimateJsonTokens(value: unknown): number {
+  return estimateTokens(JSON.stringify(value));
+}
+
+function toolContextKind(tool: Tool): LocalContextPartKind {
+  const name = tool.name.toLowerCase();
+  if (name.includes('skill')) return 'skills';
+  if (name.startsWith('mcp') || name.includes('_mcp') || name.includes('mcp_')) return 'mcp';
+  return 'tools';
+}
+
+function addContextTokens(parts: Map<LocalContextPartKind, number>, kind: LocalContextPartKind, tokens: number): void {
+  if (tokens <= 0) return;
+  parts.set(kind, (parts.get(kind) ?? 0) + tokens);
+}
+
+function buildLocalContextMap(config: {
+  backend: LocalBackendInfo;
+  model: string;
+  messages: Message[];
+  tools: Record<string, Tool>;
+  usage?: LLMResponseContext['usage'];
+  backendContext?: LLMResponseContext;
+}): LocalContextMap {
+  const parts = new Map<LocalContextPartKind, number>();
+
+  for (const message of config.messages) {
+    if (message.role === 'system') {
+      addContextTokens(parts, 'system', estimateTokens(message.content));
+    } else if (message.role === 'tool') {
+      addContextTokens(parts, 'tool_results', estimateTokens(message.content));
+    } else if (message.role === 'user' || message.role === 'assistant') {
+      addContextTokens(
+        parts,
+        'messages',
+        estimateTokens(message.content) + estimateJsonTokens(message.tool_calls ?? []),
+      );
+    } else {
+      addContextTokens(parts, 'other', estimateTokens(message.content));
+    }
+  }
+
+  for (const tool of Object.values(config.tools)) {
+    const schema = convertTools({ [tool.name]: tool })[0];
+    addContextTokens(parts, toolContextKind(tool), estimateJsonTokens(schema));
+  }
+
+  const windowTokens = config.backendContext?.props?.n_ctx ?? config.backendContext?.currentSlot?.n_ctx;
+  const usedTokens = config.usage?.promptTokens;
+  const out = Array.from(parts.entries()).map(([kind, tokens]) => ({
+    kind,
+    label: labelContextPart(kind),
+    tokens,
+    estimated: true,
+  }));
+
+  return {
+    provider: 'mu-local-provider',
+    backend: config.backend.kind,
+    model: config.model,
+    usedTokens,
+    windowTokens,
+    estimated: true,
+    parts: out,
+  };
+}
+
+function labelContextPart(kind: LocalContextPartKind): string {
+  switch (kind) {
+    case 'system':
+      return 'system';
+    case 'tools':
+      return 'tools';
+    case 'messages':
+      return 'messages';
+    case 'tool_results':
+      return 'tool results';
+    case 'skills':
+      return 'skills';
+    case 'mcp':
+      return 'mcp';
+    case 'other':
+      return 'other';
+    case 'empty':
+      return 'empty';
+  }
 }
 
 export const createLocalProvider = defineProvider<LocalProviderConfig>((config): LLMProvider => {
@@ -258,7 +355,12 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
       for (const buf of toolCallBuffers.values()) {
         if (buf.emitted || !buf.name) continue;
         buf.emitted = true;
-        debugLog({ stage: 'provider.stream.tool_call_fallback_emit', id: buf.id, tool: buf.name, argsLen: buf.args.length });
+        debugLog({
+          stage: 'provider.stream.tool_call_fallback_emit',
+          id: buf.id,
+          tool: buf.name,
+          argsLen: buf.args.length,
+        });
         yield {
           type: 'tool_call',
           call: { type: 'tool_call', id: buf.id, tool: buf.name, args: buf.args },
@@ -292,7 +394,14 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
         response: {
           content,
           tool_calls: collectedToolCalls.length > 0 ? collectedToolCalls : undefined,
-          context: backendContext || usage ? { ...backendContext, usage } : undefined,
+          context:
+            backendContext || usage
+              ? ({
+                  ...backendContext,
+                  usage,
+                  localContext: buildLocalContextMap({ backend, model, messages, tools, usage, backendContext }),
+                } as LLMResponseContext)
+              : undefined,
         },
       };
       debugLog({ stage: 'provider.stream.done', contentLen: content.length, toolCalls: collectedToolCalls.length });

@@ -3,46 +3,21 @@
  * stub so the tool runs offline and we can assert the exact request
  * sequence (Cloudflare retry, UA fallback, timeout abort, size cap, etc.).
  */
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import type { PluginAPI, Tool, ToolResult } from 'mu-core';
-import { createWebFetchPlugin } from './plugin';
+import type { Tool } from 'mu-core';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createWebFetchTool } from './plugin';
 
 type FetchStub = (input: string, init?: RequestInit) => Promise<Response>;
 
 const realFetch = globalThis.fetch;
 
 function getTool(): Tool {
-  const plugin = createWebFetchPlugin();
-  let captured: Tool | undefined;
-  const noop = (): (() => void) => () => {};
-  const api = {
-    config: {},
-    hook: noop,
-    tool: (t: Tool) => {
-      captured = t;
-      return () => {};
-    },
-    provider: noop,
-    channel: noop,
-    command: noop,
-    systemPrompt: noop,
-    getTool: () => undefined,
-    getTools: () => [],
-    getProvider: () => undefined,
-    getCommand: () => undefined,
-    listCommands: () => [],
-    getSession: () => undefined,
-    listSessions: () => [],
-    onSession: noop,
-  } as unknown as PluginAPI;
-  void plugin.register(api);
-  if (!captured) throw new Error('webfetch tool missing');
-  return captured;
+  return createWebFetchTool();
 }
 
-async function run(args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
+async function run(args: Record<string, unknown>): Promise<string> {
   const tool = getTool();
-  return await tool.execute(args, signal);
+  return await tool.execute(JSON.stringify(args));
 }
 
 function setFetch(stub: FetchStub) {
@@ -61,13 +36,12 @@ afterEach(() => {
 describe('mu-webfetch — URL validation', () => {
   it('rejects non-http(s) URLs', async () => {
     const out = await run({ url: 'ftp://example.com' });
-    expect(out.error).toBe(true);
-    expect(out.content).toContain('http://');
+    expect(out).toContain('http://');
   });
 
   it('rejects missing url', async () => {
     const out = await run({});
-    expect(out.error).toBe(true);
+    expect(out).toContain('Error:');
   });
 });
 
@@ -75,22 +49,22 @@ describe('mu-webfetch — content negotiation', () => {
   it('returns plain text bodies untouched in text mode', async () => {
     setFetch(async () => new Response('hello world', { headers: { 'content-type': 'text/plain' } }));
     const out = await run({ url: 'https://example.com/x', format: 'text' });
-    expect(out.content).toBe('hello world');
+    expect(out).toBe('hello world');
   });
 
   it('returns raw HTML in html mode', async () => {
     const html = '<html><head><title>t</title></head><body><p>hi</p></body></html>';
     setFetch(async () => new Response(html, { headers: { 'content-type': 'text/html' } }));
     const out = await run({ url: 'https://example.com/x', format: 'html' });
-    expect(out.content).toBe(html);
+    expect(out).toBe(html);
   });
 
   it('converts HTML to markdown by default', async () => {
     const html = '<html><body><h1>Title</h1><p>body <em>copy</em></p></body></html>';
     setFetch(async () => new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } }));
     const out = await run({ url: 'https://example.com/x' });
-    expect(typeof out.content).toBe('string');
-    const md = out.content;
+    expect(typeof out).toBe('string');
+    const md = out;
     expect(md).toContain('# Title');
     expect(md).toContain('*copy*');
     expect(md).not.toContain('<h1>');
@@ -100,9 +74,9 @@ describe('mu-webfetch — content negotiation', () => {
     const html = '<html><body><script>var x=1</script><p>visible</p><style>.x{}</style></body></html>';
     setFetch(async () => new Response(html, { headers: { 'content-type': 'text/html' } }));
     const out = await run({ url: 'https://example.com/x', format: 'text' });
-    expect(out.content).toContain('visible');
-    expect(out.content).not.toContain('var x=1');
-    expect(out.content).not.toContain('<p>');
+    expect(out).toContain('visible');
+    expect(out).not.toContain('var x=1');
+    expect(out).not.toContain('<p>');
   });
 });
 
@@ -111,15 +85,15 @@ describe('mu-webfetch — image responses', () => {
     const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
     setFetch(async () => new Response(bytes, { headers: { 'content-type': 'image/png' } }));
     const out = await run({ url: 'https://example.com/img.png' });
-    expect(out.content).toContain('data:image/png;base64,');
-    expect(out.content).toContain('[image: image/png, 4 bytes');
+    expect(out).toContain('data:image/png;base64,');
+    expect(out).toContain('[image: image/png, 4 bytes');
   });
 
   it('treats svg as text, not image', async () => {
     const svg = '<svg><title>x</title></svg>';
     setFetch(async () => new Response(svg, { headers: { 'content-type': 'image/svg+xml' } }));
     const out = await run({ url: 'https://example.com/x.svg', format: 'html' });
-    expect(out.content).toBe(svg);
+    expect(out).toBe(svg);
   });
 });
 
@@ -127,8 +101,7 @@ describe('mu-webfetch — error paths', () => {
   it('returns an error result for non-2xx responses', async () => {
     setFetch(async () => new Response('boom', { status: 500, statusText: 'Server Error' }));
     const out = await run({ url: 'https://example.com/x' });
-    expect(out.error).toBe(true);
-    expect(out.content).toContain('500');
+    expect(out).toContain('500');
   });
 
   it('rejects responses larger than 5MB via content-length', async () => {
@@ -139,16 +112,14 @@ describe('mu-webfetch — error paths', () => {
         }),
     );
     const out = await run({ url: 'https://example.com/x' });
-    expect(out.error).toBe(true);
-    expect(out.content).toContain('5MB');
+    expect(out).toContain('5MB');
   });
 
   it('rejects bodies larger than 5MB even when no content-length is sent', async () => {
     const big = new Uint8Array(6 * 1024 * 1024);
     setFetch(async () => new Response(big, { headers: { 'content-type': 'application/octet-stream' } }));
     const out = await run({ url: 'https://example.com/x' });
-    expect(out.error).toBe(true);
-    expect(out.content).toContain('5MB');
+    expect(out).toContain('5MB');
   });
 });
 
@@ -168,7 +139,7 @@ describe('mu-webfetch — Cloudflare retry', () => {
     });
 
     const out = await run({ url: 'https://example.com/x', format: 'text' });
-    expect(out.content).toBe('ok');
+    expect(out).toBe('ok');
     expect(calls.length).toBe(2);
     expect(calls[0]?.ua).toContain('Mozilla/');
     expect(calls[1]?.ua).toBe('mu');
@@ -182,34 +153,11 @@ describe('mu-webfetch — Cloudflare retry', () => {
     });
     const out = await run({ url: 'https://example.com/x' });
     expect(n).toBe(1);
-    expect(out.error).toBe(true);
+    expect(out).toContain('Error:');
   });
 });
 
 describe('mu-webfetch — abort + timeout', () => {
-  it('honours the host abort signal', async () => {
-    setFetch((_url, init) => {
-      // Hang until the caller aborts.
-      return new Promise((_resolve, reject) => {
-        const sig = init?.signal;
-        if (sig?.aborted) {
-          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
-          return;
-        }
-        sig?.addEventListener('abort', () => {
-          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
-        });
-      });
-    });
-
-    const ac = new AbortController();
-    const promise = run({ url: 'https://example.com/x', timeout: 5 }, ac.signal);
-    queueMicrotask(() => ac.abort());
-    const out = await promise;
-    expect(out.error).toBe(true);
-    expect(out.content.toLowerCase()).toContain('abort');
-  });
-
   it('times out when the request hangs longer than the requested timeout', async () => {
     setFetch((_url, init) => {
       return new Promise((_resolve, reject) => {
@@ -220,8 +168,7 @@ describe('mu-webfetch — abort + timeout', () => {
       });
     });
     const out = await run({ url: 'https://example.com/x', timeout: 0.05 });
-    expect(out.error).toBe(true);
-    expect(out.content).toContain('timed out');
+    expect(out).toContain('timed out');
   });
 });
 
@@ -230,5 +177,10 @@ describe('mu-webfetch — tool surface', () => {
     const tool = getTool();
     const params = tool.parameters as { properties: { format: { enum: string[] } } };
     expect(params.properties.format.enum).toEqual(['text', 'markdown', 'html']);
+  });
+
+  it('declares its tool system prompt', () => {
+    const tool = getTool();
+    expect(tool.systemPrompt).toContain('## webfetch');
   });
 });

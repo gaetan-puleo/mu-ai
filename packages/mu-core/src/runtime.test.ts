@@ -13,6 +13,10 @@ function waitForAsync(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function eventIndex(events: CoreEvent[], type: CoreEvent['type']): number {
+  return events.findIndex((event) => event.type === type);
+}
+
 describe('createRuntime', () => {
   it('reacts to a user message and publishes assistant response', async () => {
     const provider: LLMProvider = async () => ({ content: 'Hello!' });
@@ -228,6 +232,7 @@ describe('createRuntime', () => {
       type: 'context_update',
       context,
     });
+    expect(eventIndex(events, 'assistant_message')).toBeLessThan(eventIndex(events, 'context_update'));
   });
 
   it('publishes context updates from streamed done responses', async () => {
@@ -264,6 +269,109 @@ describe('createRuntime', () => {
       type: 'context_update',
       context,
     });
+    expect(eventIndex(events, 'assistant_message')).toBeLessThan(eventIndex(events, 'context_update'));
+  });
+
+  it('publishes context after reasoning and assistant messages', async () => {
+    const context = {
+      usage: { promptTokens: 1234, completionTokens: 56, totalTokens: 1290 },
+      props: { n_ctx: 32000, total_slots: 4, model_path: 'model.gguf', model_alias: 'model' },
+      currentSlot: { id: 0, n_ctx: 32000, is_processing: false },
+    };
+    const provider: LLMProvider = async () => ({ reasoning: 'Thinking...', content: 'Hello!', context });
+    const bus = createBus<CoreEvent>();
+    const events = collectEvents(bus);
+
+    const runtime = createRuntime({
+      provider,
+      tools: {},
+      bus,
+    });
+
+    runtime.start();
+
+    bus.publish({
+      type: 'user_message',
+      message: { role: 'user', content: 'Hi' },
+    });
+
+    await waitForAsync();
+
+    expect(eventIndex(events, 'reasoning_message')).toBeLessThan(eventIndex(events, 'assistant_message'));
+    expect(eventIndex(events, 'assistant_message')).toBeLessThan(eventIndex(events, 'context_update'));
+  });
+
+  it('adds runtime and tool system prompts to provider messages without publishing them', async () => {
+    const providerMessages: string[][] = [];
+    const provider: LLMProvider = async (messages) => {
+      providerMessages.push(messages.map((message) => `${message.role}:${message.content}`));
+      return { content: 'Hello!' };
+    };
+    const bus = createBus<CoreEvent>();
+    const events = collectEvents(bus);
+
+    const runtime = createRuntime({
+      provider,
+      tools: {
+        webfetch: {
+          name: 'webfetch',
+          description: 'Fetch URLs',
+          parameters: {},
+          systemPrompt: 'Use webfetch for URLs.',
+          execute: () => 'ok',
+          onError: () => 'failed',
+        },
+      },
+      bus,
+      systemPrompt: 'You are helpful.',
+    });
+
+    runtime.start();
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'Hi' } });
+
+    await waitForAsync();
+
+    expect(providerMessages[0]).toEqual(['system:You are helpful.\n\nUse webfetch for URLs.', 'user:Hi']);
+    expect(events.some((event) => 'message' in event && event.message.role === 'system')).toBe(false);
+  });
+
+  it('recomputes dynamic tool system prompts on each provider call', async () => {
+    let promptVersion = 0;
+    let callCount = 0;
+    const providerMessages: string[][] = [];
+    const provider: LLMProvider = async (messages) => {
+      callCount++;
+      providerMessages.push(messages.map((message) => `${message.role}:${message.content}`));
+      if (callCount === 1) {
+        promptVersion = 1;
+        return { tool_calls: [{ type: 'tool_call', id: '1', tool: 'dynamic', args: '{}' }] };
+      }
+      return { content: 'Done' };
+    };
+    const bus = createBus<CoreEvent>();
+    const runtime = createRuntime({
+      provider,
+      tools: {
+        dynamic: {
+          name: 'dynamic',
+          description: 'Dynamic tool',
+          parameters: {},
+          systemPrompt: () => (promptVersion === 0 ? 'version 0' : 'version 1'),
+          execute: () => 'ok',
+          onError: () => 'failed',
+        },
+      },
+      bus,
+    });
+
+    runtime.start();
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'Start' } });
+
+    await waitForAsync();
+    await waitForAsync();
+
+    expect(providerMessages[0]?.[0]).toBe('system:version 0');
+    expect(providerMessages[1]?.[0]).toBe('system:version 1');
   });
 
   it('queues multiple user messages', async () => {

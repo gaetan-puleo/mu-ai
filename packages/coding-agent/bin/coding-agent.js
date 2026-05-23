@@ -1,4 +1,4 @@
-#!/usr/bin/env node --import tsx
+#!/usr/bin/env -S node --import tsx
 import { main } from '../src/main.js';
 
 main().catch((err) => {

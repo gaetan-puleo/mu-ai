@@ -328,6 +328,7 @@ describe('createLocalProvider', () => {
       type: 'done',
       response: {
         content: 'hello',
+        tool_calls: undefined,
         context: {
           usage: { promptTokens: 1234, completionTokens: 5, totalTokens: 1239 },
           props: { n_ctx: 32000, total_slots: 4, model_path: '/models/gemma.gguf', model_alias: 'gemma-4-e2b' },
@@ -336,6 +337,15 @@ describe('createLocalProvider', () => {
             { id: 1, n_ctx: 32000, is_processing: true },
           ],
           currentSlot: { id: 0, n_ctx: 32000, is_processing: false },
+          localContext: {
+            provider: 'mu-local-provider',
+            backend: 'llama-swap',
+            model: 'gemma-4-e2b',
+            usedTokens: 1234,
+            windowTokens: 32000,
+            estimated: true,
+            parts: [],
+          },
         },
       },
     });
