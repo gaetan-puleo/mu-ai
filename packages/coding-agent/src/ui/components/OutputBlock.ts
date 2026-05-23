@@ -13,8 +13,10 @@ export interface OutputBlockProps {
 
 export class OutputBlock implements Component {
   layout: LayoutStyle;
+  props: OutputBlockProps;
 
-  constructor(private readonly props: OutputBlockProps) {
+  constructor(props: OutputBlockProps) {
+    this.props = props;
     this.layout = {
       width: 'fill',
       height: 'auto',

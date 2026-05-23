@@ -1,4 +1,5 @@
 import { mkdir, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import type { CoreEvent, LLMResponseContext, Message, Runtime, Unsubscribe } from 'mu-core';
 import type { LocalModel } from 'mu-local-provider';
@@ -8,6 +9,7 @@ import { AssistantMessage } from './components/AssistantMessage';
 import { CommandLine } from './components/CommandLine';
 import { CommandPalette, type CommandPaletteItem } from './components/CommandPalette';
 import { CommandResultLine } from './components/CommandResultLine';
+import { OutputBlock } from './components/OutputBlock';
 import { ContextMap } from './components/ContextMap';
 import { ErrorLine } from './components/ErrorLine';
 import { ErrorToast } from './components/ErrorToast';
@@ -24,6 +26,7 @@ type ChatLine =
   | { role: 'assistant' | 'error'; content: string }
   | { role: 'command'; content: string }
   | { role: 'command_result'; content: string }
+  | { role: 'output_block'; component: OutputBlock }
   | { role: 'context'; context?: unknown }
   | { role: 'reasoning'; content: string; closed?: boolean }
   | { role: 'tool'; callId: string; name: string; argsPreview: string };
@@ -567,6 +570,11 @@ export class ChatApp {
   }
 
   private runCommand(value: string): boolean {
+    if (value.startsWith('!')) {
+      this.runShellCommand(value.slice(1));
+      return true;
+    }
+
     if (!value.startsWith('/')) return false;
     const [rawName, ...rest] = value.slice(1).split(/\s+/);
     const command = this.commandItems.find((item) => item.name === rawName);
@@ -577,6 +585,38 @@ export class ChatApp {
     }
     command.run(rest.join(' '));
     return true;
+  }
+
+  private runShellCommand(cmd: string): void {
+    const theme = this.themeProvider.current();
+    const outputBlock = new OutputBlock({
+      command: cmd,
+      output: '',
+      theme,
+    });
+
+    this.transcript.push({ role: 'output_block', component: outputBlock });
+    this.renderTranscript();
+
+    let stdout = '';
+    let stderr = '';
+    const proc = spawn('bash', ['-c', cmd], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    proc.stdout?.on('data', (data: Buffer) => { stdout += data.toString('utf-8'); });
+    proc.stderr?.on('data', (data: Buffer) => { stderr += data.toString('utf-8'); });
+
+    proc.on('close', (code) => {
+      const output = code !== 0 || stderr ? [stdout, stderr].filter(Boolean).join('\n') : stdout;
+      outputBlock.props.output = output.trim() || '(no output)';
+      this.renderTranscript();
+    });
+
+    proc.on('error', (err) => {
+      outputBlock.props.output = err.message;
+      this.renderTranscript();
+    });
   }
 
   private openModelModal(): void {
@@ -968,6 +1008,9 @@ export class ChatApp {
           break;
         case 'command_result':
           lines.push(new CommandResultLine(entry.content));
+          break;
+        case 'output_block':
+          lines.push(entry.component);
           break;
         case 'context':
           lines.push(new ContextMap({ context: entry.context, model: this.modelController?.getModel() }));
