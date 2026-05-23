@@ -36,11 +36,11 @@ Optional plugins (`mu-repomap`, `mu-coding-agents`, …) are enabled via
 ```bash
 git clone https://github.com/gaetan-puleo/mu-ai.git
 cd mu-ai
-bun install
-bun start
+pnpm install
+pnpm start
 ```
 
-Requires [Bun](https://bun.sh/) runtime.
+Requires [pnpm](https://pnpm.io/) runtime.
 
 ## Usage
 
@@ -217,13 +217,13 @@ Any OpenAI-compatible API works. Tested with:
 
 ```bash
 # Dev mode (watches for changes)
-bun run dev
+pnpm dev
 
 # Lint
-bun run lint
+pnpm lint
 
 # Type check
-bun run check
+pnpm check
 ```
 
 ## License
