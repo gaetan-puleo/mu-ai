@@ -5,6 +5,7 @@ import { truncateToWidth, visibleWidth } from '../utils';
 
 export interface SelectListItem<T = unknown> {
   label: string;
+  selectedLabel?: string;
   value?: T;
   disabled?: boolean;
 }
@@ -123,11 +124,13 @@ export class SelectList<T = unknown> implements Focusable {
 
     for (let i = this.viewportTop; i < end; i++) {
       const item = this._items[i];
-      let line = visibleWidth(item.label) > width ? truncateToWidth(item.label, width) : item.label;
+      const isSelected = i === this._selectedIndex && ctx.focused;
+      const text = (isSelected && item.selectedLabel) ? item.selectedLabel : item.label;
+      let line = visibleWidth(text) > width ? truncateToWidth(text, width) : text;
       const padding = width - visibleWidth(line);
       if (padding > 0) line += ' '.repeat(padding);
 
-      if (i === this._selectedIndex && ctx.focused) {
+      if (isSelected) {
         line = `${selectedStyle}${line}${RESET}`;
       } else if (i === this._hoveredIndex) {
         line = `${hoveredStyle}${line}${RESET}`;

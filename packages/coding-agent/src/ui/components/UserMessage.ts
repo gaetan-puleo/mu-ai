@@ -102,6 +102,7 @@ export class UserMessage extends Box {
         height: 'auto',
         margin: { bottom: 1 },
         padding: { right: 1, left: 1 },
+        backgroundColor: props.theme.styles.userMessage.bg,
       },
       children,
     });

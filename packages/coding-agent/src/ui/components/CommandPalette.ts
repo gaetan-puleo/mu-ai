@@ -70,19 +70,22 @@ export class CommandPalette implements Component {
     const hoverSgr = styleToAnsi(theme.styles.commandPaletteHover);
     const normalSgr = styleToAnsi(theme.styles.commandPaletteItem);
 
-    return this.items.slice(0, height).map((item, index) => {
+    const visible = this.items.slice(0, height);
+    const maxNameWidth = visible.reduce((max, item) => Math.max(max, item.name.length + 1), 0);
+    const descWidth = Math.max(0, width - 2 - maxNameWidth);
+
+    return visible.map((item, index) => {
       const selected = index === this.selectedIndex;
       const hovered = index === this.hoveredIndex;
       const prefix = selected ? '› ' : '  ';
       const command = `/${item.name}`;
-      const description = item.description ? `  ${item.description}` : '';
-      const plain = `${prefix}${command}${description}`;
-      const textWidth = Math.max(0, width - visibleWidth(prefix) - visibleWidth(command));
-      const fittedDescription = fit(description, textWidth);
-      const padding = Math.max(0, width - visibleWidth(plain));
-      const fitted = `${prefix}${command}${DESCRIPTION}${fittedDescription}${RESET}${' '.repeat(padding)}`;
+      const namePad = ' '.repeat(Math.max(0, maxNameWidth - command.length));
+      const descText = item.description ? `  ${item.description}` : '';
+      const fittedDesc = fit(descText, descWidth);
+      const descStyle = selected ? '' : DESCRIPTION;
+      const line = `${prefix}${command}${namePad}${descStyle}${fittedDesc}${descStyle ? RESET : ''}`;
       const style = selected ? selectedSgr : hovered ? hoverSgr : normalSgr;
-      return style ? `${style}${fitted}${RESET}` : fitted;
+      return style ? `${style}${line}${RESET}` : line;
     });
   }
 }

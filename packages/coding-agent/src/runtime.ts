@@ -11,6 +11,7 @@ export interface Model {
   id: string;
   name?: string;
   description?: string;
+  ownedBy?: string;
 }
 
 export interface AgentRuntime {

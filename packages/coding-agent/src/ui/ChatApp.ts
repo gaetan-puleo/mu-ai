@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { CoreEvent, LLMResponseContext, Message, Runtime, Unsubscribe } from 'mu-core';
+import { appendHistory, loadHistory } from '../config';
 import type { Model } from '../runtime';
 import { type Component, type InputEvent, ProcessTerminal, TUI } from 'mu-tui';
 import { Box, Input, type InputHighlight, Modal, ScrollView, SelectList, Text } from 'mu-tui/components';
@@ -94,6 +95,11 @@ export class ChatApp {
   private filePicker: FilePicker | undefined;
   private filePickerAnchor = -1;
   private filePickerCursor = 0;
+  private lastEscTime = 0;
+  private history: string[] = [];
+  private historyCursor = -1;
+  private historyDraft = '';
+  private historyNavigating = false;
 
   constructor(
     runtime: Runtime,
@@ -105,12 +111,13 @@ export class ChatApp {
     this.runtime = runtime;
     this.bus = bus;
     this.models = [];
+    this.history = loadHistory();
     this.transcript = new Transcript(options.thinkingVisible ?? true);
 
     this.themeProvider = new ThemeProvider(darkTheme);
     const theme = this.themeProvider.current();
 
-    this.terminal = new ProcessTerminal({ keyboard: true, mouse: { drag: true, motion: true } });
+    this.terminal = new ProcessTerminal({ alternateScreen: true, keyboard: true, mouse: { drag: true, motion: true } });
     this.tui = new TUI(this.terminal, { userContext: this.themeProvider });
 
     this.scrollView = new ScrollView({ layout: { width: 'fill', height: 'fill' }, focusable: false });
@@ -191,6 +198,16 @@ export class ChatApp {
     this.unsubscribe = this.bus.subscribe((event) => this.handleEvent(event));
     await this.runtime.start();
     this.tui.start();
+    void this.loadModels();
+  }
+
+  private async loadModels(): Promise<void> {
+    if (!this.modelController) return;
+    try {
+      this.models = await this.modelController.listModels();
+      this.updateModelLabel();
+      this.tui.requestRender();
+    } catch { /* ignore */ }
   }
 
   async stop(): Promise<void> {
@@ -234,7 +251,7 @@ export class ChatApp {
 
   private createBashPrompt(theme: Theme): Text {
     return new Text({
-      text: `${styleToAnsi(theme.styles.body)}$ \x1b[0m`,
+      text: `${styleToAnsi(theme.styles.bashPrompt)}$\x1b[0m `,
       wrap: false,
       layout: { width: 2, height: 1, zIndex: 10 },
     });
@@ -246,7 +263,7 @@ export class ChatApp {
     this.input.placeholderStyle = styleToAnsi(theme.styles.muted);
     this.input.textStyle = styleToAnsi(theme.styles.body);
     this.defaultPrompt.setText(`${styleToAnsi(theme.styles.muted)}❯\x1b[0m`);
-    this.bashPrompt.setText(`${styleToAnsi(theme.styles.body)}$ \x1b[0m`);
+    this.bashPrompt.setText(`${styleToAnsi(theme.styles.bashPrompt)}$\x1b[0m `);
     this.renderTranscript();
     this.tui.setUserContext(this.themeProvider);
   }
@@ -320,10 +337,14 @@ export class ChatApp {
   }
 
   private updateModelLabel(): void {
-    const model = this.modelController?.getModel() ?? '';
+    const modelId = this.modelController?.getModel() ?? '';
+    if (!modelId) { this.modelLabel.setText(''); return; }
     const theme = this.themeProvider.current();
-    const prefix = styleToAnsi(theme.styles.muted);
-    this.modelLabel.setText(model ? `${prefix}${model}\x1b[0m` : '');
+    const white = styleToAnsi({ fg: theme.colors.text });
+    const dim = styleToAnsi({ fg: theme.colors.textMuted });
+    const model = this.models.find((m) => m.id === modelId);
+    const provider = model?.ownedBy ? `  ${dim}${model.ownedBy}\x1b[0m` : '';
+    this.modelLabel.setText(`${white}${modelId}\x1b[0m${provider}`);
   }
 
   private updateStatusLine(): void {
@@ -370,6 +391,8 @@ export class ChatApp {
     const text = value.trim();
     if (!text) return;
 
+    this.pushHistory(text);
+
     if (this.runCommand(text)) {
       this.input.setValue('');
       this.updateCommandPalette('');
@@ -410,6 +433,48 @@ export class ChatApp {
     return true;
   }
 
+  private pushHistory(text: string): void {
+    if (this.history[this.history.length - 1] !== text) {
+      this.history.push(text);
+    }
+    this.historyCursor = -1;
+    this.historyDraft = '';
+    appendHistory(text);
+  }
+
+  private navigateHistory(direction: 'up' | 'down'): boolean {
+    if (this.history.length === 0) return false;
+
+    if (this.historyCursor === -1 && direction === 'down') return false;
+
+    if (this.historyCursor === -1) {
+      this.historyDraft = this.input.value;
+      this.historyCursor = this.history.length - 1;
+    } else if (direction === 'up') {
+      if (this.historyCursor <= 0) return true;
+      this.historyCursor--;
+    } else {
+      this.historyCursor++;
+      if (this.historyCursor >= this.history.length) {
+        this.historyCursor = -1;
+        this.historyNavigating = true;
+        this.input.setValue(this.historyDraft);
+        this.updateInputHeight(this.historyDraft);
+        this.historyNavigating = false;
+        this.tui.requestRender();
+        return true;
+      }
+    }
+
+    const entry = this.history[this.historyCursor]!;
+    this.historyNavigating = true;
+    this.input.setValue(entry);
+    this.updateInputHeight(entry);
+    this.historyNavigating = false;
+    this.tui.requestRender();
+    return true;
+  }
+
   private updateInputHeight(value: string): void {
     const inputLines = Math.min(7, Math.max(1, value.split('\n').length));
     this.input.layout.height = inputLines;
@@ -417,6 +482,10 @@ export class ChatApp {
     // inputBox = padding-top(1) + inputLines + model-margin(1) + model(1)
     const inputBoxHeight = 1 + inputLines + 1 + 1;
     if (this.inputBox.layout) this.inputBox.layout.height = inputBoxHeight;
+    if (!this.historyNavigating && this.historyCursor !== -1) {
+      this.historyCursor = -1;
+      this.historyDraft = '';
+    }
     this.updateBashMode(value);
     this.updateCommandPalette(value);
     this.updateFilePicker(value);
@@ -436,10 +505,6 @@ export class ChatApp {
     this.bashMode = bashMode;
     this.inputRow.children = bashMode ? [this.bashPrompt, this.input] : [this.defaultPrompt, this.input];
     if (bashMode) this.input.hiddenPrefix = value[0]!;
-    if (this.inputBox.layout) {
-      const theme = this.themeProvider.current();
-      this.inputBox.layout.backgroundColor = bashMode ? '#2e1a0a' : theme.colors.surface;
-    }
     this.tui.requestRender();
   }
 
@@ -457,6 +522,18 @@ export class ChatApp {
         this.tui.requestRender();
         return true;
       }
+      if (this.runtime.state() === 'running') {
+        const now = Date.now();
+        const elapsed = now - this.lastEscTime;
+        if (this.lastEscTime > 0 && elapsed > 100 && elapsed < 1500) {
+          this.lastEscTime = 0;
+          void this.cancelGeneration();
+        } else if (elapsed > 100 || this.lastEscTime === 0) {
+          this.lastEscTime = now;
+          this.setStatus('press Esc again to cancel');
+        }
+        return true;
+      }
     }
 
     if (event.type === 'key' && event.kind !== 'release' && event.key === 'backspace') {
@@ -469,6 +546,11 @@ export class ChatApp {
 
     if (event.type === 'key' && event.kind !== 'release' && this.filePicker && !this.commandPalette) {
       if (this.interceptFilePickerInput(event)) return true;
+    }
+
+    if (event.type === 'key' && event.kind !== 'release' && !this.commandPalette && !this.filePicker) {
+      if (event.key === 'up') return this.navigateHistory('up');
+      if (event.key === 'down') return this.navigateHistory('down');
     }
 
     if (!this.commandPalette || event.type !== 'key' || event.kind === 'release') return false;
@@ -769,6 +851,16 @@ export class ChatApp {
     });
   }
 
+  private async cancelGeneration(): Promise<void> {
+    if (!this.modelController) return;
+    await this.runtime.stop();
+    this.runtime = this.modelController.createRuntime();
+    await this.runtime.start();
+    this.stopSpinner();
+    this.setStatus('cancelled');
+    this.tui.requestRender();
+  }
+
   // --- Session commands ---
 
   private async startNewSession(): Promise<void> {
@@ -906,10 +998,17 @@ export class ChatApp {
       return;
     }
 
+    const maxIdWidth = this.models.reduce((max, m) => Math.max(max, m.id.length), 0);
+    const DIM = '\x1b[2m';
     const items = this.models.map((model) => {
       const active = model.id === current ? '*' : ' ';
-      const desc = model.description ? ` - ${model.description}` : '';
-      return { label: `${active} ${model.id}${desc}`, value: model };
+      const pad = ' '.repeat(maxIdWidth - model.id.length);
+      const provider = model.ownedBy ? `  ${model.ownedBy}` : '';
+      return {
+        label: `${active} ${model.id}${pad}${DIM}${provider}`,
+        selectedLabel: `${active} ${model.id}${pad}${provider}`,
+        value: model,
+      };
     });
 
     const selectList = new SelectList<Model>({

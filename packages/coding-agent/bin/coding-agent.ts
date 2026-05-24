@@ -3,7 +3,7 @@ import { loadPlugins } from 'mu-core';
 import type { LocalBackendKind } from 'mu-local-provider';
 import { createLocalProvider, listLocalModels } from 'mu-local-provider';
 import { createMuTools } from 'mu-tools';
-import { getConfigPath, getPluginsDir, loadConfig, loadState } from '../src/config';
+import { getConfigPath, getPluginsDir, loadConfig, loadState, saveState } from '../src/config';
 import { install, uninstall } from '../src/install';
 import { main } from '../src/main';
 import { createAgentRuntime } from '../src/runtime';
@@ -59,9 +59,8 @@ async function run(): Promise<void> {
   const savedModel = state.model && models.some((m) => m.id === state.model) ? state.model : undefined;
   const model = useLocal ? (savedModel ?? models[0].id) : (state.model ?? '');
 
-  const provider = useLocal
-    ? createLocalProvider({ kind: config.kind as LocalBackendKind, baseUrl: config.baseUrl, model })
-    : undefined;
+  const providerConfig = { kind: config.kind as LocalBackendKind, baseUrl: config.baseUrl, model };
+  const provider = useLocal ? createLocalProvider(providerConfig) : undefined;
 
   const tools = createMuTools();
 
@@ -72,6 +71,11 @@ async function run(): Promise<void> {
     model,
     models,
     listModels: fetchModels,
+    onModelChange: (next: string) => {
+      if (useLocal) providerConfig.model = next;
+      state.model = next;
+      try { saveState(state); } catch { /* ignore */ }
+    },
   });
 
   await main(agent);

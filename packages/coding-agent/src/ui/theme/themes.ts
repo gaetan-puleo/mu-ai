@@ -32,6 +32,7 @@ export interface ThemeStyles {
   commandPaletteItem: TextStyle;
   commandPaletteHover: TextStyle;
   commandPaletteSelected: TextStyle;
+  bashPrompt: TextStyle;
   errorLine: TextStyle;
   errorPrefix: TextStyle;
 }
@@ -55,12 +56,13 @@ export const palette = {
     700: '#3f3f46' as Color,
     800: '#27272a' as Color,
     900: '#18181b' as Color,
+    925: '#111114' as Color,
     950: '#0b0b0e' as Color,
   },
   blue: { 300: '#93c5fd' as Color, 400: '#60a5fa' as Color, 600: '#2563eb' as Color },
   red: { 400: '#f87171' as Color, 600: '#dc2626' as Color },
-  green: { 400: '#4ade80' as Color, 600: '#16a34a' as Color },
-  yellow: { 400: '#e89b24' as Color, 500: '#c87f12' as Color },
+  green: { 400: '#4ade80' as Color, 600: '#16a34a' as Color, 800: '#2d6a3f' as Color },
+  yellow: { 300: '#f0ae5d' as Color, 400: '#e89b24' as Color, 500: '#c87f12' as Color },
 } as const;
 
 export const darkTheme: Theme = {
@@ -81,12 +83,13 @@ export const darkTheme: Theme = {
     body: { fg: palette.neutral[100] },
     muted: { fg: palette.neutral[400], dim: true },
     title: { fg: palette.neutral[0], bold: true },
-    userMessage: { fg: palette.neutral[100] },
+    userMessage: { fg: palette.neutral[100], bg: palette.neutral[925] },
     assistantMessage: { fg: palette.neutral[100] },
     reasoning: { fg: palette.neutral[400], italic: true },
     commandPaletteItem: { fg: palette.neutral[100], bg: palette.neutral[900] },
     commandPaletteHover: { fg: palette.neutral[100], bg: palette.neutral[800] },
-    commandPaletteSelected: { fg: palette.neutral[0], bg: palette.neutral[700] },
+    commandPaletteSelected: { fg: palette.neutral[950], bg: palette.yellow[300], bold: true },
+    bashPrompt: { fg: palette.neutral[0] },
     errorLine: { fg: palette.neutral[100] },
     errorPrefix: { fg: palette.red[400], bold: true },
   },
@@ -115,7 +118,8 @@ export const lightTheme: Theme = {
     reasoning: { fg: palette.neutral[600], italic: true },
     commandPaletteItem: { fg: palette.neutral[900], bg: palette.neutral[50] },
     commandPaletteHover: { fg: palette.neutral[900], bg: palette.neutral[100] },
-    commandPaletteSelected: { fg: palette.neutral[950], bg: palette.neutral[200] },
+    commandPaletteSelected: { fg: palette.neutral[950], bg: palette.yellow[300], bold: true },
+    bashPrompt: { fg: palette.neutral[950] },
     errorLine: { fg: palette.neutral[900] },
     errorPrefix: { fg: palette.red[600], bold: true },
   },

@@ -82,3 +82,34 @@ export function getPluginsDir(): string {
   const dir = process.env.XDG_CONFIG_HOME ? join(process.env.XDG_CONFIG_HOME, 'mu') : join(homedir(), '.config', 'mu');
   return join(dir, 'plugins');
 }
+
+const MAX_HISTORY = 500;
+
+export function getHistoryPath(): string {
+  const dir = process.env.XDG_STATE_HOME
+    ? join(process.env.XDG_STATE_HOME, 'mu')
+    : join(homedir(), '.local', 'state', 'mu');
+  return join(dir, 'history.json');
+}
+
+export function loadHistory(): string[] {
+  const path = getHistoryPath();
+  if (!existsSync(path)) return [];
+  try {
+    const raw = JSON.parse(readFileSync(path, 'utf-8')) as unknown;
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((e): e is string => typeof e === 'string').slice(-MAX_HISTORY);
+  } catch {
+    return [];
+  }
+}
+
+export function appendHistory(entry: string): void {
+  const history = loadHistory();
+  if (history[history.length - 1] === entry) return;
+  history.push(entry);
+  if (history.length > MAX_HISTORY) history.splice(0, history.length - MAX_HISTORY);
+  try {
+    saveJson(getHistoryPath(), history);
+  } catch { /* ignore */ }
+}
