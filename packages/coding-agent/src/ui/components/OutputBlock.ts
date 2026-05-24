@@ -23,8 +23,11 @@ export interface OutputBlockProps {
   theme: Theme;
 }
 
+const MAX_COLLAPSED_LINES = 8;
+
 export class OutputBlock implements Component {
   layout: LayoutStyle;
+  expanded = false;
 
   constructor(private readonly props: OutputBlockProps) {
     const isError = props.variant === 'error';
@@ -37,19 +40,23 @@ export class OutputBlock implements Component {
     };
   }
 
+  private visibleLines(maxWidth: number): { lines: string[]; truncated: number } {
+    const all = wrapText(this.props.output, maxWidth);
+    if (this.expanded || all.length <= MAX_COLLAPSED_LINES) {
+      return { lines: all, truncated: 0 };
+    }
+    return { lines: all.slice(0, MAX_COLLAPSED_LINES), truncated: all.length - MAX_COLLAPSED_LINES };
+  }
+
   measure(constraints: Constraints): Size {
     const padding = normalizePadding(this.layout.padding);
     const maxWidth = Number.isFinite(constraints.maxWidth)
       ? Math.max(0, constraints.maxWidth) - padding.left - padding.right
       : 80;
-    const wrappedLines = wrapText(this.props.output, maxWidth);
-    const height = 1 +
-      1 + // empty line between header and output
-      wrappedLines.length +
-      padding.top +
-      padding.bottom;
+    const { lines, truncated } = this.visibleLines(maxWidth);
+    const height = 1 + 1 + lines.length + (truncated > 0 ? 1 : 0) + padding.top + padding.bottom;
     let width = visibleWidth(this.props.command);
-    for (const line of wrappedLines) {
+    for (const line of lines) {
       const w = visibleWidth(line);
       if (w > width) width = w;
     }
@@ -62,16 +69,19 @@ export class OutputBlock implements Component {
 
     const headerStyle = styleToAnsi({ fg: this.props.theme.colors.textMuted });
     const outputStyle = styleToAnsi({ fg: this.props.theme.colors.text });
-    const lines: string[] = [];
+    const result: string[] = [];
 
-    lines.push(`${headerStyle}${this.props.command}${RESET}`);
-    lines.push('');
+    result.push(`${headerStyle}${this.props.command}${RESET}`);
+    result.push('');
 
-    const wrappedLines = wrapText(this.props.output, width);
-    for (const line of wrappedLines) {
-      lines.push(`${outputStyle}${line}${RESET}`);
+    const { lines, truncated } = this.visibleLines(width);
+    for (const line of lines) {
+      result.push(`${outputStyle}${line}${RESET}`);
+    }
+    if (truncated > 0) {
+      result.push(`${headerStyle}... ${truncated} more lines (ctrl+o)${RESET}`);
     }
 
-    return lines;
+    return result;
   }
 }

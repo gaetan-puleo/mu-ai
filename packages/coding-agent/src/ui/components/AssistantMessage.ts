@@ -275,17 +275,33 @@ function renderCodeBlock(
   start: number,
   width: number,
   codeBlockPrefix: string,
+  labelPrefix: string,
 ): { lines: string[]; nextIndex: number } {
   const rendered: string[] = [];
+  const fenceLine = lines[start] ?? '';
+  const lang = fenceLine.replace(/^\s*```/, '').trim();
+
+  if (lang) {
+    const label = ` ${lang}`;
+    const padded = visibleWidth(label) > width ? truncateToWidth(label, width) : label + ' '.repeat(Math.max(0, width - visibleWidth(label)));
+    rendered.push(styleSegment(padded, labelPrefix));
+  }
+
+  const PAD = 2;
+  const innerWidth = Math.max(1, width - PAD);
   let index = start + 1;
   while (index < lines.length && !FENCE_RE.test(lines[index] ?? '')) {
     const line = lines[index] ?? '';
-    const padded = visibleWidth(line) > width ? truncateToWidth(line, width) : line.padEnd(width, ' ');
+    const content = visibleWidth(line) > innerWidth ? truncateToWidth(line, innerWidth) : line;
+    const padded = `${' '.repeat(PAD)}${content}${' '.repeat(Math.max(0, innerWidth - visibleWidth(content)))}`;
     rendered.push(styleSegment(padded, codeBlockPrefix));
     index += 1;
   }
 
-  if (rendered.length === 0) rendered.push(styleSegment(' '.repeat(width), codeBlockPrefix));
+  if (rendered.length === 0 || (lang && rendered.length === 1)) {
+    rendered.push(styleSegment(' '.repeat(width), codeBlockPrefix));
+  }
+
   return { lines: rendered, nextIndex: index < lines.length ? index + 1 : index };
 }
 
@@ -300,12 +316,13 @@ function renderAssistantMarkdown(
   boldPrefix: string,
   codePrefix: string,
   codeBlockPrefix: string,
+  codeBlockLabelPrefix: string,
 ): string[] {
   const lines = content.split('\n');
   const rendered: string[] = [];
   for (let i = 0; i < lines.length;) {
     if (FENCE_RE.test(lines[i] ?? '')) {
-      const block = renderCodeBlock(lines, i, width, codeBlockPrefix);
+      const block = renderCodeBlock(lines, i, width, codeBlockPrefix, codeBlockLabelPrefix);
       rendered.push(...block.lines);
       i = block.nextIndex;
       continue;
@@ -339,10 +356,15 @@ function measureAssistantMarkdown(content: string, width: number): string[] {
   const measured: string[] = [];
   for (let i = 0; i < lines.length;) {
     if (FENCE_RE.test(lines[i] ?? '')) {
+      const fenceLine = lines[i] ?? '';
+      const lang = fenceLine.replace(/^\s*```/, '').trim();
+      if (lang) measured.push(` ${lang}`.padEnd(width, ' '));
       i += 1;
+      const PAD = 2;
+      const innerWidth = Math.max(1, width - PAD);
       let count = 0;
       while (i < lines.length && !FENCE_RE.test(lines[i] ?? '')) {
-        measured.push((lines[i] ?? '').padEnd(width, ' '));
+        measured.push((' '.repeat(PAD) + (lines[i] ?? '')).padEnd(width, ' '));
         count += 1;
         i += 1;
       }
@@ -400,6 +422,7 @@ class AssistantMessageBody implements Component {
     const boldPrefix = styleToAnsi({ ...theme.styles.assistantMessage, bold: true });
     const codePrefix = styleToAnsi({ ...theme.styles.assistantMessage, fg: theme.colors.success });
     const codeBlockPrefix = styleToAnsi({ ...theme.styles.assistantMessage, bg: theme.colors.surfaceMuted });
+    const codeBlockLabelPrefix = styleToAnsi({ fg: theme.colors.textMuted, bg: theme.colors.surfaceMuted, dim: true });
 
     const wrapped = renderAssistantMarkdown(
       this.content,
@@ -412,6 +435,7 @@ class AssistantMessageBody implements Component {
       boldPrefix,
       codePrefix,
       codeBlockPrefix,
+      codeBlockLabelPrefix,
     );
     const result: string[] = [];
     for (let i = 0; i < wrapped.length && result.length < height; i++) {

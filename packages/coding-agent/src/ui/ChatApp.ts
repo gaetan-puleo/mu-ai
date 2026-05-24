@@ -4,10 +4,11 @@ import { dirname, resolve } from 'node:path';
 import type { CoreEvent, LLMResponseContext, Message, Runtime, Unsubscribe } from 'mu-core';
 import type { Model } from '../runtime';
 import { type Component, type InputEvent, ProcessTerminal, TUI } from 'mu-tui';
-import { Box, Input, Modal, ScrollView, SelectList, Text } from 'mu-tui/components';
+import { Box, Input, type InputHighlight, Modal, ScrollView, SelectList, Text } from 'mu-tui/components';
 import { AssistantMessage } from './components/AssistantMessage';
 import { CommandPalette, type CommandPaletteItem } from './components/CommandPalette';
 import { ContextMap } from './components/ContextMap';
+import { type FilePickerEntry, FilePicker } from './components/FilePicker';
 import { CommandLine, CommandResultLine, ErrorLine, ErrorToast, HiddenThinkingLine } from './components/SimpleLines';
 import { OutputBlock } from './components/OutputBlock';
 import { ReasoningBlock } from './components/ReasoningBlock';
@@ -90,6 +91,9 @@ export class ChatApp {
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   private spinnerTimer: ReturnType<typeof setInterval> | undefined;
   private spinnerTick = 0;
+  private filePicker: FilePicker | undefined;
+  private filePickerAnchor = -1;
+  private filePickerCursor = 0;
 
   constructor(
     runtime: Runtime,
@@ -174,6 +178,7 @@ export class ChatApp {
 
     this.tui.addGlobalKeybinding({ chord: { key: 'c', ctrl: true }, handler: () => this.handleCtrlC() });
     this.tui.addGlobalKeybinding({ chord: { key: 't', ctrl: true }, handler: () => this.toggleTheme() });
+    this.tui.addGlobalKeybinding({ chord: { key: 'o', ctrl: true }, handler: () => this.toggleOutputBlocks() });
 
     this.unsubscribeTheme = this.themeProvider.subscribe((next) => this.applyTheme(next));
     this.registerStatusSlots();
@@ -414,6 +419,8 @@ export class ChatApp {
     if (this.inputBox.layout) this.inputBox.layout.height = inputBoxHeight;
     this.updateBashMode(value);
     this.updateCommandPalette(value);
+    this.updateFilePicker(value);
+    this.updateHighlights(value);
     this.updateDockHeight();
   }
 
@@ -424,10 +431,11 @@ export class ChatApp {
   }
 
   private updateBashMode(value: string): void {
-    const bashMode = value.startsWith('!');
+    const bashMode = value.startsWith('!') || value.startsWith('$');
     if (bashMode === this.bashMode) return;
     this.bashMode = bashMode;
     this.inputRow.children = bashMode ? [this.bashPrompt, this.input] : [this.defaultPrompt, this.input];
+    if (bashMode) this.input.hiddenPrefix = value[0]!;
     if (this.inputBox.layout) {
       const theme = this.themeProvider.current();
       this.inputBox.layout.backgroundColor = bashMode ? '#2e1a0a' : theme.colors.surface;
@@ -442,10 +450,25 @@ export class ChatApp {
 
     if (event.type === 'key' && event.kind !== 'release' && (event.key === 'escape' || event.key === 'esc')) {
       if (this.clearToast()) return true;
+      if (this.filePicker) return false;
+      if (this.input.value.startsWith('!') || this.input.value.startsWith('$') || this.input.value.startsWith('/')) {
+        this.input.setValue('');
+        this.updateInputHeight('');
+        this.tui.requestRender();
+        return true;
+      }
+    }
+
+    if (event.type === 'key' && event.kind !== 'release' && event.key === 'backspace') {
+      if (this.deleteAtToken()) return true;
     }
 
     if (event.type === 'key' && event.kind !== 'release' && event.key === 'enter' && event.alt) {
       return this.handleFollowUpSubmit();
+    }
+
+    if (event.type === 'key' && event.kind !== 'release' && this.filePicker && !this.commandPalette) {
+      if (this.interceptFilePickerInput(event)) return true;
     }
 
     if (!this.commandPalette || event.type !== 'key' || event.kind === 'release') return false;
@@ -489,6 +512,7 @@ export class ChatApp {
       { name: 'context', description: 'show context map', run: () => this.showContextMap() },
       { name: 'context-export', description: 'export context map to a file', run: (args) => void this.exportContext(args) },
       { name: 'thinking', description: 'toggle thinking blocks', run: () => this.handleToggleThinking() },
+      { name: 'expand', description: 'toggle output block expansion', run: () => this.toggleOutputBlocks() },
       { name: 'quit', description: 'exit the agent', run: () => void this.stop().then(() => this.onExit?.(0)) },
     ];
   }
@@ -560,7 +584,7 @@ export class ChatApp {
   }
 
   private runCommand(value: string): boolean {
-    if (value.startsWith('!')) {
+    if (value.startsWith('!') || value.startsWith('$')) {
       this.runShellCommand(value.slice(1).trim());
       return true;
     }
@@ -574,6 +598,148 @@ export class ChatApp {
     }
     command.run(rest.join(' '));
     return true;
+  }
+
+  // --- File Picker ---
+
+  private findActiveAtMention(value: string): { anchor: number; token: string } | undefined {
+    const cursor = this.input.cursor;
+    for (let i = cursor - 1; i >= 0; i--) {
+      if (value[i] === ' ' || value[i] === '\n') return undefined;
+      if (value[i] === '@') {
+        const token = value.slice(i + 1, cursor);
+        return { anchor: i, token };
+      }
+    }
+    return undefined;
+  }
+
+  private updateFilePicker(value: string): void {
+    if (this.commandPalette) {
+      this.dismissFilePicker();
+      return;
+    }
+
+    const mention = this.findActiveAtMention(value);
+    if (!mention) {
+      this.dismissFilePicker();
+      return;
+    }
+
+    this.filePickerAnchor = mention.anchor;
+    this.filePickerCursor = 0;
+
+    this.filePicker = new FilePicker({
+      cwd: process.cwd(),
+      query: mention.token,
+      selectedIndex: this.filePickerCursor,
+      onSelect: (entry) => this.selectFilePickerEntry(entry),
+    });
+
+    const count = this.filePicker.visibleEntries.length;
+    if (count === 0) {
+      this.dismissFilePicker();
+      return;
+    }
+
+    const visibleHeight = Math.min(8, count);
+    this.inputTopWidgetZone.children = [this.filePicker];
+    if (this.inputTopWidgetZone.layout) this.inputTopWidgetZone.layout.height = visibleHeight;
+    this.updateDockHeight();
+  }
+
+  private dismissFilePicker(): void {
+    if (!this.filePicker) return;
+    this.filePicker = undefined;
+    this.filePickerAnchor = -1;
+    this.filePickerCursor = 0;
+    if (!this.commandPalette) {
+      this.inputTopWidgetZone.children = [];
+      if (this.inputTopWidgetZone.layout) this.inputTopWidgetZone.layout.height = 0;
+      this.updateDockHeight();
+    }
+  }
+
+  private selectFilePickerEntry(entry: FilePickerEntry): void {
+    const value = this.input.value;
+    const cursor = this.input.cursor;
+    const anchor = this.filePickerAnchor;
+    if (anchor < 0) return;
+
+    const before = value.slice(0, anchor + 1);
+    const after = value.slice(cursor);
+    const insertPath = entry.path;
+
+    const newValue = `${before}${insertPath}${after}`;
+    const newCursor = anchor + 1 + insertPath.length;
+    this.input.setValue(newValue);
+    this.input.setCursor(newCursor);
+    this.updateHighlights(newValue);
+    this.dismissFilePicker();
+    this.tui.requestRender();
+  }
+
+  private updateHighlights(value: string): void {
+    const highlights: InputHighlight[] = [];
+    const theme = this.themeProvider.current();
+    const atStyle = styleToAnsi({ fg: theme.colors.warning, bold: true });
+    const re = /@[^\s]+/g;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(value)) !== null) {
+      highlights.push({ start: match.index, end: match.index + match[0].length, style: atStyle });
+    }
+    this.input.highlights = highlights;
+  }
+
+  private deleteAtToken(): boolean {
+    const value = this.input.value;
+    const cursor = this.input.cursor;
+    const re = /@[^\s]+/g;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(value)) !== null) {
+      const start = match.index;
+      const end = start + match[0].length;
+      if (cursor > start && cursor <= end) {
+        const newValue = value.slice(0, start) + value.slice(end);
+        this.input.setValue(newValue);
+        this.input.setCursor(start);
+        this.updateHighlights(newValue);
+        this.tui.requestRender();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private interceptFilePickerInput(event: Extract<InputEvent, { type: 'key' }>): boolean {
+    if (!this.filePicker) return false;
+
+    const entries = this.filePicker.visibleEntries;
+    if (entries.length === 0) return false;
+
+    if (event.key === 'up') {
+      this.filePickerCursor = Math.max(0, this.filePickerCursor - 1);
+      this.filePicker.setSelectedIndex(this.filePickerCursor);
+      this.tui.requestRender();
+      return true;
+    }
+    if (event.key === 'down') {
+      this.filePickerCursor = Math.min(entries.length - 1, this.filePickerCursor + 1);
+      this.filePicker.setSelectedIndex(this.filePickerCursor);
+      this.tui.requestRender();
+      return true;
+    }
+    if (event.key === 'tab' || event.key === 'enter') {
+      const entry = entries[this.filePickerCursor];
+      if (entry) this.selectFilePickerEntry(entry);
+      return true;
+    }
+    if (event.key === 'escape' || event.key === 'esc') {
+      this.dismissFilePicker();
+      this.tui.requestRender();
+      return true;
+    }
+    return false;
   }
 
   private runShellCommand(cmd: string): void {
@@ -660,6 +826,16 @@ export class ChatApp {
   private handleToggleThinking(): void {
     this.transcript.toggleThinking();
     this.options.onThinkingVisibleChange?.(this.transcript.thinkingVisible);
+    this.renderTranscript();
+  }
+
+  private toggleOutputBlocks(): void {
+    const blocks = this.transcript.lines
+      .filter((e): e is Extract<typeof e, { role: 'output_block' }> => e.role === 'output_block')
+      .map((e) => e.component);
+    if (blocks.length === 0) return;
+    const allExpanded = blocks.every((b) => b.expanded);
+    for (const b of blocks) b.expanded = !allExpanded;
     this.renderTranscript();
   }
 

@@ -60,7 +60,7 @@ export const palette = {
   blue: { 300: '#93c5fd' as Color, 400: '#60a5fa' as Color, 600: '#2563eb' as Color },
   red: { 400: '#f87171' as Color, 600: '#dc2626' as Color },
   green: { 400: '#4ade80' as Color, 600: '#16a34a' as Color },
-  yellow: { 400: '#facc15' as Color, 500: '#eab308' as Color },
+  yellow: { 400: '#e89b24' as Color, 500: '#c87f12' as Color },
 } as const;
 
 export const darkTheme: Theme = {

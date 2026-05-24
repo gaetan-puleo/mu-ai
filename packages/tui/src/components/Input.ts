@@ -3,6 +3,12 @@ import type { EventContext, LayoutStyle, RenderContext } from '../layout/types';
 import type { Focusable } from '../types/component';
 import { sliceByColumn, visibleWidth } from '../utils';
 
+export interface InputHighlight {
+  start: number;
+  end: number;
+  style: string;
+}
+
 export interface InputProps {
   value?: string;
   placeholder?: string;
@@ -17,6 +23,8 @@ export interface InputProps {
   cursorStyle?: string;
   /** Prefix kept in `value` but hidden when rendering. */
   hiddenPrefix?: string;
+  /** Styled ranges within the input text (positions relative to value). */
+  highlights?: InputHighlight[];
 }
 
 const DEFAULT_PLACEHOLDER_STYLE = '\x1b[2m';
@@ -41,6 +49,7 @@ export class Input implements Focusable {
   textStyle: string;
   cursorStyle: string;
   hiddenPrefix: string;
+  highlights: InputHighlight[];
   private scrollOffset = 0;
 
   constructor(props: InputProps = {}) {
@@ -53,6 +62,7 @@ export class Input implements Focusable {
     this.textStyle = props.textStyle ?? '';
     this.cursorStyle = props.cursorStyle ?? DEFAULT_CURSOR_STYLE;
     this.hiddenPrefix = props.hiddenPrefix ?? '';
+    this.highlights = props.highlights ?? [];
     this.layout = { height: 1, focusable: true, ...props.layout };
   }
 
@@ -94,17 +104,21 @@ export class Input implements Focusable {
     const truncatedWidth = visibleWidth(truncated);
     const padded = truncatedWidth < width ? truncated + ' '.repeat(width - truncatedWidth) : truncated;
 
-    if (!ctx.focused) return [this.styleText(padded)];
+    const baseOffset = hiddenPrefixLength + this.scrollOffset;
+
+    if (!ctx.focused) return [this.applyHighlights(padded, baseOffset)];
 
     const cursorCol = renderCursor - this.scrollOffset;
-    if (cursorCol < 0 || cursorCol >= width) return [this.styleText(padded)];
+    if (cursorCol < 0 || cursorCol >= width) return [this.applyHighlights(padded, baseOffset)];
 
     const before = sliceByColumn(padded, 0, cursorCol, true);
     const beforeWidth = visibleWidth(before);
     const beforePad = beforeWidth < cursorCol ? ' '.repeat(cursorCol - beforeWidth) : '';
     const cursorChar = sliceByColumn(padded, cursorCol, cursorCol + 1, true) || ' ';
     const after = sliceByColumn(padded, cursorCol + 1, width, true);
-    return [this.styleText(`${before}${beforePad}${this.cursorStyle}${cursorChar}\x1b[0m${this.textStyle}${after}`)];
+    const styledBefore = this.applyHighlights(`${before}${beforePad}`, baseOffset);
+    const styledAfter = this.applyHighlights(after, baseOffset + cursorCol + 1);
+    return [`${styledBefore}${this.cursorStyle}${cursorChar}\x1b[0m${styledAfter}`];
   }
 
   handleEvent(event: InputEvent, _ctx: EventContext): void {
@@ -214,13 +228,20 @@ export class Input implements Focusable {
     const cursorLine = renderValue.slice(0, renderCursor).split('\n').length - 1;
     const cursorCol = renderCursor - renderValue.lastIndexOf('\n', renderCursor - 1) - 1;
     const firstLine = Math.max(0, cursorLine - height + 1);
+
+    const lineOffsets: number[] = [0];
+    for (let l = 1; l < rawLines.length; l++) {
+      lineOffsets.push(lineOffsets[l - 1] + rawLines[l - 1].length + 1);
+    }
+
     const lines = rawLines.slice(firstLine, firstLine + height).map((line, index) => {
       const truncated = sliceByColumn(line, 0, width, true);
       const truncatedWidth = visibleWidth(truncated);
       const padded = truncatedWidth < width ? truncated + ' '.repeat(width - truncatedWidth) : truncated;
       const lineIndex = firstLine + index;
+      const valueOffset = hiddenPrefixLength + lineOffsets[lineIndex];
 
-      if (!ctx.focused || lineIndex !== cursorLine) return this.styleText(padded);
+      if (!ctx.focused || lineIndex !== cursorLine) return this.applyHighlights(padded, valueOffset);
 
       const clampedCursorCol = Math.min(cursorCol, width - 1);
       const before = sliceByColumn(padded, 0, clampedCursorCol, true);
@@ -228,7 +249,9 @@ export class Input implements Focusable {
       const beforePad = beforeWidth < clampedCursorCol ? ' '.repeat(clampedCursorCol - beforeWidth) : '';
       const cursorChar = sliceByColumn(padded, clampedCursorCol, clampedCursorCol + 1, true) || ' ';
       const after = sliceByColumn(padded, clampedCursorCol + 1, width, true);
-      return this.styleText(`${before}${beforePad}${this.cursorStyle}${cursorChar}\x1b[0m${this.textStyle}${after}`);
+      const styledBefore = this.applyHighlights(`${before}${beforePad}`, valueOffset);
+      const styledAfter = this.applyHighlights(after, valueOffset + clampedCursorCol + 1);
+      return `${styledBefore}${this.cursorStyle}${cursorChar}\x1b[0m${styledAfter}`;
     });
 
     while (lines.length < height) lines.push(this.styleText(' '.repeat(width)));
@@ -237,6 +260,35 @@ export class Input implements Focusable {
 
   private styleText(text: string): string {
     return this.textStyle ? `${this.textStyle}${text}\x1b[0m` : text;
+  }
+
+  private applyHighlights(text: string, valueOffset: number): string {
+    if (this.highlights.length === 0 || text.length === 0) {
+      return this.textStyle ? `${this.textStyle}${text}\x1b[0m` : text;
+    }
+
+    let result = '';
+    let i = 0;
+    while (i < text.length) {
+      const pos = valueOffset + i;
+      const hl = this.highlights.find(h => pos >= h.start && pos < h.end);
+      if (hl) {
+        const segEnd = Math.min(text.length, hl.end - valueOffset);
+        const segment = text.slice(i, segEnd);
+        result += `${hl.style}${segment}\x1b[0m`;
+        i = segEnd;
+      } else {
+        let nextStart = text.length;
+        for (const h of this.highlights) {
+          const rel = h.start - valueOffset;
+          if (rel > i && rel < nextStart) nextStart = rel;
+        }
+        const segment = text.slice(i, nextStart);
+        result += this.textStyle ? `${this.textStyle}${segment}\x1b[0m` : segment;
+        i = nextStart;
+      }
+    }
+    return result;
   }
 
   private hiddenPrefixLength(): number {
