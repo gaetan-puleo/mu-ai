@@ -114,21 +114,18 @@ export class Modal implements Focusable {
 
   prepareLayout(contentRect: Rect): void {
     this.panelRect = this.computePanelRect(contentRect);
-    this.updateSlotLayout(this.panelRect);
+    this.updateSlotLayout(this.panelRect, contentRect);
   }
 
-  private updateSlotLayout(panelRect: Rect): void {
-    // The content slot sits inside the panel, leaving 1 row for title at the
-    // top, 1 row for footer at the bottom, and 1 col padding on each side.
+  private updateSlotLayout(panelRect: Rect, parentRect: Rect): void {
     if (!this.content) {
-      // Collapse the slot to 0×0 so it doesn't intercept clicks.
       this.contentSlot.layout = { position: 'overlay', x: 0, y: 0, width: 0, height: 0 };
       return;
     }
-    const innerX = panelRect.x + 1;
-    const innerY = panelRect.y + 1;
-    const innerWidth = Math.max(0, panelRect.width - 2);
-    const innerHeight = Math.max(0, panelRect.height - 2);
+    const innerX = panelRect.x - parentRect.x + 2;
+    const innerY = panelRect.y - parentRect.y + 2;
+    const innerWidth = Math.max(0, panelRect.width - 4);
+    const innerHeight = Math.max(0, panelRect.height - 4);
     this.contentSlot.layout = {
       position: 'overlay',
       x: innerX,
@@ -196,12 +193,13 @@ export class Modal implements Focusable {
 
   private panelLines(width: number, height: number): string[] {
     if (width <= 0) return [];
-    const innerWidth = Math.max(0, width - 2);
+    const innerWidth = Math.max(0, width - 4);
     const lines: string[] = [];
 
-    if (height > 0) lines.push(this.contentLine(this.title, innerWidth, this.titleStyle));
+    if (height > 0) lines.push(this.contentSurfaceLine(innerWidth));
+    if (height > 1) lines.push(this.contentLine(this.title, innerWidth, this.titleStyle));
 
-    const bodyHeight = Math.max(0, height - 2);
+    const bodyHeight = Math.max(0, height - 4);
     if (this.content) {
       // Reserve neutral panel rows for the content child. Do not wrap these
       // blanks in body text styles: the child is painted on top as a separate
@@ -217,18 +215,19 @@ export class Modal implements Focusable {
       }
     }
 
-    if (height > 1) lines.push(this.contentLine(this.footer, innerWidth, this.footerStyle));
+    if (height > 2) lines.push(this.contentLine(this.footer, innerWidth, this.footerStyle));
+    if (height > 3) lines.push(this.contentSurfaceLine(innerWidth));
 
     return lines.slice(0, height);
   }
 
   private contentLine(text: string, width: number, style: string): string {
     const fitted = fit(text, width);
-    return ` ${style}${fitted}${RESET} `;
+    return `  ${style}${fitted}${RESET}${this.panelStyle}  `;
   }
 
   private contentSurfaceLine(width: number): string {
-    return ` ${' '.repeat(Math.max(0, width))} `;
+    return `  ${' '.repeat(Math.max(0, width))}  `;
   }
 }
 

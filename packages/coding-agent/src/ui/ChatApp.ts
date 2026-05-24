@@ -150,19 +150,17 @@ export class ChatApp {
     this.inputBox = new Box({
       layout: {
         width: 'fill',
-        height: 4,
+        height: 5,
         direction: 'column',
-        padding: { top: 1, right: 1, left: 1 },
+        padding: { top: 1, bottom: 1, right: 1, left: 1 },
         backgroundColor: theme.colors.surface,
         zIndex: 10,
       },
       children: [this.inputRow, this.modelLabel],
     });
 
-    // bottomDock height = inputBox + statusBox(1)
-    // inputBox height = padding-top(1) + inputLines(1) + modelLabel margin-top(1) + modelLabel(1) = 4
     this.bottomDock = new Box({
-      layout: { width: 'fill', height: 5, direction: 'column', margin: { top: 1 }, zIndex: 10 },
+      layout: { width: 'fill', height: 6, direction: 'column', margin: { top: 1 }, zIndex: 10 },
       children: [this.toastZone, this.inputTopWidgetZone, this.inputBox, this.inputBottomWidgetZone, this.statusBox],
     });
 
@@ -479,8 +477,7 @@ export class ChatApp {
     const inputLines = Math.min(7, Math.max(1, value.split('\n').length));
     this.input.layout.height = inputLines;
     if (this.inputRow.layout) this.inputRow.layout.height = inputLines;
-    // inputBox = padding-top(1) + inputLines + model-margin(1) + model(1)
-    const inputBoxHeight = 1 + inputLines + 1 + 1;
+    const inputBoxHeight = 1 + inputLines + 1 + 1 + 1;
     if (this.inputBox.layout) this.inputBox.layout.height = inputBoxHeight;
     if (!this.historyNavigating && this.historyCursor !== -1) {
       this.historyCursor = -1;
@@ -1001,12 +998,11 @@ export class ChatApp {
     const maxIdWidth = this.models.reduce((max, m) => Math.max(max, m.id.length), 0);
     const DIM = '\x1b[2m';
     const items = this.models.map((model) => {
-      const active = model.id === current ? '*' : ' ';
       const pad = ' '.repeat(maxIdWidth - model.id.length);
       const provider = model.ownedBy ? `  ${model.ownedBy}` : '';
       return {
-        label: `${active} ${model.id}${pad}${DIM}${provider}`,
-        selectedLabel: `${active} ${model.id}${pad}${provider}`,
+        label: `${model.id}${pad}${DIM}${provider}`,
+        selectedLabel: `${model.id}${pad}${provider}`,
         value: model,
       };
     });
@@ -1036,7 +1032,7 @@ export class ChatApp {
 
     this.modal.setContent({
       title: 'Model Picker',
-      footer: `Current: ${current || 'unknown'} | Up/Down, Enter, Esc | click a row`,
+      footer: `Current: ${current || 'unknown'}`,
       content: selectList,
     });
     this.tui.setFocus(selectList);
