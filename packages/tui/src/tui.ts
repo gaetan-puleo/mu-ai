@@ -12,11 +12,12 @@ import type { InputEvent } from './events';
 import { createRuntimeEnv, type FeatureContext, type TuiFeature } from './feature';
 import type { GlobalKeybinding } from './keybinds';
 import { keyMatches } from './keybinds';
-import { type Canvas, canvasToLines, createCanvas } from './layout/canvas';
+import { type CellBuffer, cellBufferToLines, createCellBuffer, setBackdropColor } from './layout/cellbuffer';
+import { colorToRgba, OPAQUE_BLACK, type Rgba } from './layout/color';
 import { layoutTree, sortForRender } from './layout/engine';
 import { hitTest } from './layout/hitTest';
 import { drawEntry } from './layout/render';
-import type { EventContext, LayoutEntry, Rect } from './layout/types';
+import type { Color, EventContext, LayoutEntry, Rect } from './layout/types';
 import { TerminalInputParser } from './parser';
 import type { Component } from './types/component';
 import { isFocusable, isFocusableNavigation } from './types/guards';
@@ -86,6 +87,7 @@ export class TUI {
   private readonly escapeTimeoutMs: number;
   private started = false;
   private userContext: unknown;
+  private backdropColor: Rgba = OPAQUE_BLACK;
 
   onDebug?: () => void;
 
@@ -125,6 +127,22 @@ export class TUI {
 
   getUserContext(): unknown {
     return this.userContext;
+  }
+
+  /**
+   * Set the terminal's effective background color. This is the color used as
+   * the base when compositing semi-transparent layers — without it, transparent
+   * overlays would composite against black instead of the user's actual
+   * terminal background.
+   */
+  setBackgroundColor(color: Color): void {
+    const rgba = colorToRgba(color);
+    this.backdropColor = { ...rgba, a: 1 };
+    this.requestRender(true);
+  }
+
+  getBackgroundColor(): Rgba {
+    return this.backdropColor;
   }
 
   addGlobalKeybinding(binding: GlobalKeybinding): () => void {
@@ -496,12 +514,13 @@ export class TUI {
     const entries = layoutTree(this.children, rootRect, this.focusedComponent, this.capabilities);
     this.layoutEntries = entries;
 
-    const canvas: Canvas = createCanvas(width, height);
+    const buffer: CellBuffer = createCellBuffer(width, height, this.backdropColor);
+    setBackdropColor(buffer, this.backdropColor);
     for (const entry of sortForRender(entries)) {
-      drawEntry(canvas, entry, this.focusedComponent, this.capabilities, this.userContext);
+      drawEntry(buffer, entry, this.focusedComponent, this.capabilities, this.userContext);
     }
 
-    const lines = canvasToLines(canvas);
+    const lines = cellBufferToLines(buffer);
     return trimTrailingBlankLines(lines);
   }
 

@@ -1,7 +1,7 @@
 import type { InputEvent } from '../events';
 import type { Constraints, EventContext, LayoutStyle, Rect, RenderContext, Size } from '../layout/types';
 import type { Component, Focusable } from '../types/component';
-import { sliceByColumn, truncateToWidth, visibleWidth, wrapText } from '../utils';
+import { truncateToWidth, visibleWidth, wrapText } from '../utils';
 import { Box } from './Box';
 
 export interface ModalProps {
@@ -14,7 +14,14 @@ export interface ModalProps {
   width?: number;
   height?: number;
   onClose?: () => void;
-  dimStyle?: string;
+  /**
+   * Backdrop color (overlay outside the panel). Defaults to `'#000000'` with
+   * `backdropOpacity = 0.5`, producing a real semi-transparent darken — the
+   * content underneath the modal shows through, blended.
+   */
+  backdropColor?: string;
+  /** Backdrop opacity, 0.0-1.0. Defaults to 0.5. */
+  backdropOpacity?: number;
   panelStyle?: string;
   titleStyle?: string;
   bodyStyle?: string;
@@ -22,15 +29,20 @@ export interface ModalProps {
 }
 
 const RESET = '\x1b[0m';
-const DEFAULT_DIM_STYLE = '\x1b[40m';
+const DEFAULT_BACKDROP_COLOR = '#000000';
+const DEFAULT_BACKDROP_OPACITY = 0.7;
 const DEFAULT_PANEL_STYLE = '\x1b[48;2;24;24;24m';
 const DEFAULT_TITLE_STYLE = '\x1b[1m\x1b[37m';
 const DEFAULT_BODY_STYLE = '\x1b[37m';
 const DEFAULT_FOOTER_STYLE = '\x1b[2m\x1b[37m';
 
 /**
- * Full-screen modal overlay. Terminals do not support true alpha blending, so
- * the backdrop is rendered as dim dark cells to approximate transparency.
+ * Full-screen modal overlay.
+ *
+ * The backdrop uses real alpha compositing: the framework blends a
+ * semi-transparent dark fill over whatever is underneath, so the modal acts
+ * like a translucent panel rather than an opaque dim layer. Customize via
+ * `backdropColor` and `backdropOpacity`.
  *
  * Two body modes:
  * - `body: string | string[]` — Modal renders the text itself.
@@ -49,7 +61,6 @@ export class Modal implements Focusable {
   private widthPref?: number;
   private heightPref?: number;
   private onClose?: () => void;
-  private dimStyle: string;
   private panelStyle: string;
   private titleStyle: string;
   private bodyStyle: string;
@@ -68,7 +79,6 @@ export class Modal implements Focusable {
     this.widthPref = props.width;
     this.heightPref = props.height;
     this.onClose = props.onClose;
-    this.dimStyle = props.dimStyle ?? DEFAULT_DIM_STYLE;
     this.panelStyle = props.panelStyle ?? DEFAULT_PANEL_STYLE;
     this.titleStyle = props.titleStyle ?? DEFAULT_TITLE_STYLE;
     this.bodyStyle = props.bodyStyle ?? DEFAULT_BODY_STYLE;
@@ -81,6 +91,8 @@ export class Modal implements Focusable {
       height: 'fill',
       focusable: true,
       zIndex: 1000,
+      backgroundColor: props.backdropColor ?? DEFAULT_BACKDROP_COLOR,
+      backgroundOpacity: props.backdropOpacity ?? DEFAULT_BACKDROP_OPACITY,
       ...props.layout,
     };
 
@@ -139,15 +151,17 @@ export class Modal implements Focusable {
     const { width, height } = ctx.contentRect;
     if (width <= 0 || height <= 0) return [];
 
-    const lines = Array.from({ length: height }, () => `${this.dimStyle}${' '.repeat(width)}${RESET}`);
-    // If prepareLayout hasn't run (e.g. component rendered standalone in a
-    // test), compute the panel rect on the fly.
+    // The semi-transparent backdrop is painted by the framework via
+    // layout.backgroundColor + backgroundOpacity. Here we only need to
+    // emit the opaque panel rows; non-panel rows are returned as empty
+    // strings so the backdrop shows through unchanged.
+    const lines: string[] = new Array(height).fill('');
+
     const panel = this.panelRect.width > 0 && this.panelRect.height > 0
       ? this.panelRect
       : this.computePanelRect(ctx.contentRect);
     if (panel.width <= 0 || panel.height <= 0) return lines;
 
-    // panel is in absolute coords; convert to local for the rendered line buffer.
     const left = panel.x - ctx.contentRect.x;
     const top = panel.y - ctx.contentRect.y;
     const panelLines = this.panelLines(panel.width, panel.height);
@@ -155,7 +169,10 @@ export class Modal implements Focusable {
     for (let i = 0; i < panelLines.length && top + i < lines.length; i++) {
       const row = top + i;
       if (row < 0) continue;
-      lines[row] = replaceRange(lines[row], left, `${this.panelStyle}${panelLines[i]}${RESET}`, panel.width, width);
+      // Pad to the panel's column offset so the panel sits at the right
+      // absolute column when composited onto the buffer row.
+      const leftPad = left > 0 ? ' '.repeat(left) : '';
+      lines[row] = `${leftPad}${this.panelStyle}${panelLines[i]}${RESET}`;
     }
 
     return lines;
@@ -248,10 +265,3 @@ function fit(value: string, width: number): string {
   return padding > 0 ? truncated + ' '.repeat(padding) : truncated;
 }
 
-function replaceRange(line: string, column: number, text: string, textWidth: number, totalWidth: number): string {
-  const left = sliceByColumn(line, 0, column, true);
-  const right = sliceByColumn(line, column + textWidth, totalWidth, true);
-  const next = left + text + right;
-  const nextWidth = visibleWidth(next);
-  return nextWidth < totalWidth ? next + ' '.repeat(totalWidth - nextWidth) : next;
-}

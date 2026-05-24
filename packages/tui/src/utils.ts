@@ -22,7 +22,7 @@ export function visibleWidth(s: string): number {
   return w;
 }
 
-function charWidth(code: number): number {
+export function charWidth(code: number): number {
   if (code === 0 || code < 0x20 || code === 0x7f) return 0;
   if (
     (code >= 0x1100 && code <= 0x115f) ||

@@ -28,7 +28,7 @@ export interface InputProps {
 }
 
 const DEFAULT_PLACEHOLDER_STYLE = '\x1b[2m';
-const DEFAULT_CURSOR_STYLE = '\x1b[7m';
+const DEFAULT_CURSOR_STYLE = '\x1b[5;7m';
 
 /**
  * Single-line text input.

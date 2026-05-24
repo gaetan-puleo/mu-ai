@@ -2,7 +2,7 @@ import { expect } from '@std/expect';
 import { describe, it } from '@std/testing/bdd';
 
 import { createDefaultCapabilities } from '../capabilities';
-import { canvasToLines, createCanvas } from '../layout/canvas';
+import { cellBufferToLines as canvasToLines, createCellBuffer as createCanvas } from '../layout/cellbuffer';
 import { layoutTree, sortForRender } from '../layout/engine';
 import { drawEntry } from '../layout/render';
 import type { LayoutEntry, RenderContext } from '../layout/types';
@@ -124,10 +124,12 @@ describe('Box', () => {
     const entries = layoutTree([box], { x: 0, y: 0, width: 6, height: 1 }, null, caps);
     const canvas = createCanvas(6, 1);
 
-    for (const entry of entries) drawEntry(canvas, entry, null, caps);
+    for (const entry of sortForRender(entries)) drawEntry(canvas, entry, null, caps);
 
     const line = canvasToLines(canvas)[0];
-    expect(line).toContain('\x1b[48;2;18;52;86mHi\x1b[0m');
+    // Parent's bg fills the whole row; child content (Hi) inherits it.
+    expect(line).toContain('48;2;18;52;86');
+    expect(line).toContain('Hi');
     expect(stripAnsi(line)).toBe('Hi    ');
   });
 
@@ -137,10 +139,13 @@ describe('Box', () => {
     const entries = layoutTree([box], { x: 0, y: 0, width: 6, height: 1 }, null, caps);
     const canvas = createCanvas(6, 1);
 
-    for (const entry of entries) drawEntry(canvas, entry, null, caps);
+    for (const entry of sortForRender(entries)) drawEntry(canvas, entry, null, caps);
 
     const line = canvasToLines(canvas)[0];
-    expect(line).toContain('\x1b[41mHi\x1b[0m');
+    // Child red bg covers its 2 cells; parent blue bg fills the rest of the row.
+    expect(line).toContain('\x1b[41m');
+    expect(line).toContain('Hi');
+    expect(line).toContain('44m'); // parent's blue bg present somewhere in the row
     expect(stripAnsi(line)).toBe('Hi    ');
   });
 });

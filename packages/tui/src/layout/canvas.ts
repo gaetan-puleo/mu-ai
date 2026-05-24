@@ -3,12 +3,16 @@ import { containsPoint, intersectRect, isEmptyRect } from './insets';
 import { type BorderStyle, type Color, DEFAULT_BORDER_CHARS, type Rect } from './types';
 
 /**
+ * @deprecated Use `CellBuffer` from `./cellbuffer` for new code. This
+ * line-based canvas cannot support alpha compositing or per-cell styling.
+ * Kept only for backward-compatible consumers of the old API.
+ *
  * Line-based canvas. Each row is a single string of visible cells.
  *
  * Limitation: overlapping ANSI styled spans on the same row cannot be perfectly
  * composed without a cell-level model. Callers should use line-by-line resets
  * (the TUI render pipeline already appends a reset per line) and avoid relying
- * on overlapping styled content at v1.
+ * on overlapping styled content.
  */
 export interface Canvas {
   width: number;

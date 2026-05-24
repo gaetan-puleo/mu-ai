@@ -42,9 +42,16 @@ export interface Constraints {
  */
 export type SizeSpec = number | `${number}%` | `${number}fr` | 'auto' | 'fill';
 
-/** Supported layout color values. Hex colors render as truecolor SGR. */
+/**
+ * Supported layout color values.
+ *
+ * - `#RGB`, `#RRGGBB`, `#RRGGBBAA`: truecolor with optional alpha
+ * - Named ANSI 16 colors: emitted as indexed SGR (preserves terminal theming)
+ * - `'default'`: terminal's configured default color, emitted as `CSI 39/49 m`
+ */
 export type Color =
   | `#${string}`
+  | 'default'
   | 'black'
   | 'red'
   | 'green'
@@ -117,6 +124,19 @@ export interface LayoutStyle {
   border?: boolean | BorderStyle;
   /** Background color painted across the component's outer rect. */
   backgroundColor?: Color;
+  /**
+   * Background alpha, 0.0 (fully transparent) to 1.0 (opaque). Defaults to 1.
+   * Use this with `backgroundColor` to produce a semi-transparent fill that
+   * shows the underlying content through alpha compositing. Equivalent to
+   * encoding alpha in an 8-digit `#RRGGBBAA` hex color.
+   */
+  backgroundOpacity?: number;
+  /**
+   * Whole-subtree opacity, 0.0-1.0. Multiplies with any ancestor opacity, so
+   * nested containers compose: a parent at 0.5 with a child at 0.5 yields
+   * 0.25 effective opacity for the child's drawing.
+   */
+  opacity?: number;
   /** Higher draws above lower. Default 0. Overlays default to 100. */
   zIndex?: number;
   /** Overflow handling for the component's content rect. Default `'visible'`. */

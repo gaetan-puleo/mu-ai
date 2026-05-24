@@ -161,11 +161,28 @@ function allocateParts(map: LocalContextMap): RenderPart[] {
   const estimatedUsed = sumTokens(nonEmpty);
   const used = map.usedTokens ?? estimatedUsed;
   const window = Math.max(used, map.windowTokens ?? used);
+  const scaled = scalePartsToTotal(nonEmpty, used, estimatedUsed);
   const usedCells = window > 0 ? Math.min(CELL_COUNT, Math.max(0, Math.round((used / window) * CELL_COUNT))) : 0;
-  const allocated = allocateCells(nonEmpty, usedCells);
+  const allocated = allocateCells(scaled, usedCells);
   const emptyTokens = Math.max(0, window - used);
   const emptyCells = Math.max(0, CELL_COUNT - sumCells(allocated));
   return [...allocated, { kind: 'empty', label: 'empty', tokens: emptyTokens, cells: emptyCells }];
+}
+
+function scalePartsToTotal(parts: RenderPart[], target: number, current: number): RenderPart[] {
+  if (parts.length === 0 || current <= 0 || target === current) return parts;
+  const scaled = parts.map((part) => ({ ...part, tokens: Math.max(0, Math.round(part.tokens * (target / current))) }));
+  let diff = target - sumTokens(scaled);
+  while (diff !== 0) {
+    const idx = scaled.reduce((best, part, i) => (part.tokens > scaled[best].tokens ? i : best), 0);
+    scaled[idx].tokens += diff > 0 ? 1 : -1;
+    if (scaled[idx].tokens < 0) {
+      scaled[idx].tokens = 0;
+      break;
+    }
+    diff += diff > 0 ? -1 : 1;
+  }
+  return scaled;
 }
 
 function allocateCells(parts: RenderPart[], totalCells: number): RenderPart[] {
@@ -250,8 +267,10 @@ function sumCells(parts: Array<{ cells: number }>): number {
 }
 
 function formatTokens(value: number): string {
-  if (value >= 1000) return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`;
-  return String(Math.round(value));
+  if (value < 1000) return String(Math.round(value));
+  const k = value / 1000;
+  const formatted = k >= 100 ? k.toFixed(0) : k.toFixed(1).replace(/\.0$/, '');
+  return `${formatted}k`;
 }
 
 function labelContextPart(kind: LocalContextPartKind): string {
