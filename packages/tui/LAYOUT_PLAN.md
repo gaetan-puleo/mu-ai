@@ -772,7 +772,7 @@ Mitigation: start with layout-order traversal, add geometric navigation later.
 11. Add `ScrollView`.
 12. Add focus traversal and focus scopes.
 13. Add `./components` and `./layout` exports.
-14. Run validation: `npm test`, `npx tsc -p tsconfig.json --noEmit`, `npx biome check packages/tui`.
+14. Run validation: `deno task test`, `deno task check`, `deno task lint`.
 
 ## Acceptance Criteria
 

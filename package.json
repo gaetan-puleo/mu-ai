@@ -1,28 +1,14 @@
 {
   "name": "mu-workspace",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "pnpm --dir packages/coding-agent dev",
-    "dev:tui-debug": "pnpm --dir packages/coding-agent dev:tui-debug",
-    "start": "pnpm --dir packages/coding-agent start",
-    "lint": "biome check packages/",
-    "lint:fix": "biome check --fix --unsafe packages/",
-    "format": "biome format --write packages/",
-    "check": "biome check packages/ && tsc -b",
-    "test": "vitest run",
     "knip": "knip",
-    "sg": "sg",
-    "publish": "bun scripts/publish.ts"
+    "sg": "sg"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.12",
-    "@types/node": "^22.15.3",
-    "@types/react": "^19.2.14",
-    "knip": "^6.4.1",
-    "typescript": "^5.8.3",
-    "vitest": "^4.1.6"
-  },
-  "dependencies": {
-    "tsx": "^4.22.3"
+    "knip": "^6.4.1"
   }
 }

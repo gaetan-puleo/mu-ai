@@ -1,3 +1,5 @@
+import { expect } from '@std/expect';
+import { describe, it } from '@std/testing/bdd';
 import { createBus } from './bus';
 import type { LLMProvider } from './provider';
 import type { CoreEvent } from './runtime';
@@ -14,7 +16,6 @@ function waitForAsync(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: This file keeps related hook integration cases together.
 describe('tool hooks', () => {
   it('should allow tool by default (no hooks)', async () => {
     let callCount = 0;
@@ -43,7 +44,7 @@ describe('tool hooks', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
 
     bus.publish({
       type: 'user_message',
@@ -84,7 +85,7 @@ describe('tool hooks', () => {
       hooks,
     });
 
-    runtime.start();
+    await runtime.start();
 
     bus.publish({
       type: 'user_message',
@@ -132,7 +133,7 @@ describe('tool hooks', () => {
       hooks,
     });
 
-    runtime.start();
+    await runtime.start();
 
     bus.publish({
       type: 'user_message',
@@ -184,7 +185,7 @@ describe('tool hooks', () => {
       hooks,
     });
 
-    runtime.start();
+    await runtime.start();
 
     bus.publish({
       type: 'user_message',

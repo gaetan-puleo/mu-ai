@@ -1,17 +1,14 @@
 {
   "name": "coding-agent",
-  "version": "0.1.0",
+  "version": "0.15.0",
   "type": "module",
   "bin": {
     "coding-agent": "./bin/coding-agent.ts"
   },
   "scripts": {
-    "dev": "NODE_ENV=development node --import tsx bin/coding-agent.ts",
-    "dev:tui-debug": "MU_TUI_DEBUG_LOG=/tmp/mu-tui.log NODE_ENV=development node --import tsx bin/coding-agent.ts",
-    "start": "node --import tsx bin/coding-agent.ts"
-  },
-  "devDependencies": {
-    "tsx": "^4.21.0"
+    "dev": "NODE_ENV=development deno run -A --sloppy-imports bin/coding-agent.ts",
+    "dev:tui-debug": "MU_TUI_DEBUG_LOG=/tmp/mu-tui.log NODE_ENV=development deno run -A --sloppy-imports bin/coding-agent.ts",
+    "start": "deno run -A --sloppy-imports bin/coding-agent.ts"
   },
   "dependencies": {
     "mu-core": "workspace:*",

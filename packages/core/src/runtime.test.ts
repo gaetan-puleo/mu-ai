@@ -1,3 +1,5 @@
+import { expect } from '@std/expect';
+import { describe, it } from '@std/testing/bdd';
 import { createBus } from './bus';
 import { definePlugin } from './plugin';
 import type { LLMProvider } from './provider';
@@ -18,7 +20,6 @@ function eventIndex(events: CoreEvent[], type: CoreEvent['type']): number {
   return events.findIndex((event) => event.type === type);
 }
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: Runtime integration tests share setup helpers and cover one public API.
 describe('createRuntime', () => {
   it('reacts to a user message and publishes assistant response', async () => {
     const provider: LLMProvider = async () => ({ content: 'Hello!' });
@@ -31,7 +32,7 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
 
     bus.publish({
       type: 'user_message',
@@ -80,7 +81,7 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
 
     bus.publish({
       type: 'user_message',
@@ -120,7 +121,7 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
 
     bus.publish({
       type: 'user_message',
@@ -152,7 +153,7 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
 
     bus.publish({
       type: 'user_message',
@@ -189,7 +190,7 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
 
     bus.publish({
       type: 'user_message',
@@ -221,7 +222,7 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
 
     bus.publish({
       type: 'user_message',
@@ -257,7 +258,7 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
 
     bus.publish({
       type: 'user_message',
@@ -290,7 +291,7 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
 
     bus.publish({
       type: 'user_message',
@@ -328,7 +329,7 @@ describe('createRuntime', () => {
       systemPrompt: 'You are helpful.',
     });
 
-    runtime.start();
+    await runtime.start();
     bus.publish({ type: 'user_message', message: { role: 'user', content: 'Hi' } });
 
     await waitForAsync();
@@ -366,7 +367,7 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
     bus.publish({ type: 'user_message', message: { role: 'user', content: 'Start' } });
 
     await waitForAsync();
@@ -387,7 +388,7 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
 
     bus.publish({
       type: 'user_message',
@@ -445,7 +446,7 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
     bus.publish({ type: 'user_message', message: { role: 'user', content: 'Start' } });
     await waitForAsync();
 
@@ -480,7 +481,7 @@ describe('createRuntime', () => {
     const events = collectEvents(bus);
     const runtime = createRuntime({ provider, tools: {}, bus });
 
-    runtime.start();
+    await runtime.start();
     bus.publish({ type: 'user_message', message: { role: 'user', content: 'Start' } });
     await waitForAsync();
 
@@ -530,7 +531,7 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
     bus.publish({ type: 'user_message', message: { role: 'user', content: 'Start' } });
     await waitForAsync();
 
@@ -580,7 +581,7 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
     bus.publish({ type: 'user_message', message: { role: 'user', content: 'Start' } });
     await waitForAsync();
     bus.publish({ type: 'steer', message: { role: 'user', content: 'Steer now' } });
@@ -615,7 +616,7 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
 
     bus.publish({
       type: 'user_message',
@@ -624,7 +625,7 @@ describe('createRuntime', () => {
 
     await waitForAsync();
 
-    runtime.stop();
+    await runtime.stop();
 
     bus.publish({
       type: 'user_message',
@@ -649,7 +650,7 @@ describe('createRuntime', () => {
 
     expect(runtime.state()).toBe('idle');
 
-    runtime.start();
+    await runtime.start();
 
     expect(runtime.state()).toBe('idle');
   });
@@ -671,7 +672,7 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
 
     bus.publish({
       type: 'user_message',
@@ -728,7 +729,7 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
     bus.publish({ type: 'user_message', message: { role: 'user', content: 'Use plugin' } });
 
     await waitForAsync();
@@ -771,7 +772,7 @@ describe('createRuntime', () => {
         },
         plugins: [plugin],
         bus,
-      }),
+      })
     ).toThrow('Tool "same" from plugin "plugin" is already registered');
   });
 
@@ -809,9 +810,9 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
     await waitForAsync();
-    runtime.stop();
+    await runtime.stop();
     await waitForAsync();
 
     expect(order).toEqual(['start:first', 'start:second', 'stop:second', 'stop:first']);
@@ -830,11 +831,66 @@ describe('createRuntime', () => {
       bus,
     });
 
-    runtime.start();
+    await runtime.start();
     bus.publish({ type: 'user_message', message: { role: 'user', content: 'Use missing tool' } });
     await waitForAsync();
 
     expect(errors).toHaveLength(1);
     expect((errors[0] as Error).message).toBe('Unknown tool: missing');
+  });
+
+  it('throws when start() is called after stop()', async () => {
+    const provider: LLMProvider = async () => ({ content: 'ok' });
+    const bus = createBus<CoreEvent>();
+    const runtime = createRuntime({ provider, tools: {}, bus });
+
+    await runtime.start();
+    await runtime.stop();
+
+    await expect(runtime.start()).rejects.toThrow('Cannot start a stopped runtime');
+  });
+
+  it('resolves provider from a plugin when config.provider is omitted', async () => {
+    let called = false;
+    const pluginProvider: LLMProvider = async () => {
+      called = true;
+      return { content: 'from plugin' };
+    };
+    const bus = createBus<CoreEvent>();
+    const runtime = createRuntime({
+      tools: {},
+      plugins: [{ name: 'my-provider', provider: pluginProvider }],
+      bus,
+    });
+
+    const events: CoreEvent[] = [];
+    bus.subscribe((e) => events.push(e));
+    await runtime.start();
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'hi' } });
+    await waitForAsync();
+
+    expect(called).toBe(true);
+    expect(events.some((e) => e.type === 'assistant_message')).toBe(true);
+  });
+
+  it('throws when no provider is configured and no plugin provides one', () => {
+    const bus = createBus<CoreEvent>();
+    expect(() => createRuntime({ tools: {}, bus })).toThrow('No provider configured');
+  });
+
+  it('throws when multiple plugins provide a provider', () => {
+    const p1: LLMProvider = async () => ({ content: '' });
+    const p2: LLMProvider = async () => ({ content: '' });
+    const bus = createBus<CoreEvent>();
+    expect(() =>
+      createRuntime({
+        tools: {},
+        plugins: [
+          { name: 'a', provider: p1 },
+          { name: 'b', provider: p2 },
+        ],
+        bus,
+      })
+    ).toThrow('Multiple plugins provide a provider');
   });
 });

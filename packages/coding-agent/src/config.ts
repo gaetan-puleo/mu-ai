@@ -5,6 +5,8 @@ import { dirname, join } from 'node:path';
 export interface CodingAgentConfig {
   kind?: string;
   baseUrl?: string;
+  plugins?: string[];
+  provider?: string;
 }
 
 export interface CodingAgentState {
@@ -34,6 +36,10 @@ export function loadConfig(): CodingAgentConfig {
     const out: CodingAgentConfig = {};
     if (typeof obj.kind === 'string') out.kind = obj.kind;
     if (typeof obj.baseUrl === 'string') out.baseUrl = obj.baseUrl;
+    if (Array.isArray(obj.plugins) && obj.plugins.every((p) => typeof p === 'string')) {
+      out.plugins = obj.plugins as string[];
+    }
+    if (typeof obj.provider === 'string') out.provider = obj.provider;
     return out;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -64,4 +70,15 @@ export function saveState(state: CodingAgentState): void {
   const path = getStatePath();
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+}
+
+export function saveConfig(config: CodingAgentConfig): void {
+  const path = getConfigPath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
+}
+
+export function getPluginsDir(): string {
+  const dir = process.env.XDG_CONFIG_HOME ? join(process.env.XDG_CONFIG_HOME, 'mu') : join(homedir(), '.config', 'mu');
+  return join(dir, 'plugins');
 }

@@ -1,6 +1,7 @@
+import { expect } from '@std/expect';
+import { describe, it } from '@std/testing/bdd';
 import { Session } from './session';
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: Session tests are small and kept together for readability.
 describe('Session', () => {
   it('should create a session with config', () => {
     const session = new Session('test-1', { system: 'You are helpful.' });
@@ -65,8 +66,8 @@ describe('Session', () => {
     session.state = 'running';
     expect(session.state).toBe('running');
 
-    session.state = 'paused';
-    expect(session.state).toBe('paused');
+    session.state = 'stopped';
+    expect(session.state).toBe('stopped');
   });
 
   it('should have no parent by default', () => {

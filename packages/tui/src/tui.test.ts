@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { expect } from '@std/expect';
+import { describe, it } from '@std/testing/bdd';
 
 import { capability, createDefaultCapabilities } from './capabilities';
 import type { InputEvent } from './events';

@@ -1,6 +1,6 @@
-import { getConfigPath, loadConfig, loadState, saveState } from './config.js';
-import { createAgentRuntime } from './runtime.js';
-import { ChatApp } from './ui/ChatApp.js';
+import { getConfigPath, loadConfig, loadState, saveState } from './config';
+import { createAgentRuntime } from './runtime';
+import { ChatApp } from './ui/ChatApp';
 
 export async function main(): Promise<void> {
   const config = loadConfig();
@@ -26,6 +26,8 @@ export async function main(): Promise<void> {
     kind: config.kind,
     baseUrl: config.baseUrl,
     model: state.model,
+    plugins: config.plugins,
+    provider: config.provider,
     onModelChange: (model) => savePartialState({ model }),
   });
 
@@ -35,13 +37,11 @@ export async function main(): Promise<void> {
   });
 
   process.on('SIGINT', () => {
-    app.stop();
-    process.exit(130);
+    void app.stop().then(() => process.exit(130));
   });
   process.on('SIGTERM', () => {
-    app.stop();
-    process.exit(143);
+    void app.stop().then(() => process.exit(143));
   });
 
-  app.start();
+  await app.start();
 }

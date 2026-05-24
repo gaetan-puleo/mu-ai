@@ -1,3 +1,4 @@
+import type { LLMProvider } from './provider';
 import type { Tools } from './types/Tool';
 
 export interface PluginHooks {
@@ -10,6 +11,7 @@ export interface Plugin {
   name: string;
   tools?: Tools;
   hooks?: PluginHooks;
+  provider?: LLMProvider;
 }
 
 export function definePlugin<Args extends unknown[]>(factory: (...args: Args) => Plugin): (...args: Args) => Plugin {

@@ -149,8 +149,9 @@ function wrapAssistantMarkdownLine(
       codePrefix,
       innerWidth,
     ).map((wrappedLine, index) => {
-      const prefix =
-        index === 0 ? styleSegment(marker, markerPrefix) : styleSegment(' '.repeat(markerWidth), markerPrefix);
+      const prefix = index === 0
+        ? styleSegment(marker, markerPrefix)
+        : styleSegment(' '.repeat(markerWidth), markerPrefix);
       return `${prefix}${wrappedLine}`;
     });
   }
@@ -212,17 +213,16 @@ function renderTableCell(
   const plain = stripAssistantMarkdown(cell);
   if (visibleWidth(plain) > width) return styleSegment(truncateToWidth(plain, width), textPrefix);
 
-  const styled =
-    wrapAssistantMarkdownLine(
-      cell,
-      textPrefix,
-      textPrefix,
-      textPrefix,
-      textPrefix,
-      boldPrefix,
-      codePrefix,
-      Math.max(1, width),
-    )[0] ?? '';
+  const styled = wrapAssistantMarkdownLine(
+    cell,
+    textPrefix,
+    textPrefix,
+    textPrefix,
+    textPrefix,
+    boldPrefix,
+    codePrefix,
+    Math.max(1, width),
+  )[0] ?? '';
   const padding = Math.max(0, width - visibleWidth(plain));
   return `${styled}${styleSegment(' '.repeat(padding), textPrefix)}`;
 }
@@ -303,7 +303,7 @@ function renderAssistantMarkdown(
 ): string[] {
   const lines = content.split('\n');
   const rendered: string[] = [];
-  for (let i = 0; i < lines.length; ) {
+  for (let i = 0; i < lines.length;) {
     if (FENCE_RE.test(lines[i] ?? '')) {
       const block = renderCodeBlock(lines, i, width, codeBlockPrefix);
       rendered.push(...block.lines);
@@ -334,11 +334,10 @@ function renderAssistantMarkdown(
   return rendered;
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Markdown measurement handles code, table, quote, and plain text blocks in one pass.
 function measureAssistantMarkdown(content: string, width: number): string[] {
   const lines = content.split('\n');
   const measured: string[] = [];
-  for (let i = 0; i < lines.length; ) {
+  for (let i = 0; i < lines.length;) {
     if (FENCE_RE.test(lines[i] ?? '')) {
       i += 1;
       let count = 0;
@@ -366,7 +365,7 @@ function measureAssistantMarkdown(content: string, width: number): string[] {
         ...rows
           .slice(1)
           .map((row) =>
-            row.map((cell, index) => stripAssistantMarkdown(cell).padEnd(widths[index] ?? 1, ' ')).join(' | '),
+            row.map((cell, index) => stripAssistantMarkdown(cell).padEnd(widths[index] ?? 1, ' ')).join(' | ')
           ),
       );
       continue;

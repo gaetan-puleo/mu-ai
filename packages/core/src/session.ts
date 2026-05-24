@@ -1,5 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import type { Message } from './types/Message';
-import type { SessionState } from './types/Session';
+import type { SessionConfig, SessionState } from './types/Session';
 
 export class Session {
   id: string;
@@ -8,7 +9,7 @@ export class Session {
   system?: string;
   parentId?: string;
 
-  constructor(id: string, options: { system?: string; parentId?: string } = {}) {
+  constructor(id: string, options: SessionConfig = {}) {
     this.id = id;
     this.system = options.system;
     this.parentId = options.parentId;
@@ -23,7 +24,7 @@ export class Session {
   }
 
   fork(): Session {
-    const forked = new Session(`${this.id}-${Date.now()}`, { system: this.system, parentId: this.id });
+    const forked = new Session(`${this.id}-${randomUUID()}`, { system: this.system, parentId: this.id });
     forked.messages = [...this.messages];
     return forked;
   }

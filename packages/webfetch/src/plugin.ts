@@ -11,7 +11,7 @@
  *  - Cloudflare retry uses `User-Agent: mu` (vs. `opencode`).
  */
 
-import type { Tool } from 'mu-core';
+import { definePlugin, type Plugin, type Tool } from 'mu-core';
 import TurndownService from 'turndown';
 
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -81,7 +81,6 @@ function convertHtmlToMarkdown(html: string): string {
 const SKIP_TAGS = ['script', 'style', 'noscript', 'iframe', 'object', 'embed'] as const;
 
 async function extractTextFromHtml(html: string): Promise<string> {
-  // biome-ignore lint/suspicious/noExplicitAny: Bun's HTMLRewriter has no shipped TS types in this workspace.
   const Rewriter = (globalThis as { HTMLRewriter?: new () => any }).HTMLRewriter;
   if (typeof Rewriter !== 'function') {
     return html
@@ -93,7 +92,6 @@ async function extractTextFromHtml(html: string): Promise<string> {
 
   let text = '';
   let skip = false;
-  // biome-ignore lint/suspicious/noExplicitAny: HTMLRewriter has no TS types.
   const rewriter: any = new Rewriter();
   rewriter
     .on(SKIP_TAGS.join(', '), {
@@ -105,11 +103,9 @@ async function extractTextFromHtml(html: string): Promise<string> {
       },
     })
     .on('*', {
-      // biome-ignore lint/suspicious/noExplicitAny: HTMLRewriter event types are not typed.
       element(el: any) {
         if (!SKIP_TAGS.includes(el.tagName)) skip = false;
       },
-      // biome-ignore lint/suspicious/noExplicitAny: HTMLRewriter event types are not typed.
       text(t: any) {
         if (!skip) text += t.text;
       },
@@ -222,14 +218,14 @@ async function runWebFetch(args: Record<string, unknown>): Promise<string> {
 
   try {
     const attempt = await fetchWithCloudflareRetry(url, format, fetchSignal, timeoutMs);
-    if (!attempt.ok) return attempt.error;
+    if ('error' in attempt) return attempt.error;
     const { response } = attempt;
     if (!response.ok) {
       return err(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
     }
 
     const bounded = await readBoundedBuffer(response);
-    if (!bounded.ok) return bounded.error;
+    if ('error' in bounded) return bounded.error;
     const { buf } = bounded;
 
     const contentType = response.headers.get('content-type') ?? '';
@@ -275,4 +271,11 @@ export function createWebFetchTool(): Tool {
   };
 }
 
-export default createWebFetchTool;
+export const createWebFetchPlugin = definePlugin(
+  (): Plugin => ({
+    name: 'webfetch',
+    tools: { webfetch: createWebFetchTool() },
+  }),
+);
+
+export default createWebFetchPlugin();

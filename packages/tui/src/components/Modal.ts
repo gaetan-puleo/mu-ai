@@ -1,5 +1,3 @@
-// biome-ignore-all lint/suspicious/noFocusedTests: `fit` is a terminal width helper, not a focused test call.
-// biome-ignore-all lint/nursery/useConsistentTestIt: `fit` is a terminal width helper, not a test call.
 import type { InputEvent } from '../events';
 import type { Constraints, EventContext, LayoutStyle, Rect, RenderContext, Size } from '../layout/types';
 import type { Component, Focusable } from '../types/component';
@@ -147,8 +145,9 @@ export class Modal implements Focusable {
     const lines = Array.from({ length: height }, () => `${this.dimStyle}${' '.repeat(width)}${RESET}`);
     // If prepareLayout hasn't run (e.g. component rendered standalone in a
     // test), compute the panel rect on the fly.
-    const panel =
-      this.panelRect.width > 0 && this.panelRect.height > 0 ? this.panelRect : this.computePanelRect(ctx.contentRect);
+    const panel = this.panelRect.width > 0 && this.panelRect.height > 0
+      ? this.panelRect
+      : this.computePanelRect(ctx.contentRect);
     if (panel.width <= 0 || panel.height <= 0) return lines;
 
     // panel is in absolute coords; convert to local for the rendered line buffer.

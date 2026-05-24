@@ -7,31 +7,31 @@ import type { MouseEvent } from './types/mouse';
 export type KeyEvent = KeyInputEvent;
 
 // CSI-u / Kitty-like keyboard event: ESC [ code ; modifiers u, with optional Kitty subfields.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequence parser
+// deno-lint-ignore no-control-regex
 const CSI_U_RE = /^\x1b\[(\d+)(?::[\d:]+)?(?:;(\d+(?::\d+)?))?(?:;([\d:]+))?u$/;
 // Historical parser compatibility for older CSI-u-like encodings: ESC [ < code ; modifiers u.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequence parser
+// deno-lint-ignore no-control-regex
 const LEGACY_KITTY_RE = /^\x1b\[<(\d+);(\d+)u$/;
 // xterm modifyOtherKeys family. Terminals disagree on parameter order, so decode both common shapes.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequence parser
+// deno-lint-ignore no-control-regex
 const XTERM_MODIFIED_RE = /^\x1b\[27;(\d+);(\d+)~$/;
 // SGR mouse: ESC [ < Cb ; Cx ; Cy M / m.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequence parser
+// deno-lint-ignore no-control-regex
 const SGR_MOUSE_RE = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/;
 // Basic CSI keys: ESC [ code ~.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequence parser
+// deno-lint-ignore no-control-regex
 const CSI_TILDE_RE = /^\x1b\[([0-9;]*)~$/;
 // CSI keys with final letters: arrows, Home/End, focus reports.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequence parser
+// deno-lint-ignore no-control-regex
 const CSI_KEY_RE = /^\x1b\[([0-9;]*)([A-HIOPR])$/;
 // SS3 function/application cursor keys: ESC O P, ESC O A, etc.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequence parser
+// deno-lint-ignore no-control-regex
 const SS3_RE = /^\x1bO([A-DFHPQS])$/;
 // Alt-prefixed printable/control input.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequence parser
+// deno-lint-ignore no-control-regex
 const ALT_PREFIX_RE = /^\x1b(.+)$/;
 // Ctrl+A-Z: single byte 0x01-0x1a.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI control characters
+// deno-lint-ignore no-control-regex
 const CTRL_RE = /^[\x01-\x1a]$/;
 
 const CSI_KEY_MAP: Record<string, string> = {
@@ -83,14 +83,13 @@ const SS3_KEY_MAP: Record<string, string> = {
 export function eventToMouseEvent(event: InputEvent | null): MouseEvent | null {
   if (event?.type !== 'mouse') return null;
 
-  const button =
-    event.button === 'wheelUp'
-      ? 'scrollUp'
-      : event.button === 'wheelDown'
-        ? 'scrollDown'
-        : event.button === 'middle' || event.button === 'right' || event.button === 'left'
-          ? event.button
-          : 'left';
+  const button = event.button === 'wheelUp'
+    ? 'scrollUp'
+    : event.button === 'wheelDown'
+    ? 'scrollDown'
+    : event.button === 'middle' || event.button === 'right' || event.button === 'left'
+    ? event.button
+    : 'left';
 
   return {
     x: event.x,
@@ -103,8 +102,6 @@ export function eventToMouseEvent(event: InputEvent | null): MouseEvent | null {
   };
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: terminal escape decoding is branch-heavy by nature
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: keeping protocol precedence in one place is easier to audit
 export function parseInput(raw: string): InputEvent | null {
   if (raw.length === 0) return null;
 
@@ -397,7 +394,7 @@ export async function probeKittyKeyboard(timeoutMs = 50): Promise<boolean> {
 
     const onData = (chunk: Buffer) => {
       buf += chunk.toString();
-      // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequence for Kitty protocol detection
+      // deno-lint-ignore no-control-regex
       const match = buf.match(/\x1b\[\?(\d+)u/);
       if (match) {
         finish(Number.parseInt(match[1], 10) > 0);

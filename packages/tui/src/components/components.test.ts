@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { expect } from '@std/expect';
+import { describe, it } from '@std/testing/bdd';
 
 import { createDefaultCapabilities } from '../capabilities';
 import { canvasToLines, createCanvas } from '../layout/canvas';
@@ -276,7 +277,6 @@ describe('Modal', () => {
   });
 });
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: Input interaction cases share focused component setup.
 describe('Input', () => {
   it('inserts text and tracks cursor', () => {
     const input = new Input({ value: '' });
@@ -476,7 +476,6 @@ describe('SelectList', () => {
   });
 });
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: ScrollView integration cases share layout assertions.
 describe('ScrollView', () => {
   it('exposes a single inner container as its only child', () => {
     const child: Component = { render: () => ['child'] };

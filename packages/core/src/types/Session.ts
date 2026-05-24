@@ -1,4 +1,4 @@
-export type SessionState = 'idle' | 'running' | 'paused' | 'error';
+export type SessionState = 'idle' | 'running' | 'stopped';
 
 export interface SessionConfig {
   system?: string;

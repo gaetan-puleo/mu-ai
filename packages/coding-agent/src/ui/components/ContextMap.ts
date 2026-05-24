@@ -123,7 +123,9 @@ function renderGridLines(cells: LocalContextPartKind[], theme: ReturnType<typeof
       .slice(start, start + GRID_SIZE)
       .map((kind) => renderCell(kind, theme.palette, theme.colors.textMuted));
     lines.push(
-      `${styleText('│', colorStyle(theme.colors.border))} ${rowCells.join(' ')} ${styleText('│', colorStyle(theme.colors.border))}`,
+      `${styleText('│', colorStyle(theme.colors.border))} ${rowCells.join(' ')} ${
+        styleText('│', colorStyle(theme.colors.border))
+      }`,
     );
   }
   lines.push(borderBottom(theme.colors.border));

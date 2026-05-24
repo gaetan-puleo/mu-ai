@@ -62,10 +62,10 @@ can glob-allow specific origins:
 permissions:
   webfetch:
     allow:
-      - "https://github.com/**"
-      - "https://*.dev/**"
+      - 'https://github.com/**'
+      - 'https://*.dev/**'
     ask:
-      - "**"
+      - '**'
 ```
 
 Glob matching is keyed solely on the URL — the `format` and `timeout`

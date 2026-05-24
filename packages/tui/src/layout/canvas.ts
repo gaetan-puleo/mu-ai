@@ -109,7 +109,7 @@ function withBackground(text: string, color: Color | undefined): string {
   if (!color) return text;
   const prefix = backgroundColorToAnsi(color);
   if (!prefix) return text;
-  // biome-ignore lint/complexity/useRegexLiterals: Avoids a raw control character in a regex literal.
+  // deno-lint-ignore no-control-regex
   const resetPattern = new RegExp('\\x1b\\[0m', 'g');
   return `${prefix}${text.replace(resetPattern, `\x1b[0m${prefix}`)}\x1b[0m`;
 }

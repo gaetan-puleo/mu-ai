@@ -1,4 +1,4 @@
-import { appendFileSync } from 'node:fs';
+import { appendFile } from 'node:fs/promises';
 import type { EventBus, Unsubscribe } from './bus';
 import type { Plugin } from './plugin';
 import type { LLMProvider, LLMProviderResult } from './provider';
@@ -27,8 +27,8 @@ export type CoreEvent =
   | { type: 'error'; error: unknown };
 
 export interface Runtime {
-  start: () => void;
-  stop: () => void;
+  start: () => Promise<void>;
+  stop: () => Promise<void>;
   state: () => RuntimeState;
   steer: (message: Message) => void;
   followUp: (message: Message) => void;
@@ -36,7 +36,7 @@ export interface Runtime {
 }
 
 export interface RuntimeConfig {
-  provider: LLMProvider;
+  provider?: LLMProvider;
   tools?: Tools;
   plugins?: Plugin[];
   bus: EventBus<CoreEvent>;
@@ -52,14 +52,11 @@ function isAsyncIterable(value: LLMProviderResult): value is AsyncIterable<LLMSt
 
 const DEBUG_LOG = process.env.MU_TUI_DEBUG_LOG;
 const MAX_REPEATED_TOOL_CALLS = 5;
+const MAX_CONSECUTIVE_ERRORS = 3;
 
 function debugLog(data: Record<string, unknown>): void {
   if (!DEBUG_LOG) return;
-  try {
-    appendFileSync(DEBUG_LOG, `${JSON.stringify({ ts: Date.now(), source: 'mu-core', ...data })}\n`);
-  } catch {
-    /* ignore debug logging errors */
-  }
+  void appendFile(DEBUG_LOG, `${JSON.stringify({ ts: Date.now(), source: 'mu-core', ...data })}\n`).catch(() => {});
 }
 
 function truncateForLog(value: string, max = 500): string {
@@ -81,9 +78,24 @@ function mergePluginTools(baseTools: Tools, plugins: Plugin[]): Tools {
   return tools;
 }
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: Runtime state is intentionally kept in one closure for now.
+function resolveProvider(config: RuntimeConfig): LLMProvider {
+  if (config.provider) return config.provider;
+  const pluginProviders = (config.plugins ?? []).filter((p) => p.provider);
+  if (pluginProviders.length === 0) {
+    throw new Error('No provider configured: pass a provider in RuntimeConfig or supply a plugin with a provider');
+  }
+  if (pluginProviders.length > 1) {
+    throw new Error(
+      `Multiple plugins provide a provider: ${pluginProviders.map((p) => p.name).join(', ')}. ` +
+        'Pass an explicit provider in RuntimeConfig or use only one provider plugin.',
+    );
+  }
+  return pluginProviders[0].provider!;
+}
+
 export function createRuntime(config: RuntimeConfig): Runtime {
-  const { provider, bus, hooks } = config;
+  const { bus, hooks } = config;
+  const provider = resolveProvider(config);
   const plugins = config.plugins ?? [];
   const tools = mergePluginTools(config.tools ?? {}, plugins);
 
@@ -97,6 +109,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
   let currentState: RuntimeState = 'idle';
   let unsubscribe: Unsubscribe | undefined;
   let processing = false;
+  let consecutiveErrors = 0;
 
   async function callOnStart(): Promise<void> {
     for (const plugin of plugins) {
@@ -124,12 +137,14 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     }
   }
 
-  function callLifecycleHook(hook: () => Promise<void>, stage: string): void {
-    void hook().catch((error) => {
+  async function callLifecycleHook(hook: () => Promise<void>, stage: string): Promise<void> {
+    try {
+      await hook();
+    } catch (error) {
       debugLog({ stage, error: error instanceof Error ? error.message : String(error) });
       bus.publish({ type: 'error', error });
       callOnError(error);
-    });
+    }
   }
 
   function drainQueue(source: Message[], mode: QueueMode): Message[] {
@@ -251,7 +266,6 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     return publishedAssistant;
   }
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Stream events are normalized in one ordered pass.
   async function processStream(stream: AsyncIterable<LLMStreamEvent>): Promise<ToolCall[]> {
     let content = '';
     let reasoning = '';
@@ -320,7 +334,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
   }
 
   async function executeToolCalls(calls: ToolCall[]): Promise<void> {
-    for (const call of calls) {
+    const executeSingle = async (call: ToolCall): Promise<{ call: ToolCall; message: Message }> => {
       debugLog({ stage: 'runtime.tool.execute.start', tool: call.tool, id: call.id, args: truncateForLog(call.args) });
       const tool = tools[call.tool];
       if (!tool) {
@@ -336,12 +350,14 @@ export function createRuntime(config: RuntimeConfig): Runtime {
         resultLen: toolResult.length,
         isErrorResult: toolResult.startsWith('Error:'),
       });
-      const message: Message = {
-        role: 'tool',
-        content: toolResult,
-        tool_id: call.id,
+      return {
+        call,
+        message: { role: 'tool', content: toolResult, tool_id: call.id },
       };
+    };
 
+    const results = await Promise.all(calls.map(executeSingle));
+    for (const { message } of results) {
       messages.push(message);
       bus.publish({ type: 'tool_result', message });
     }
@@ -353,8 +369,31 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     debugLog({ stage: 'runtime.assistant_tool_calls.append', toolCalls: calls.length, messages: messages.length });
   }
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The queue loop coordinates provider, tool, and follow-up turns.
-  // biome-ignore lint/complexity/noExcessiveLinesPerFunction: Splitting this loop would obscure the turn-order invariants.
+  function checkRepeatedToolCalls(
+    repeatedToolCalls: Map<string, number>,
+    calls: ToolCall[],
+    providerCalls: number,
+  ): void {
+    for (const call of calls) {
+      const key = `${call.tool}:${call.args.slice(0, 500)}`;
+      const count = (repeatedToolCalls.get(key) ?? 0) + 1;
+      repeatedToolCalls.set(key, count);
+      if (count > 1) {
+        debugLog({
+          stage: 'runtime.tool.loop.suspected',
+          providerCalls,
+          tool: call.tool,
+          id: call.id,
+          repeatCount: count,
+          args: truncateForLog(call.args),
+        });
+      }
+      if (count > MAX_REPEATED_TOOL_CALLS) {
+        throw new Error(`Tool call loop detected: ${call.tool} repeated ${count} times with the same arguments`);
+      }
+    }
+  }
+
   async function processQueue(): Promise<void> {
     if (processing || currentState === 'stopped') {
       return;
@@ -390,6 +429,8 @@ export function createRuntime(config: RuntimeConfig): Runtime {
         });
         const result = await provider(providerMessages, tools);
 
+        consecutiveErrors = 0;
+
         if (isAsyncIterable(result)) {
           const streamedToolCalls = await processStream(result);
           debugLog({ stage: 'runtime.provider.call.stream.done', providerCalls, toolCalls: streamedToolCalls.length });
@@ -402,24 +443,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
             }
             break;
           }
-          for (const call of streamedToolCalls) {
-            const key = `${call.tool}:${call.args}`;
-            const count = (repeatedToolCalls.get(key) ?? 0) + 1;
-            repeatedToolCalls.set(key, count);
-            if (count > 1) {
-              debugLog({
-                stage: 'runtime.tool.loop.suspected',
-                providerCalls,
-                tool: call.tool,
-                id: call.id,
-                repeatCount: count,
-                args: truncateForLog(call.args),
-              });
-            }
-            if (count > MAX_REPEATED_TOOL_CALLS) {
-              throw new Error(`Tool call loop detected: ${call.tool} repeated ${count} times with the same arguments`);
-            }
-          }
+          checkRepeatedToolCalls(repeatedToolCalls, streamedToolCalls, providerCalls);
           appendAssistantToolCalls(streamedToolCalls);
           await executeToolCalls(streamedToolCalls);
           drainSteeringIntoTranscript();
@@ -459,23 +483,8 @@ export function createRuntime(config: RuntimeConfig): Runtime {
           break;
         }
 
+        checkRepeatedToolCalls(repeatedToolCalls, result.tool_calls, providerCalls);
         for (const call of result.tool_calls) {
-          const key = `${call.tool}:${call.args}`;
-          const count = (repeatedToolCalls.get(key) ?? 0) + 1;
-          repeatedToolCalls.set(key, count);
-          if (count > 1) {
-            debugLog({
-              stage: 'runtime.tool.loop.suspected',
-              providerCalls,
-              tool: call.tool,
-              id: call.id,
-              repeatCount: count,
-              args: truncateForLog(call.args),
-            });
-          }
-          if (count > MAX_REPEATED_TOOL_CALLS) {
-            throw new Error(`Tool call loop detected: ${call.tool} repeated ${count} times with the same arguments`);
-          }
           bus.publish({ type: 'tool_call', call });
         }
         appendAssistantToolCalls(result.tool_calls);
@@ -489,27 +498,38 @@ export function createRuntime(config: RuntimeConfig): Runtime {
         });
       }
     } catch (error) {
+      consecutiveErrors++;
       debugLog({
         stage: 'runtime.error',
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
+        consecutiveErrors,
       });
       bus.publish({ type: 'error', error });
       callOnError(error);
     } finally {
       processing = false;
-      void processQueue();
+      if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+        debugLog({ stage: 'runtime.circuit_breaker', consecutiveErrors });
+        queue.length = 0;
+        currentState = 'idle';
+      } else {
+        void processQueue();
+      }
     }
   }
 
   return {
-    start() {
-      if (unsubscribe || currentState === 'stopped') {
+    async start() {
+      if (currentState === 'stopped') {
+        throw new Error('Cannot start a stopped runtime. Create a new runtime instead.');
+      }
+      if (unsubscribe) {
         return;
       }
 
       currentState = 'idle';
-      callLifecycleHook(callOnStart, 'runtime.plugin.onStart.error');
+      await callLifecycleHook(callOnStart, 'runtime.plugin.onStart.error');
 
       unsubscribe = bus.subscribe((event) => {
         if (event.type === 'steer') {
@@ -529,7 +549,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       });
     },
 
-    stop() {
+    async stop() {
       currentState = 'stopped';
       unsubscribe?.();
       unsubscribe = undefined;
@@ -537,7 +557,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       steeringQueue.length = 0;
       followUpQueue.length = 0;
       emitQueueUpdate();
-      callLifecycleHook(callOnStop, 'runtime.plugin.onStop.error');
+      await callLifecycleHook(callOnStop, 'runtime.plugin.onStop.error');
     },
 
     state() {

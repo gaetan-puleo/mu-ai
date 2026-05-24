@@ -111,8 +111,9 @@ function takeToken(input: string): string | null {
   const prefix = input.slice(0, 2);
   if (prefix === '\x1b[') return takeCsi(input);
   if (prefix === '\x1b]') return takeString(input, true);
-  if (prefix === '\x1bP' || prefix === '\x1b_' || prefix === '\x1b^' || prefix === '\x1bX')
+  if (prefix === '\x1bP' || prefix === '\x1b_' || prefix === '\x1b^' || prefix === '\x1bX') {
     return takeString(input, false);
+  }
   if (prefix === '\x1bO') return input.length >= 3 ? input.slice(0, 3) : null;
 
   return Array.from(input).length >= 2 ? ESC + Array.from(input.slice(1))[0] : null;

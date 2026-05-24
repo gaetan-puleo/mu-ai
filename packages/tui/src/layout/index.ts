@@ -1,11 +1,4 @@
-export {
-  type Canvas,
-  canvasToLines,
-  createCanvas,
-  drawBorder,
-  drawLines,
-  pointInRect,
-} from './canvas';
+export { type Canvas, canvasToLines, createCanvas, drawBorder, drawLines, pointInRect } from './canvas';
 export { layoutTree, sortForRender } from './engine';
 export { hitTest, hitTestRect } from './hitTest';
 export {

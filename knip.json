@@ -3,10 +3,5 @@
   "ignoreBinaries": ["sg"],
   "rules": {
     "duplicates": "off"
-  },
-  "workspaces": {
-    "packages/mu-repomap": {
-      "ignoreDependencies": ["@ast-grep/cli"]
-    }
   }
 }

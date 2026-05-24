@@ -182,10 +182,9 @@ export class TUI {
    */
   navigateFocus(direction: 'up' | 'down' | 'left' | 'right'): Component | null {
     if (isFocusableNavigation(this.focusedComponent)) {
-      const next =
-        direction === 'down' || direction === 'right'
-          ? this.focusedComponent.focusNext?.()
-          : this.focusedComponent.focusPrev?.();
+      const next = direction === 'down' || direction === 'right'
+        ? this.focusedComponent.focusNext?.()
+        : this.focusedComponent.focusPrev?.();
       if (next) {
         this.setFocus(next);
         return next;
@@ -560,7 +559,7 @@ export class TUI {
       }
     }
 
-    // biome-ignore lint/complexity/useRegexLiterals: Avoids a raw control character in a regex literal.
+    // deno-lint-ignore no-control-regex
     const sgrPattern = new RegExp('\\x1b\\[[^m]*m', 'g');
     debugLog({
       stage: 'doRender:diff',

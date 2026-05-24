@@ -1,18 +1,4 @@
-export {
-  type ClipboardFeatureOptions,
-  clipboardFeature,
-  createOsc52Sequence,
-} from './clipboard';
-export {
-  type ImageBackend,
-  type ImageRequest,
-  imageFeature,
-  selectImageBackend,
-  unicodeImageBackend,
-} from './images';
-export {
-  type ShellIntegrationFlavor,
-  shellIntegrationFeature,
-  shellIntegrationSequences,
-} from './shellIntegration';
-export { type TerminfoFeatureOptions, terminfoFeature } from './terminfo';
+export { clipboardFeature, type ClipboardFeatureOptions, createOsc52Sequence } from './clipboard';
+export { type ImageBackend, imageFeature, type ImageRequest, selectImageBackend, unicodeImageBackend } from './images';
+export { shellIntegrationFeature, type ShellIntegrationFlavor, shellIntegrationSequences } from './shellIntegration';
+export { terminfoFeature, type TerminfoFeatureOptions } from './terminfo';

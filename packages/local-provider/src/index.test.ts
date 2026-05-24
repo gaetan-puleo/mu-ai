@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { expect, fn } from '@std/expect';
+import { afterEach, describe, it } from '@std/testing/bdd';
 import {
   collectLlamaSwapContext,
   getLlamaSwapOpenAIBaseUrl,
@@ -6,19 +7,20 @@ import {
   prepareLlamaSwapChatRequest,
   selectAvailableSlot,
 } from './backends/llama-swap';
-import { createLocalProvider, detectLocalBackend, listLocalModels } from './index';
+import { createLocalProvider, detectLocalBackend, listLocalModels, setOpenAIClientForTesting } from './index';
 
-const mockCreateChatCompletion = vi.fn();
+let currentChatImpl: ((options: unknown) => unknown) | undefined;
+const mockCreateChatCompletion = fn((options: unknown) => currentChatImpl?.(options));
 
-vi.mock('openai', () => ({
-  default: class MockOpenAI {
-    chat = {
-      completions: {
-        create: mockCreateChatCompletion,
-      },
-    };
-  },
-}));
+class MockOpenAI {
+  chat = {
+    completions: {
+      create: mockCreateChatCompletion,
+    },
+  };
+}
+
+setOpenAIClientForTesting(MockOpenAI as never);
 
 const MOCK_MODELS_RESPONSE = {
   data: [
@@ -53,7 +55,7 @@ const MOCK_PROPS_RESPONSE = {
 
 function mockFetch(responses: Record<string, { ok: boolean; json: () => unknown }>) {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+  const stub = fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const urlString = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     for (const [path, response] of Object.entries(responses)) {
       if (urlString.includes(path)) {
@@ -66,7 +68,8 @@ function mockFetch(responses: Record<string, { ok: boolean; json: () => unknown 
       }
     }
     return { ok: false, status: 404, text: async () => 'not found' } as Response;
-  });
+  }) as typeof globalThis.fetch;
+  globalThis.fetch = stub;
   return () => {
     globalThis.fetch = originalFetch;
   };
@@ -273,13 +276,12 @@ describe('listLocalModels', () => {
   });
 });
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: Provider tests share backend/client mocks and are easier to scan together.
 describe('createLocalProvider', () => {
   let cleanup: (() => void) | undefined;
 
   afterEach(() => {
     cleanup?.();
-    mockCreateChatCompletion.mockReset();
+    currentChatImpl = undefined;
   });
 
   it('throws when model is missing', async () => {
@@ -304,13 +306,13 @@ describe('createLocalProvider', () => {
     });
     let requestOptions: Record<string, unknown> | undefined;
 
-    mockCreateChatCompletion.mockImplementation(async (options: unknown) => {
+    currentChatImpl = (options: unknown) => {
       requestOptions = options as Record<string, unknown>;
       return (async function* () {
         yield { choices: [{ delta: { content: 'hello' } }] };
         yield { choices: [], usage: { prompt_tokens: 1234, completion_tokens: 5, total_tokens: 1239 } };
       })();
-    });
+    };
 
     const provider = createLocalProvider({
       kind: 'llama-swap',
@@ -359,14 +361,13 @@ describe('createLocalProvider', () => {
       '/props': { ok: true, json: () => MOCK_PROPS_RESPONSE },
     });
 
-    mockCreateChatCompletion.mockImplementation(async () => {
-      return (async function* () {
+    currentChatImpl = () =>
+      (async function* () {
         yield { choices: [{ delta: { reasoning_content: 'think ' } }] };
         yield { choices: [{ delta: { reasoning: 'more ' } }] };
         yield { choices: [{ delta: { reasoningContent: 'now' } }] };
         yield { choices: [{ delta: { content: 'answer' } }] };
       })();
-    });
 
     const provider = createLocalProvider({
       kind: 'llama-swap',

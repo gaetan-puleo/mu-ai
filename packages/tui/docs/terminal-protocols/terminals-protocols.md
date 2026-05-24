@@ -58,15 +58,15 @@ A framework must therefore model terminal communication as a stateful, partially
 
 ## 1.1 Classification of protocols
 
-| Class | Examples | Status | Framework stance |
-|---|---|---|---|
-| Formal standards | ASCII, ISO 646, ISO 2022, ECMA-35, ECMA-43, ECMA-48 / ISO 6429, POSIX termios, Unicode | Standards body specifications | Treat as the grammar and lowest common semantic layer. |
-| Historical vendor standards | DEC VT52, VT100, VT220, VT320, VT420, VT520, ReGIS, Sixel, DRCS | Historical manuals | Support widely inherited behavior; document deviations. |
-| De facto standards | xterm control sequences, ncurses terminfo entries, SGR mouse, OSC 52 | Widely implemented conventions | Treat as practical interoperability baseline. |
-| Modern terminal extensions | Kitty keyboard, Kitty graphics, iTerm2 images, OSC 8, OSC 133/633/1337, synchronized output | Implemented by modern emulators | Detect or gate; never assume universally available. |
-| Multiplexer protocols | tmux passthrough, screen behavior, terminal-over-terminal forwarding | Transforming layers | Support nested negotiation and passthrough. |
-| Platform-specific layers | Windows Console API, ConPTY VT, Linux console, xterm.js, VS Code terminal | OS or host environment | Model as compatibility profiles. |
-| Framework conventions | app-level widgets, semantic events, layout policies, focus model | Your abstraction | Keep separate from raw protocol semantics. |
+| Class                       | Examples                                                                                    | Status                          | Framework stance                                        |
+| --------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------- |
+| Formal standards            | ASCII, ISO 646, ISO 2022, ECMA-35, ECMA-43, ECMA-48 / ISO 6429, POSIX termios, Unicode      | Standards body specifications   | Treat as the grammar and lowest common semantic layer.  |
+| Historical vendor standards | DEC VT52, VT100, VT220, VT320, VT420, VT520, ReGIS, Sixel, DRCS                             | Historical manuals              | Support widely inherited behavior; document deviations. |
+| De facto standards          | xterm control sequences, ncurses terminfo entries, SGR mouse, OSC 52                        | Widely implemented conventions  | Treat as practical interoperability baseline.           |
+| Modern terminal extensions  | Kitty keyboard, Kitty graphics, iTerm2 images, OSC 8, OSC 133/633/1337, synchronized output | Implemented by modern emulators | Detect or gate; never assume universally available.     |
+| Multiplexer protocols       | tmux passthrough, screen behavior, terminal-over-terminal forwarding                        | Transforming layers             | Support nested negotiation and passthrough.             |
+| Platform-specific layers    | Windows Console API, ConPTY VT, Linux console, xterm.js, VS Code terminal                   | OS or host environment          | Model as compatibility profiles.                        |
+| Framework conventions       | app-level widgets, semantic events, layout policies, focus model                            | Your abstraction                | Keep separate from raw protocol semantics.              |
 
 ## 1.2 What “complete” means for a framework
 
@@ -208,22 +208,22 @@ ASCII defines a 7-bit character set containing printable characters and C0 contr
 
 Important C0 controls:
 
-| Byte | Abbrev | Meaning in terminal context |
-|---:|---|---|
-| `0x00` | NUL | Ignored padding in many contexts. |
-| `0x07` | BEL | Bell; also used as an OSC string terminator by many terminals. |
-| `0x08` | BS | Backspace. |
-| `0x09` | HT | Horizontal tab. |
-| `0x0A` | LF | Line feed. |
-| `0x0B` | VT | Vertical tab, rarely meaningful in modern TUI rendering. |
-| `0x0C` | FF | Form feed, may clear screen in some historical contexts. |
-| `0x0D` | CR | Carriage return. |
-| `0x0E` | SO | Shift out; invoke G1 into GL in ISO 2022/DEC contexts. |
-| `0x0F` | SI | Shift in; invoke G0 into GL. |
-| `0x18` | CAN | Cancel current escape/control sequence. |
-| `0x1A` | SUB | Substitute; often aborts malformed sequence. |
-| `0x1B` | ESC | Escape; introduces escape sequences. |
-| `0x7F` | DEL | Delete/control; often ignored as output, Backspace-ish as input depending mode. |
+|   Byte | Abbrev | Meaning in terminal context                                                     |
+| -----: | ------ | ------------------------------------------------------------------------------- |
+| `0x00` | NUL    | Ignored padding in many contexts.                                               |
+| `0x07` | BEL    | Bell; also used as an OSC string terminator by many terminals.                  |
+| `0x08` | BS     | Backspace.                                                                      |
+| `0x09` | HT     | Horizontal tab.                                                                 |
+| `0x0A` | LF     | Line feed.                                                                      |
+| `0x0B` | VT     | Vertical tab, rarely meaningful in modern TUI rendering.                        |
+| `0x0C` | FF     | Form feed, may clear screen in some historical contexts.                        |
+| `0x0D` | CR     | Carriage return.                                                                |
+| `0x0E` | SO     | Shift out; invoke G1 into GL in ISO 2022/DEC contexts.                          |
+| `0x0F` | SI     | Shift in; invoke G0 into GL.                                                    |
+| `0x18` | CAN    | Cancel current escape/control sequence.                                         |
+| `0x1A` | SUB    | Substitute; often aborts malformed sequence.                                    |
+| `0x1B` | ESC    | Escape; introduces escape sequences.                                            |
+| `0x7F` | DEL    | Delete/control; often ignored as output, Backspace-ish as input depending mode. |
 
 ## 4.2 ECMA-35 / ISO 2022
 
@@ -301,40 +301,40 @@ Modern terminal rendering is Unicode-based even when protocol syntax is ASCII-co
 
 ## 5.1 Notation
 
-| Notation | Meaning |
-|---|---|
-| `ESC` | byte `0x1B`, written `\x1b`, `^[`. |
-| `BEL` | byte `0x07`. |
-| `ST` | String Terminator: `ESC \` in 7-bit form or `0x9C` in 8-bit form. |
-| `CSI` | Control Sequence Introducer: `ESC [` in 7-bit form or `0x9B`. |
-| `OSC` | Operating System Command: `ESC ]` or `0x9D`. |
-| `DCS` | Device Control String: `ESC P` or `0x90`. |
-| `APC` | Application Program Command: `ESC _` or `0x9F`. |
-| `PM` | Privacy Message: `ESC ^` or `0x9E`. |
-| `SOS` | Start of String: `ESC X` or `0x98`. |
-| `Ps` | Single numeric parameter. |
-| `Pm` | Multiple numeric parameters. |
-| `Pt` | Text payload. |
-| `SP` | Space byte `0x20`; sometimes an intermediate byte. |
+| Notation | Meaning                                                           |
+| -------- | ----------------------------------------------------------------- |
+| `ESC`    | byte `0x1B`, written `\x1b`, `^[`.                                |
+| `BEL`    | byte `0x07`.                                                      |
+| `ST`     | String Terminator: `ESC \` in 7-bit form or `0x9C` in 8-bit form. |
+| `CSI`    | Control Sequence Introducer: `ESC [` in 7-bit form or `0x9B`.     |
+| `OSC`    | Operating System Command: `ESC ]` or `0x9D`.                      |
+| `DCS`    | Device Control String: `ESC P` or `0x90`.                         |
+| `APC`    | Application Program Command: `ESC _` or `0x9F`.                   |
+| `PM`     | Privacy Message: `ESC ^` or `0x9E`.                               |
+| `SOS`    | Start of String: `ESC X` or `0x98`.                               |
+| `Ps`     | Single numeric parameter.                                         |
+| `Pm`     | Multiple numeric parameters.                                      |
+| `Pt`     | Text payload.                                                     |
+| `SP`     | Space byte `0x20`; sometimes an intermediate byte.                |
 
 ## 5.2 7-bit vs 8-bit controls
 
 Many C1 controls have two representations:
 
-| 7-bit | 8-bit | Name |
-|---|---:|---|
-| `ESC D` | `0x84` | IND |
-| `ESC E` | `0x85` | NEL |
-| `ESC H` | `0x88` | HTS |
-| `ESC M` | `0x8D` | RI |
-| `ESC N` | `0x8E` | SS2 |
-| `ESC O` | `0x8F` | SS3 |
-| `ESC P` | `0x90` | DCS |
-| `ESC [` | `0x9B` | CSI |
-| `ESC ]` | `0x9D` | OSC |
-| `ESC ^` | `0x9E` | PM |
-| `ESC _` | `0x9F` | APC |
-| `ESC \` | `0x9C` | ST |
+| 7-bit   |  8-bit | Name |
+| ------- | -----: | ---- |
+| `ESC D` | `0x84` | IND  |
+| `ESC E` | `0x85` | NEL  |
+| `ESC H` | `0x88` | HTS  |
+| `ESC M` | `0x8D` | RI   |
+| `ESC N` | `0x8E` | SS2  |
+| `ESC O` | `0x8F` | SS3  |
+| `ESC P` | `0x90` | DCS  |
+| `ESC [` | `0x9B` | CSI  |
+| `ESC ]` | `0x9D` | OSC  |
+| `ESC ^` | `0x9E` | PM   |
+| `ESC _` | `0x9F` | APC  |
+| `ESC \` | `0x9C` | ST   |
 
 Modern UTF-8 terminals often prefer 7-bit forms because raw 8-bit C1 bytes conflict with UTF-8 decoding assumptions. Some terminals accept C1 as Unicode code points encoded in UTF-8 rather than raw bytes; do not rely on raw 8-bit C1 in portable applications.
 
@@ -457,12 +457,12 @@ Different applications choose different degrees of rawness. For example, a frame
 
 In noncanonical mode:
 
-| VMIN | VTIME | Behavior |
-|---:|---:|---|
-| `0` | `0` | Polling read; returns immediately. |
-| `>0` | `0` | Blocking read until at least VMIN bytes. |
-| `0` | `>0` | Timeout read; returns when data arrives or timer expires. |
-| `>0` | `>0` | Inter-byte timeout behavior after first byte. |
+| VMIN | VTIME | Behavior                                                  |
+| ---: | ----: | --------------------------------------------------------- |
+|  `0` |   `0` | Polling read; returns immediately.                        |
+| `>0` |   `0` | Blocking read until at least VMIN bytes.                  |
+|  `0` |  `>0` | Timeout read; returns when data arrives or timer expires. |
+| `>0` |  `>0` | Inter-byte timeout behavior after first byte.             |
 
 For TUIs, common strategies are:
 
@@ -526,16 +526,16 @@ A modern framework should emit UTF-8 by default but account for legacy charsets 
 
 Important sequences:
 
-| Sequence | Meaning |
-|---|---|
-| `ESC ( B` | Designate ASCII into G0. |
-| `ESC ( 0` | Designate DEC Special Graphics into G0. |
-| `ESC ) B` | Designate ASCII into G1. |
-| `ESC ) 0` | Designate DEC Special Graphics into G1. |
-| `SO` / `0x0E` | Shift out; invoke G1 into GL. |
-| `SI` / `0x0F` | Shift in; invoke G0 into GL. |
-| `ESC N` | SS2; single shift G2 for next character. |
-| `ESC O` | SS3; single shift G3 for next character. |
+| Sequence      | Meaning                                  |
+| ------------- | ---------------------------------------- |
+| `ESC ( B`     | Designate ASCII into G0.                 |
+| `ESC ( 0`     | Designate DEC Special Graphics into G0.  |
+| `ESC ) B`     | Designate ASCII into G1.                 |
+| `ESC ) 0`     | Designate DEC Special Graphics into G1.  |
+| `SO` / `0x0E` | Shift out; invoke G1 into GL.            |
+| `SI` / `0x0F` | Shift in; invoke G0 into GL.             |
+| `ESC N`       | SS2; single shift G2 for next character. |
+| `ESC O`       | SS3; single shift G3 for next character. |
 
 DEC Special Graphics maps ASCII-like bytes to line-drawing symbols. A modern renderer can map these to Unicode box-drawing characters.
 
@@ -619,52 +619,52 @@ ECMA-48 divides control functions into:
 
 ## 8.1 Common ECMA-48 functions relevant to TUIs
 
-| Mnemonic | Sequence | Meaning |
-|---|---|---|
-| CUU | `CSI n A` | Cursor up. |
-| CUD | `CSI n B` | Cursor down. |
-| CUF | `CSI n C` | Cursor forward. |
-| CUB | `CSI n D` | Cursor backward. |
-| CNL | `CSI n E` | Cursor next line. |
-| CPL | `CSI n F` | Cursor preceding line. |
-| CHA | `CSI n G` | Cursor horizontal absolute. |
-| CUP | `CSI row ; col H` | Cursor position. |
-| CHT | `CSI n I` | Cursor horizontal tab. |
-| ED | `CSI n J` | Erase in display. |
-| EL | `CSI n K` | Erase in line. |
-| IL | `CSI n L` | Insert lines. |
-| DL | `CSI n M` | Delete lines. |
-| DCH | `CSI n P` | Delete characters. |
-| SU | `CSI n S` | Scroll up. |
-| SD | `CSI n T` | Scroll down. |
-| ECH | `CSI n X` | Erase characters. |
-| CBT | `CSI n Z` | Cursor backward tab. |
-| HPA | `CSI n `` | Horizontal position absolute. |
-| HPR | `CSI n a` | Horizontal position relative. |
-| REP | `CSI n b` | Repeat preceding graphic character. |
-| DA | `CSI c` | Primary device attributes. |
-| VPA | `CSI n d` | Vertical position absolute. |
-| VPR | `CSI n e` | Vertical position relative. |
-| HVP | `CSI row ; col f` | Horizontal and vertical position. |
-| TBC | `CSI n g` | Tab clear. |
-| SM | `CSI n h` | Set mode. |
-| RM | `CSI n l` | Reset mode. |
-| SGR | `CSI ... m` | Select graphic rendition. |
-| DSR | `CSI n` | Device status report. |
-| SCP | `CSI s` | Save cursor, non-DEC form. |
-| RCP | `CSI u` | Restore cursor, non-DEC form. |
+| Mnemonic | Sequence          | Meaning                             |
+| -------- | ----------------- | ----------------------------------- |
+| CUU      | `CSI n A`         | Cursor up.                          |
+| CUD      | `CSI n B`         | Cursor down.                        |
+| CUF      | `CSI n C`         | Cursor forward.                     |
+| CUB      | `CSI n D`         | Cursor backward.                    |
+| CNL      | `CSI n E`         | Cursor next line.                   |
+| CPL      | `CSI n F`         | Cursor preceding line.              |
+| CHA      | `CSI n G`         | Cursor horizontal absolute.         |
+| CUP      | `CSI row ; col H` | Cursor position.                    |
+| CHT      | `CSI n I`         | Cursor horizontal tab.              |
+| ED       | `CSI n J`         | Erase in display.                   |
+| EL       | `CSI n K`         | Erase in line.                      |
+| IL       | `CSI n L`         | Insert lines.                       |
+| DL       | `CSI n M`         | Delete lines.                       |
+| DCH      | `CSI n P`         | Delete characters.                  |
+| SU       | `CSI n S`         | Scroll up.                          |
+| SD       | `CSI n T`         | Scroll down.                        |
+| ECH      | `CSI n X`         | Erase characters.                   |
+| CBT      | `CSI n Z`         | Cursor backward tab.                |
+| HPA      | `CSI n ``         | Horizontal position absolute.       |
+| HPR      | `CSI n a`         | Horizontal position relative.       |
+| REP      | `CSI n b`         | Repeat preceding graphic character. |
+| DA       | `CSI c`           | Primary device attributes.          |
+| VPA      | `CSI n d`         | Vertical position absolute.         |
+| VPR      | `CSI n e`         | Vertical position relative.         |
+| HVP      | `CSI row ; col f` | Horizontal and vertical position.   |
+| TBC      | `CSI n g`         | Tab clear.                          |
+| SM       | `CSI n h`         | Set mode.                           |
+| RM       | `CSI n l`         | Reset mode.                         |
+| SGR      | `CSI ... m`       | Select graphic rendition.           |
+| DSR      | `CSI n`           | Device status report.               |
+| SCP      | `CSI s`           | Save cursor, non-DEC form.          |
+| RCP      | `CSI u`           | Restore cursor, non-DEC form.       |
 
 ## 8.2 Parameter defaults
 
 Defaults matter:
 
-| Pattern | Typical default |
-|---|---|
-| missing count in movement | 1 |
-| missing row/column in CUP | 1;1 |
-| `CSI J` | `CSI 0 J` |
-| `CSI K` | `CSI 0 K` |
-| `CSI m` | `CSI 0 m` |
+| Pattern                   | Typical default |
+| ------------------------- | --------------- |
+| missing count in movement | 1               |
+| missing row/column in CUP | 1;1             |
+| `CSI J`                   | `CSI 0 J`       |
+| `CSI K`                   | `CSI 0 K`       |
+| `CSI m`                   | `CSI 0 m`       |
 
 A parser should preserve raw parameter structure for unknown sequences while semantic handlers can apply defaults.
 
@@ -672,12 +672,12 @@ A parser should preserve raw parameter structure for unknown sequences while sem
 
 Parameter bytes may include private prefixes:
 
-| Prefix | Common owner |
-|---|---|
-| `?` | DEC private modes, xterm private extensions. |
-| `>` | Secondary DA, xterm modifyOtherKeys, private controls. |
-| `!` | Soft terminal reset and related private forms. |
-| space intermediate | Controls such as cursor style in `CSI Ps SP q`. |
+| Prefix             | Common owner                                           |
+| ------------------ | ------------------------------------------------------ |
+| `?`                | DEC private modes, xterm private extensions.           |
+| `>`                | Secondary DA, xterm modifyOtherKeys, private controls. |
+| `!`                | Soft terminal reset and related private forms.         |
+| space intermediate | Controls such as cursor style in `CSI Ps SP q`.        |
 
 ---
 
@@ -685,61 +685,61 @@ Parameter bytes may include private prefixes:
 
 ## 9.1 C0 behavior in output
 
-| C0 | Byte | Common behavior |
-|---|---:|---|
-| NUL | `00` | Ignore. |
-| BEL | `07` | Bell/alert; terminates OSC in legacy form. |
-| BS | `08` | Move cursor left one column, no erase. |
-| HT | `09` | Move to next tab stop. |
-| LF | `0A` | Move down one row; scrolling at bottom margin. |
-| VT | `0B` | Often treated like LF or ignored. |
-| FF | `0C` | Often treated like LF or clear in older contexts. |
-| CR | `0D` | Move to column 1. |
-| SO | `0E` | Invoke G1. |
-| SI | `0F` | Invoke G0. |
-| CAN | `18` | Cancel active sequence. |
-| SUB | `1A` | Substitute/cancel active sequence. |
-| ESC | `1B` | Begin escape sequence. |
-| DEL | `7F` | Usually ignored in output. |
+| C0  | Byte | Common behavior                                   |
+| --- | ---: | ------------------------------------------------- |
+| NUL | `00` | Ignore.                                           |
+| BEL | `07` | Bell/alert; terminates OSC in legacy form.        |
+| BS  | `08` | Move cursor left one column, no erase.            |
+| HT  | `09` | Move to next tab stop.                            |
+| LF  | `0A` | Move down one row; scrolling at bottom margin.    |
+| VT  | `0B` | Often treated like LF or ignored.                 |
+| FF  | `0C` | Often treated like LF or clear in older contexts. |
+| CR  | `0D` | Move to column 1.                                 |
+| SO  | `0E` | Invoke G1.                                        |
+| SI  | `0F` | Invoke G0.                                        |
+| CAN | `18` | Cancel active sequence.                           |
+| SUB | `1A` | Substitute/cancel active sequence.                |
+| ESC | `1B` | Begin escape sequence.                            |
+| DEL | `7F` | Usually ignored in output.                        |
 
 ## 9.2 ESC Fe sequences
 
-| Sequence | Name | Meaning |
-|---|---|---|
-| `ESC D` | IND | Index: move down, scroll if needed. |
-| `ESC E` | NEL | Next line: CR + LF-like. |
-| `ESC H` | HTS | Set horizontal tab stop. |
-| `ESC M` | RI | Reverse index: move up, reverse-scroll if needed. |
-| `ESC N` | SS2 | Single shift G2. |
-| `ESC O` | SS3 | Single shift G3; also starts SS3 function key sequences such as `ESC OP`. |
-| `ESC P` | DCS | Device Control String. |
-| `ESC [` | CSI | Control Sequence Introducer. |
-| `ESC ]` | OSC | Operating System Command. |
-| `ESC X` | SOS | Start of String. |
-| `ESC ^` | PM | Privacy Message. |
-| `ESC _` | APC | Application Program Command. |
-| `ESC \` | ST | String Terminator. |
+| Sequence | Name | Meaning                                                                   |
+| -------- | ---- | ------------------------------------------------------------------------- |
+| `ESC D`  | IND  | Index: move down, scroll if needed.                                       |
+| `ESC E`  | NEL  | Next line: CR + LF-like.                                                  |
+| `ESC H`  | HTS  | Set horizontal tab stop.                                                  |
+| `ESC M`  | RI   | Reverse index: move up, reverse-scroll if needed.                         |
+| `ESC N`  | SS2  | Single shift G2.                                                          |
+| `ESC O`  | SS3  | Single shift G3; also starts SS3 function key sequences such as `ESC OP`. |
+| `ESC P`  | DCS  | Device Control String.                                                    |
+| `ESC [`  | CSI  | Control Sequence Introducer.                                              |
+| `ESC ]`  | OSC  | Operating System Command.                                                 |
+| `ESC X`  | SOS  | Start of String.                                                          |
+| `ESC ^`  | PM   | Privacy Message.                                                          |
+| `ESC _`  | APC  | Application Program Command.                                              |
+| `ESC \`  | ST   | String Terminator.                                                        |
 
 ## 9.3 ESC character set designation
 
-| Sequence | Meaning |
-|---|---|
+| Sequence  | Meaning                               |
+| --------- | ------------------------------------- |
 | `ESC ( F` | Designate 94-character set F into G0. |
-| `ESC ) F` | Designate into G1. |
-| `ESC * F` | Designate into G2. |
-| `ESC + F` | Designate into G3. |
-| `ESC - F` | Designate 96-character set into G1. |
-| `ESC . F` | Designate 96-character set into G2. |
-| `ESC / F` | Designate 96-character set into G3. |
+| `ESC ) F` | Designate into G1.                    |
+| `ESC * F` | Designate into G2.                    |
+| `ESC + F` | Designate into G3.                    |
+| `ESC - F` | Designate 96-character set into G1.   |
+| `ESC . F` | Designate 96-character set into G2.   |
+| `ESC / F` | Designate 96-character set into G3.   |
 
 Common final bytes:
 
-| Final | Set |
-|---|---|
-| `B` | ASCII / US. |
-| `0` | DEC Special Graphics. |
-| `A` | UK in some DEC contexts. |
-| `<` | DEC supplemental or specific legacy sets depending model. |
+| Final | Set                                                       |
+| ----- | --------------------------------------------------------- |
+| `B`   | ASCII / US.                                               |
+| `0`   | DEC Special Graphics.                                     |
+| `A`   | UK in some DEC contexts.                                  |
+| `<`   | DEC supplemental or specific legacy sets depending model. |
 
 ## 9.4 OSC termination rules
 
@@ -771,85 +771,85 @@ A robust parser:
 
 ## 10.1 Cursor movement
 
-| Sequence | Name | Description |
-|---|---|---|
-| `CSI n A` | CUU | Up n rows. |
-| `CSI n B` | CUD | Down n rows. |
-| `CSI n C` | CUF | Forward n columns. |
-| `CSI n D` | CUB | Back n columns. |
-| `CSI n E` | CNL | Down n rows to column 1. |
-| `CSI n F` | CPL | Up n rows to column 1. |
-| `CSI n G` | CHA | Column n. |
-| `CSI r ; c H` | CUP | Row r, column c. |
-| `CSI r ; c f` | HVP | Row r, column c. |
-| `CSI n d` | VPA | Row n, current column. |
-| `CSI n e` | VPR | Down n rows. |
-| `CSI n a` | HPR | Forward n columns. |
+| Sequence      | Name | Description              |
+| ------------- | ---- | ------------------------ |
+| `CSI n A`     | CUU  | Up n rows.               |
+| `CSI n B`     | CUD  | Down n rows.             |
+| `CSI n C`     | CUF  | Forward n columns.       |
+| `CSI n D`     | CUB  | Back n columns.          |
+| `CSI n E`     | CNL  | Down n rows to column 1. |
+| `CSI n F`     | CPL  | Up n rows to column 1.   |
+| `CSI n G`     | CHA  | Column n.                |
+| `CSI r ; c H` | CUP  | Row r, column c.         |
+| `CSI r ; c f` | HVP  | Row r, column c.         |
+| `CSI n d`     | VPA  | Row n, current column.   |
+| `CSI n e`     | VPR  | Down n rows.             |
+| `CSI n a`     | HPR  | Forward n columns.       |
 
 Coordinates are usually 1-based in protocol space.
 
 ## 10.2 Save and restore cursor
 
-| Sequence | Origin | Description |
-|---|---|---|
-| `ESC 7` | DEC | Save cursor and attributes. |
-| `ESC 8` | DEC | Restore cursor and attributes. |
-| `CSI s` | SCO/xterm-like | Save cursor. |
-| `CSI u` | SCO/xterm-like | Restore cursor. |
+| Sequence | Origin         | Description                    |
+| -------- | -------------- | ------------------------------ |
+| `ESC 7`  | DEC            | Save cursor and attributes.    |
+| `ESC 8`  | DEC            | Restore cursor and attributes. |
+| `CSI s`  | SCO/xterm-like | Save cursor.                   |
+| `CSI u`  | SCO/xterm-like | Restore cursor.                |
 
 Prefer DEC `ESC 7`/`ESC 8` or terminfo capabilities when portability matters. Be aware that `CSI u` also conflicts conceptually with keyboard protocols in input direction; output parser context disambiguates by stream direction.
 
 ## 10.3 Erasing
 
-| Sequence | Name | Meaning |
-|---|---|---|
-| `CSI 0 J` | ED 0 | Erase from cursor to end of display. |
-| `CSI 1 J` | ED 1 | Erase from start of display to cursor. |
-| `CSI 2 J` | ED 2 | Erase entire display. |
-| `CSI 3 J` | xterm ED 3 | Erase scrollback/saved lines. |
-| `CSI 0 K` | EL 0 | Erase from cursor to end of line. |
-| `CSI 1 K` | EL 1 | Erase from start of line to cursor. |
-| `CSI 2 K` | EL 2 | Erase entire line. |
-| `CSI n X` | ECH | Erase n characters. |
+| Sequence  | Name       | Meaning                                |
+| --------- | ---------- | -------------------------------------- |
+| `CSI 0 J` | ED 0       | Erase from cursor to end of display.   |
+| `CSI 1 J` | ED 1       | Erase from start of display to cursor. |
+| `CSI 2 J` | ED 2       | Erase entire display.                  |
+| `CSI 3 J` | xterm ED 3 | Erase scrollback/saved lines.          |
+| `CSI 0 K` | EL 0       | Erase from cursor to end of line.      |
+| `CSI 1 K` | EL 1       | Erase from start of line to cursor.    |
+| `CSI 2 K` | EL 2       | Erase entire line.                     |
+| `CSI n X` | ECH        | Erase n characters.                    |
 
 ED/EL clear cells using current background rendition in many emulators; behavior can vary.
 
 ## 10.4 Inserting and deleting
 
-| Sequence | Name | Meaning |
-|---|---|---|
-| `CSI n @` | ICH | Insert n blank characters. |
-| `CSI n P` | DCH | Delete n characters. |
-| `CSI n L` | IL | Insert n lines. |
-| `CSI n M` | DL | Delete n lines. |
+| Sequence  | Name | Meaning                    |
+| --------- | ---- | -------------------------- |
+| `CSI n @` | ICH  | Insert n blank characters. |
+| `CSI n P` | DCH  | Delete n characters.       |
+| `CSI n L` | IL   | Insert n lines.            |
+| `CSI n M` | DL   | Delete n lines.            |
 
 These operate within margins/scroll regions depending terminal state.
 
 ## 10.5 Scrolling
 
-| Sequence | Name | Meaning |
-|---|---|---|
-| `CSI n S` | SU | Scroll up n lines. |
-| `CSI n T` | SD | Scroll down n lines. |
-| `ESC D` | IND | Index; scroll up at bottom margin. |
-| `ESC M` | RI | Reverse index; scroll down at top margin. |
-| `CSI top ; bottom r` | DECSTBM | Set vertical scroll region. |
-| `CSI r` | DECSTBM reset | Reset vertical margins. |
-| `CSI ? 69 h` | DECLRMM | Enable left/right margins in xterm/DEC-style modes. |
-| `CSI left ; right s` | DECSLRM | Set left/right margins when DECLRMM enabled. |
+| Sequence             | Name          | Meaning                                             |
+| -------------------- | ------------- | --------------------------------------------------- |
+| `CSI n S`            | SU            | Scroll up n lines.                                  |
+| `CSI n T`            | SD            | Scroll down n lines.                                |
+| `ESC D`              | IND           | Index; scroll up at bottom margin.                  |
+| `ESC M`              | RI            | Reverse index; scroll down at top margin.           |
+| `CSI top ; bottom r` | DECSTBM       | Set vertical scroll region.                         |
+| `CSI r`              | DECSTBM reset | Reset vertical margins.                             |
+| `CSI ? 69 h`         | DECLRMM       | Enable left/right margins in xterm/DEC-style modes. |
+| `CSI left ; right s` | DECSLRM       | Set left/right margins when DECLRMM enabled.        |
 
 Scroll regions are essential for efficient terminal widgets but complicate rendering state.
 
 ## 10.6 Tabs
 
-| Sequence | Name | Meaning |
-|---|---|---|
-| `HT` | HT | Move to next tab stop. |
-| `ESC H` | HTS | Set tab stop. |
+| Sequence  | Name  | Meaning                           |
+| --------- | ----- | --------------------------------- |
+| `HT`      | HT    | Move to next tab stop.            |
+| `ESC H`   | HTS   | Set tab stop.                     |
 | `CSI 0 g` | TBC 0 | Clear tab stop at current column. |
-| `CSI 3 g` | TBC 3 | Clear all tab stops. |
-| `CSI n I` | CHT | Forward n tab stops. |
-| `CSI n Z` | CBT | Back n tab stops. |
+| `CSI 3 g` | TBC 3 | Clear all tab stops.              |
+| `CSI n I` | CHT   | Forward n tab stops.              |
+| `CSI n Z` | CBT   | Back n tab stops.                 |
 
 Most TUIs avoid depending on tabs for layout and render spaces explicitly.
 
@@ -872,55 +872,55 @@ SGR is `CSI ... m`. Empty parameters or parameter `0` reset rendition.
 
 ## 11.1 Core text attributes
 
-| Code | Meaning |
-|---:|---|
-| 0 | Reset all attributes. |
-| 1 | Bold or increased intensity. |
-| 2 | Faint/dim. |
-| 3 | Italic. |
-| 4 | Underline. |
-| 5 | Slow blink. |
-| 6 | Rapid blink, rarely supported. |
-| 7 | Reverse video. |
-| 8 | Conceal/invisible. |
-| 9 | Crossed-out/strikethrough. |
-| 10 | Primary/default font. |
-| 11–19 | Alternative fonts, rarely meaningful. |
-| 20 | Fraktur/Gothic, rarely supported. |
-| 21 | Doubly underlined or bold off depending terminal. |
-| 22 | Normal intensity; clears bold and faint. |
-| 23 | Not italic/fraktur. |
-| 24 | Not underlined. |
-| 25 | Not blinking. |
-| 27 | Not reversed. |
-| 28 | Reveal. |
-| 29 | Not crossed-out. |
-| 53 | Overline. |
-| 55 | Not overlined. |
+|  Code | Meaning                                           |
+| ----: | ------------------------------------------------- |
+|     0 | Reset all attributes.                             |
+|     1 | Bold or increased intensity.                      |
+|     2 | Faint/dim.                                        |
+|     3 | Italic.                                           |
+|     4 | Underline.                                        |
+|     5 | Slow blink.                                       |
+|     6 | Rapid blink, rarely supported.                    |
+|     7 | Reverse video.                                    |
+|     8 | Conceal/invisible.                                |
+|     9 | Crossed-out/strikethrough.                        |
+|    10 | Primary/default font.                             |
+| 11–19 | Alternative fonts, rarely meaningful.             |
+|    20 | Fraktur/Gothic, rarely supported.                 |
+|    21 | Doubly underlined or bold off depending terminal. |
+|    22 | Normal intensity; clears bold and faint.          |
+|    23 | Not italic/fraktur.                               |
+|    24 | Not underlined.                                   |
+|    25 | Not blinking.                                     |
+|    27 | Not reversed.                                     |
+|    28 | Reveal.                                           |
+|    29 | Not crossed-out.                                  |
+|    53 | Overline.                                         |
+|    55 | Not overlined.                                    |
 
 ## 11.2 8-color and bright color palette
 
 Foreground:
 
-| Code | Color |
-|---:|---|
-| 30 | Black |
-| 31 | Red |
-| 32 | Green |
-| 33 | Yellow |
-| 34 | Blue |
-| 35 | Magenta |
-| 36 | Cyan |
-| 37 | White |
-| 39 | Default foreground |
+|  Code | Color                      |
+| ----: | -------------------------- |
+|    30 | Black                      |
+|    31 | Red                        |
+|    32 | Green                      |
+|    33 | Yellow                     |
+|    34 | Blue                       |
+|    35 | Magenta                    |
+|    36 | Cyan                       |
+|    37 | White                      |
+|    39 | Default foreground         |
 | 90–97 | Bright foreground variants |
 
 Background:
 
-| Code | Color |
-|---:|---|
-| 40–47 | Standard background colors |
-| 49 | Default background |
+|    Code | Color                      |
+| ------: | -------------------------- |
+|   40–47 | Standard background colors |
+|      49 | Default background         |
 | 100–107 | Bright background variants |
 
 ## 11.3 256-color mode
@@ -956,17 +956,17 @@ A robust parser should accept both semicolon and colon forms where appropriate.
 
 Modern terminals may support:
 
-| Sequence | Meaning |
-|---|---|
-| `CSI 4 : 0 m` | No underline. |
-| `CSI 4 : 1 m` | Single underline. |
-| `CSI 4 : 2 m` | Double underline. |
-| `CSI 4 : 3 m` | Curly/wavy underline. |
-| `CSI 4 : 4 m` | Dotted underline. |
-| `CSI 4 : 5 m` | Dashed underline. |
-| `CSI 58 ; 5 ; n m` | 256-color underline color. |
-| `CSI 58 ; 2 ; r ; g ; b m` | RGB underline color. |
-| `CSI 59 m` | Default underline color. |
+| Sequence                   | Meaning                    |
+| -------------------------- | -------------------------- |
+| `CSI 4 : 0 m`              | No underline.              |
+| `CSI 4 : 1 m`              | Single underline.          |
+| `CSI 4 : 2 m`              | Double underline.          |
+| `CSI 4 : 3 m`              | Curly/wavy underline.      |
+| `CSI 4 : 4 m`              | Dotted underline.          |
+| `CSI 4 : 5 m`              | Dashed underline.          |
+| `CSI 58 ; 5 ; n m`         | 256-color underline color. |
+| `CSI 58 ; 2 ; r ; g ; b m` | RGB underline color.       |
+| `CSI 59 m`                 | Default underline color.   |
 
 Some terminals use different ordering for dotted/dashed/curly variants; detect or treat as best-effort.
 
@@ -974,14 +974,14 @@ Some terminals use different ordering for dotted/dashed/curly variants; detect o
 
 ECMA-48 includes ideogram attributes such as:
 
-| Code | Meaning |
-|---:|---|
-| 60 | Ideogram underline or right side line. |
-| 61 | Ideogram double underline or double right side line. |
-| 62 | Ideogram overline or left side line. |
-| 63 | Ideogram double overline or double left side line. |
-| 64 | Ideogram stress marking. |
-| 65 | Ideogram attributes off. |
+| Code | Meaning                                              |
+| ---: | ---------------------------------------------------- |
+|   60 | Ideogram underline or right side line.               |
+|   61 | Ideogram double underline or double right side line. |
+|   62 | Ideogram overline or left side line.                 |
+|   63 | Ideogram double overline or double left side line.   |
+|   64 | Ideogram stress marking.                             |
+|   65 | Ideogram attributes off.                             |
 
 Rarely supported in modern terminal emulators.
 
@@ -1006,20 +1006,20 @@ SGR 10–19 select primary/alternate fonts in ECMA-48, but most terminal emulato
 
 VT52 predates ANSI/ECMA CSI style. Examples:
 
-| Sequence | Meaning |
-|---|---|
-| `ESC A` | Cursor up. |
-| `ESC B` | Cursor down. |
-| `ESC C` | Cursor right. |
-| `ESC D` | Cursor left. |
-| `ESC H` | Cursor home. |
-| `ESC J` | Erase to end of screen. |
-| `ESC K` | Erase to end of line. |
+| Sequence        | Meaning                                       |
+| --------------- | --------------------------------------------- |
+| `ESC A`         | Cursor up.                                    |
+| `ESC B`         | Cursor down.                                  |
+| `ESC C`         | Cursor right.                                 |
+| `ESC D`         | Cursor left.                                  |
+| `ESC H`         | Cursor home.                                  |
+| `ESC J`         | Erase to end of screen.                       |
+| `ESC K`         | Erase to end of line.                         |
 | `ESC Y row col` | Direct cursor address with row/column offset. |
-| `ESC Z` | Identify; terminal response. |
-| `ESC =` | Alternate keypad mode. |
-| `ESC >` | Numeric keypad mode. |
-| `ESC <` | Enter ANSI mode on VT100-like terminals. |
+| `ESC Z`         | Identify; terminal response.                  |
+| `ESC =`         | Alternate keypad mode.                        |
+| `ESC >`         | Numeric keypad mode.                          |
+| `ESC <`         | Enter ANSI mode on VT100-like terminals.      |
 
 A modern framework usually does not target VT52, but a parser may see fragments in terminfo for old entries.
 
@@ -1063,53 +1063,53 @@ CSI ? Ps r   restore, in some xterm contexts
 
 Important modes:
 
-| Mode | Name | Meaning |
-|---:|---|---|
-| 1 | DECCKM | Application cursor keys. |
-| 2 | DECANM | ANSI/VT52 mode, historical. |
-| 3 | DECCOLM | 132-column mode, often disabled. |
-| 4 | DECSCLM | Smooth scrolling, historical. |
-| 5 | DECSCNM | Reverse video. |
-| 6 | DECOM | Origin mode; coordinates relative to margins. |
-| 7 | DECAWM | Auto-wrap mode. |
-| 8 | DECARM | Auto-repeat keys, historical. |
-| 12 | Cursor blink | xterm cursor blinking private mode. |
-| 25 | DECTCEM | Show/hide cursor. |
-| 40 | Allow 80/132 mode | xterm resource controlled. |
-| 45 | Reverse-wraparound | xterm. |
-| 66 | DECNKM | Application keypad mode. |
-| 67 | DECBKM | Backarrow sends BS vs DEL. |
-| 69 | DECLRMM | Left/right margin mode. |
-| 95 | DECNCSM | No clear on column mode change, VT510+. |
-| 1000 | Mouse normal tracking | xterm. |
-| 1002 | Mouse button-event tracking | xterm. |
-| 1003 | Mouse any-event tracking | xterm. |
-| 1004 | Focus event tracking | xterm. |
-| 1005 | UTF-8 mouse mode | xterm, obsolete/problematic. |
-| 1006 | SGR mouse mode | xterm, recommended. |
-| 1007 | Alternate scroll mode | xterm. |
-| 1015 | urxvt mouse mode | rxvt-unicode extension. |
-| 1016 | SGR pixel mouse | xterm extension. |
-| 1034 | Meta sends Escape | xterm. |
-| 1035 | Enable special modifiers for Alt/NumLock | xterm. |
-| 1036 | Meta sends Escape variant | xterm. |
-| 1039 | Alt sends Escape | xterm. |
-| 1047 | Alternate screen buffer | xterm. |
-| 1048 | Save/restore cursor | xterm. |
-| 1049 | Alternate screen + cursor save | xterm. |
-| 2004 | Bracketed paste | xterm. |
-| 2026 | Synchronized output | modern extension. |
+| Mode | Name                                     | Meaning                                       |
+| ---: | ---------------------------------------- | --------------------------------------------- |
+|    1 | DECCKM                                   | Application cursor keys.                      |
+|    2 | DECANM                                   | ANSI/VT52 mode, historical.                   |
+|    3 | DECCOLM                                  | 132-column mode, often disabled.              |
+|    4 | DECSCLM                                  | Smooth scrolling, historical.                 |
+|    5 | DECSCNM                                  | Reverse video.                                |
+|    6 | DECOM                                    | Origin mode; coordinates relative to margins. |
+|    7 | DECAWM                                   | Auto-wrap mode.                               |
+|    8 | DECARM                                   | Auto-repeat keys, historical.                 |
+|   12 | Cursor blink                             | xterm cursor blinking private mode.           |
+|   25 | DECTCEM                                  | Show/hide cursor.                             |
+|   40 | Allow 80/132 mode                        | xterm resource controlled.                    |
+|   45 | Reverse-wraparound                       | xterm.                                        |
+|   66 | DECNKM                                   | Application keypad mode.                      |
+|   67 | DECBKM                                   | Backarrow sends BS vs DEL.                    |
+|   69 | DECLRMM                                  | Left/right margin mode.                       |
+|   95 | DECNCSM                                  | No clear on column mode change, VT510+.       |
+| 1000 | Mouse normal tracking                    | xterm.                                        |
+| 1002 | Mouse button-event tracking              | xterm.                                        |
+| 1003 | Mouse any-event tracking                 | xterm.                                        |
+| 1004 | Focus event tracking                     | xterm.                                        |
+| 1005 | UTF-8 mouse mode                         | xterm, obsolete/problematic.                  |
+| 1006 | SGR mouse mode                           | xterm, recommended.                           |
+| 1007 | Alternate scroll mode                    | xterm.                                        |
+| 1015 | urxvt mouse mode                         | rxvt-unicode extension.                       |
+| 1016 | SGR pixel mouse                          | xterm extension.                              |
+| 1034 | Meta sends Escape                        | xterm.                                        |
+| 1035 | Enable special modifiers for Alt/NumLock | xterm.                                        |
+| 1036 | Meta sends Escape variant                | xterm.                                        |
+| 1039 | Alt sends Escape                         | xterm.                                        |
+| 1047 | Alternate screen buffer                  | xterm.                                        |
+| 1048 | Save/restore cursor                      | xterm.                                        |
+| 1049 | Alternate screen + cursor save           | xterm.                                        |
+| 2004 | Bracketed paste                          | xterm.                                        |
+| 2026 | Synchronized output                      | modern extension.                             |
 
 ## 12.5 Application cursor keys
 
 When DECCKM is set, arrow keys may change from CSI to SS3 forms:
 
-| Key | Normal | Application mode |
-|---|---|---|
-| Up | `CSI A` | `SS3 A` / `ESC O A` |
-| Down | `CSI B` | `ESC O B` |
-| Right | `CSI C` | `ESC O C` |
-| Left | `CSI D` | `ESC O D` |
+| Key   | Normal  | Application mode    |
+| ----- | ------- | ------------------- |
+| Up    | `CSI A` | `SS3 A` / `ESC O A` |
+| Down  | `CSI B` | `ESC O B`           |
+| Right | `CSI C` | `ESC O C`           |
+| Left  | `CSI D` | `ESC O D`           |
 
 Applications enable this when they want keypad/cursor semantic distinction.
 
@@ -1117,29 +1117,29 @@ Applications enable this when they want keypad/cursor semantic distinction.
 
 Numeric keypad sends either numbers/operators or application sequences depending mode. Historical examples:
 
-| Key | Application keypad sequence |
-|---|---|
-| PF1 | `ESC O P` |
-| PF2 | `ESC O Q` |
-| PF3 | `ESC O R` |
-| PF4 | `ESC O S` |
-| Keypad 0 | `ESC O p` |
-| Keypad 1 | `ESC O q` |
-| Keypad Enter | `ESC O M` |
+| Key          | Application keypad sequence |
+| ------------ | --------------------------- |
+| PF1          | `ESC O P`                   |
+| PF2          | `ESC O Q`                   |
+| PF3          | `ESC O R`                   |
+| PF4          | `ESC O S`                   |
+| Keypad 0     | `ESC O p`                   |
+| Keypad 1     | `ESC O q`                   |
+| Keypad Enter | `ESC O M`                   |
 
 Modern TUIs rarely need raw keypad distinction except editors and terminal compatibility layers.
 
 ## 12.7 DEC reports and queries
 
-| Query | Response | Meaning |
-|---|---|---|
-| `CSI c` | `CSI ? ... c` | Primary Device Attributes. |
-| `CSI > c` | `CSI > Pp ; Pv ; Pc c` | Secondary Device Attributes. |
-| `CSI = c` | varies | Tertiary DA in some terminals. |
-| `CSI 5 n` | `CSI 0 n` | Device status OK. |
-| `CSI 6 n` | `CSI row ; col R` | Cursor position report. |
-| `CSI ? Ps $ p` | `CSI ? Ps ; Pm $ y` | Request private mode state (DECRQM). |
-| `DCS $ q ... ST` | `DCS ... ST` | Request status string (DECRQSS). |
+| Query            | Response               | Meaning                              |
+| ---------------- | ---------------------- | ------------------------------------ |
+| `CSI c`          | `CSI ? ... c`          | Primary Device Attributes.           |
+| `CSI > c`        | `CSI > Pp ; Pv ; Pc c` | Secondary Device Attributes.         |
+| `CSI = c`        | varies                 | Tertiary DA in some terminals.       |
+| `CSI 5 n`        | `CSI 0 n`              | Device status OK.                    |
+| `CSI 6 n`        | `CSI row ; col R`      | Cursor position report.              |
+| `CSI ? Ps $ p`   | `CSI ? Ps ; Pm $ y`    | Request private mode state (DECRQM). |
+| `DCS $ q ... ST` | `DCS ... ST`           | Request status string (DECRQSS).     |
 
 Responses are injected into the input stream. A framework must route them to a query manager, not to normal key handling.
 
@@ -1147,12 +1147,12 @@ Responses are injected into the input stream. A framework must route them to a q
 
 Later DEC terminals and xterm support rectangular operations useful for block editing:
 
-| Sequence | Name | Meaning |
-|---|---|---|
-| `CSI Pt ; Pl ; Pb ; Pr ; Pp $ x` | DECFRA | Fill rectangular area. |
-| `CSI Pt ; Pl ; Pb ; Pr $ z` | DECERA | Erase rectangular area. |
-| `CSI Pt ; Pl ; Pb ; Pr $ {` | DECSERA | Selective erase rectangular area. |
-| `CSI Ps ; Pt ; Pl ; Pb ; Pr $ v` | DECCRA | Copy rectangular area. |
+| Sequence                         | Name    | Meaning                           |
+| -------------------------------- | ------- | --------------------------------- |
+| `CSI Pt ; Pl ; Pb ; Pr ; Pp $ x` | DECFRA  | Fill rectangular area.            |
+| `CSI Pt ; Pl ; Pb ; Pr $ z`      | DECERA  | Erase rectangular area.           |
+| `CSI Pt ; Pl ; Pb ; Pr $ {`      | DECSERA | Selective erase rectangular area. |
+| `CSI Ps ; Pt ; Pl ; Pb ; Pr $ v` | DECCRA  | Copy rectangular area.            |
 
 Support varies; a framework should not require these for basic rendering.
 
@@ -1164,15 +1164,15 @@ Common xterm/DEC-style cursor shape:
 CSI Ps SP q
 ```
 
-| Ps | Shape |
-|---:|---|
-| 0 | Terminal default. |
-| 1 | Blinking block. |
-| 2 | Steady block. |
-| 3 | Blinking underline. |
-| 4 | Steady underline. |
-| 5 | Blinking bar. |
-| 6 | Steady bar. |
+| Ps | Shape               |
+| -: | ------------------- |
+|  0 | Terminal default.   |
+|  1 | Blinking block.     |
+|  2 | Steady block.       |
+|  3 | Blinking underline. |
+|  4 | Steady underline.   |
+|  5 | Blinking bar.       |
+|  6 | Steady bar.         |
 
 ---
 
@@ -1199,31 +1199,31 @@ xterm is not a formal standards body, but its control sequence documentation is 
 
 xterm-style window operations use `CSI ... t`.
 
-| Sequence | Meaning |
-|---|---|
-| `CSI 8 ; rows ; cols t` | Resize text area in characters. |
-| `CSI 14 t` | Report text area size in pixels. |
-| `CSI 16 t` | Report character cell size in pixels. |
-| `CSI 18 t` | Report text area size in characters. |
-| `CSI 22 ; Ps t` | Save window title/icon title. |
-| `CSI 23 ; Ps t` | Restore window title/icon title. |
+| Sequence                | Meaning                               |
+| ----------------------- | ------------------------------------- |
+| `CSI 8 ; rows ; cols t` | Resize text area in characters.       |
+| `CSI 14 t`              | Report text area size in pixels.      |
+| `CSI 16 t`              | Report character cell size in pixels. |
+| `CSI 18 t`              | Report text area size in characters.  |
+| `CSI 22 ; Ps t`         | Save window title/icon title.         |
+| `CSI 23 ; Ps t`         | Restore window title/icon title.      |
 
 Many terminals restrict or disable window operations for security/user preference.
 
 ## 13.3 xterm color controls via OSC
 
-| OSC | Meaning |
-|---|---|
-| `OSC 4 ; index ; spec ST` | Set palette color. |
-| `OSC 4 ; index ; ? ST` | Query palette color. |
-| `OSC 10 ; spec ST` | Set foreground color. |
-| `OSC 10 ; ? ST` | Query foreground color. |
-| `OSC 11 ; spec ST` | Set background color. |
-| `OSC 12 ; spec ST` | Set cursor color. |
-| `OSC 104 ; index ST` | Reset palette color(s). |
-| `OSC 110 ST` | Reset foreground. |
-| `OSC 111 ST` | Reset background. |
-| `OSC 112 ST` | Reset cursor color. |
+| OSC                       | Meaning                 |
+| ------------------------- | ----------------------- |
+| `OSC 4 ; index ; spec ST` | Set palette color.      |
+| `OSC 4 ; index ; ? ST`    | Query palette color.    |
+| `OSC 10 ; spec ST`        | Set foreground color.   |
+| `OSC 10 ; ? ST`           | Query foreground color. |
+| `OSC 11 ; spec ST`        | Set background color.   |
+| `OSC 12 ; spec ST`        | Set cursor color.       |
+| `OSC 104 ; index ST`      | Reset palette color(s). |
+| `OSC 110 ST`              | Reset foreground.       |
+| `OSC 111 ST`              | Reset background.       |
+| `OSC 112 ST`              | Reset cursor color.     |
 
 Color specs may be names or `rgb:RR/GG/BB` style strings depending terminal.
 
@@ -1259,15 +1259,15 @@ xterm uses a state machine. This matters because regex-based parsing fails on:
 
 ## 14.1 Detection sources
 
-| Source | Strength | Problems |
-|---|---|---|
-| `$TERM` | Basic compatibility profile | Often lies under tmux/SSH; too coarse. |
-| terminfo | Good for classic capabilities | Missing many modern protocols. |
-| environment variables | Useful hints: `TERM_PROGRAM`, `WT_SESSION`, `KITTY_WINDOW_ID`, `WEZTERM_EXECUTABLE`, `COLORTERM` | Nonstandard, spoofable, incomplete. |
-| DA/DSR/DECRQM probes | Active confirmation | Responses can be blocked/transformed; must parse asynchronously. |
-| XTGETTCAP | Rich capability query in supporting terminals | Not universal; often filtered by multiplexers. |
-| trial rendering | Practical tests | Intrusive; not suitable for all features. |
-| user config | Reliable override | Requires documentation and persistence. |
+| Source                | Strength                                                                                         | Problems                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| `$TERM`               | Basic compatibility profile                                                                      | Often lies under tmux/SSH; too coarse.                           |
+| terminfo              | Good for classic capabilities                                                                    | Missing many modern protocols.                                   |
+| environment variables | Useful hints: `TERM_PROGRAM`, `WT_SESSION`, `KITTY_WINDOW_ID`, `WEZTERM_EXECUTABLE`, `COLORTERM` | Nonstandard, spoofable, incomplete.                              |
+| DA/DSR/DECRQM probes  | Active confirmation                                                                              | Responses can be blocked/transformed; must parse asynchronously. |
+| XTGETTCAP             | Rich capability query in supporting terminals                                                    | Not universal; often filtered by multiplexers.                   |
+| trial rendering       | Practical tests                                                                                  | Intrusive; not suitable for all features.                        |
+| user config           | Reliable override                                                                                | Requires documentation and persistence.                          |
 
 ## 14.2 Recommended detection pipeline
 
@@ -1296,14 +1296,14 @@ Do not let CPR (`CSI row;col R`) become `Alt+[`, `R`, or random key events.
 
 A capability should record confidence:
 
-| Confidence | Meaning |
-|---|---|
-| `assumed` | Default assumption based on broad support. |
-| `terminfo` | From terminfo. |
-| `environment` | From env var heuristic. |
-| `probed` | Confirmed by response. |
-| `configured` | User override. |
-| `disabled` | Explicitly disabled by policy/security. |
+| Confidence    | Meaning                                    |
+| ------------- | ------------------------------------------ |
+| `assumed`     | Default assumption based on broad support. |
+| `terminfo`    | From terminfo.                             |
+| `environment` | From env var heuristic.                    |
+| `probed`      | Confirmed by response.                     |
+| `configured`  | User override.                             |
+| `disabled`    | Explicitly disabled by policy/security.    |
 
 ---
 
@@ -1324,26 +1324,26 @@ A terminfo entry contains:
 
 ## 15.2 Common terminfo capabilities for TUIs
 
-| Capability | Meaning |
-|---|---|
-| `cup` | Cursor position. |
-| `clear` | Clear screen. |
-| `el`, `ed` | Clear line/display portions. |
-| `smcup`, `rmcup` | Enter/exit alternate screen. |
-| `civis`, `cnorm`, `cvvis` | Cursor invisible/normal/very visible. |
-| `setaf`, `setab` | Set ANSI foreground/background. |
-| `setrgbf`, `setrgbb` | RGB colors in newer/extended entries. |
-| `sgr`, `sgr0` | Set/reset attributes. |
-| `sitm`, `ritm` | Italic on/off. |
-| `smul`, `rmul` | Underline on/off. |
-| `blink`, `bold`, `dim`, `rev`, `invis`, `smso`, `rmso` | Attributes. |
-| `kf1`..`kf63` | Function key input sequences. |
-| `kcuu1`, `kcud1`, `kcuf1`, `kcub1` | Arrow input sequences. |
-| `kmous` | Mouse input introducer. |
-| `XM` | Mouse mode string in some extended entries. |
-| `Ms` | OSC 52 clipboard in some extended entries. |
-| `Smulx` | Extended underline style in some entries. |
-| `Setulc` | Underline color in some entries. |
+| Capability                                             | Meaning                                     |
+| ------------------------------------------------------ | ------------------------------------------- |
+| `cup`                                                  | Cursor position.                            |
+| `clear`                                                | Clear screen.                               |
+| `el`, `ed`                                             | Clear line/display portions.                |
+| `smcup`, `rmcup`                                       | Enter/exit alternate screen.                |
+| `civis`, `cnorm`, `cvvis`                              | Cursor invisible/normal/very visible.       |
+| `setaf`, `setab`                                       | Set ANSI foreground/background.             |
+| `setrgbf`, `setrgbb`                                   | RGB colors in newer/extended entries.       |
+| `sgr`, `sgr0`                                          | Set/reset attributes.                       |
+| `sitm`, `ritm`                                         | Italic on/off.                              |
+| `smul`, `rmul`                                         | Underline on/off.                           |
+| `blink`, `bold`, `dim`, `rev`, `invis`, `smso`, `rmso` | Attributes.                                 |
+| `kf1`..`kf63`                                          | Function key input sequences.               |
+| `kcuu1`, `kcud1`, `kcuf1`, `kcub1`                     | Arrow input sequences.                      |
+| `kmous`                                                | Mouse input introducer.                     |
+| `XM`                                                   | Mouse mode string in some extended entries. |
+| `Ms`                                                   | OSC 52 clipboard in some extended entries.  |
+| `Smulx`                                                | Extended underline style in some entries.   |
+| `Setulc`                                               | Underline color in some entries.            |
 
 ## 15.3 terminfo parameter language
 
@@ -1364,15 +1364,15 @@ Ncurses supports user-defined/extended capabilities, often accessed with `infocm
 
 Common extensions:
 
-| Capability | Meaning |
-|---|---|
-| `Tc` | Historical flag used to advertise truecolor. |
-| `RGB` | More modern truecolor capability marker. |
-| `Ms` | OSC 52 clipboard set. |
-| `Se` / `Ss` | Cursor style reset/set in some entries. |
-| `Smulx` | Underline style. |
-| `Setulc` | Underline color. |
-| `U8` | Unicode/UTF-8 related marker in some ecosystems. |
+| Capability  | Meaning                                          |
+| ----------- | ------------------------------------------------ |
+| `Tc`        | Historical flag used to advertise truecolor.     |
+| `RGB`       | More modern truecolor capability marker.         |
+| `Ms`        | OSC 52 clipboard set.                            |
+| `Se` / `Ss` | Cursor style reset/set in some entries.          |
+| `Smulx`     | Underline style.                                 |
+| `Setulc`    | Underline color.                                 |
+| `U8`        | Unicode/UTF-8 related marker in some ecosystems. |
 
 Do not assume every system terminfo database is current.
 
@@ -1421,17 +1421,17 @@ Limitations for next-generation TUIs:
 
 Control keys historically map letters to C0 controls:
 
-| Key | Byte |
-|---|---:|
-| `Ctrl+A` | `0x01` |
-| `Ctrl+B` | `0x02` |
+| Key      |                             Byte |
+| -------- | -------------------------------: |
+| `Ctrl+A` |                           `0x01` |
+| `Ctrl+B` |                           `0x02` |
 | `Ctrl+C` | `0x03` or signal if ISIG enabled |
-| `Ctrl+H` | `0x08` |
-| `Ctrl+I` | `0x09` = Tab |
-| `Ctrl+J` | `0x0A` = LF |
-| `Ctrl+M` | `0x0D` = CR/Enter |
-| `Ctrl+[` | `0x1B` = Escape |
-| `Ctrl+?` | `0x7F` = DEL |
+| `Ctrl+H` |                           `0x08` |
+| `Ctrl+I` |                     `0x09` = Tab |
+| `Ctrl+J` |                      `0x0A` = LF |
+| `Ctrl+M` |                `0x0D` = CR/Enter |
+| `Ctrl+[` |                  `0x1B` = Escape |
+| `Ctrl+?` |                     `0x7F` = DEL |
 
 Ambiguities:
 
@@ -1475,20 +1475,20 @@ Applications use a timeout after ESC to distinguish lone Escape from an Alt-pref
 
 Common legacy sequences:
 
-| Key | Common normal sequence |
-|---|---|
-| Up | `ESC [ A` |
-| Down | `ESC [ B` |
-| Right | `ESC [ C` |
-| Left | `ESC [ D` |
-| Home | `ESC [ H` or `ESC [ 1 ~` |
-| End | `ESC [ F` or `ESC [ 4 ~` |
-| Insert | `ESC [ 2 ~` |
-| Delete | `ESC [ 3 ~` |
-| Page Up | `ESC [ 5 ~` |
-| Page Down | `ESC [ 6 ~` |
-| F1–F4 | `ESC O P`..`ESC O S` or `ESC [ 11~`.. |
-| F5–F12 | `ESC [ 15~`, `17~`, `18~`, `19~`, `20~`, `21~`, `23~`, `24~` |
+| Key       | Common normal sequence                                       |
+| --------- | ------------------------------------------------------------ |
+| Up        | `ESC [ A`                                                    |
+| Down      | `ESC [ B`                                                    |
+| Right     | `ESC [ C`                                                    |
+| Left      | `ESC [ D`                                                    |
+| Home      | `ESC [ H` or `ESC [ 1 ~`                                     |
+| End       | `ESC [ F` or `ESC [ 4 ~`                                     |
+| Insert    | `ESC [ 2 ~`                                                  |
+| Delete    | `ESC [ 3 ~`                                                  |
+| Page Up   | `ESC [ 5 ~`                                                  |
+| Page Down | `ESC [ 6 ~`                                                  |
+| F1–F4     | `ESC O P`..`ESC O S` or `ESC [ 11~`..                        |
+| F5–F12    | `ESC [ 15~`, `17~`, `18~`, `19~`, `20~`, `21~`, `23~`, `24~` |
 
 ## 16.5 Modified special keys: xterm convention
 
@@ -1578,13 +1578,13 @@ Kitty keyboard protocol is the most systematic modern keyboard protocol. It uses
 
 ### 16.10.1 Flags
 
-| Flag | Bit | Meaning |
-|---|---:|---|
-| Disambiguate escape codes | 1 | Encode ambiguous keys distinctly. |
-| Report event types | 2 | Press/repeat/release events. |
-| Report alternate keys | 4 | Include shifted/alternate key identities. |
-| Report all keys as escape codes | 8 | Printable keys also encoded as escape sequences. |
-| Report associated text | 16 | Include text generated by key event. |
+| Flag                            | Bit | Meaning                                          |
+| ------------------------------- | --: | ------------------------------------------------ |
+| Disambiguate escape codes       |   1 | Encode ambiguous keys distinctly.                |
+| Report event types              |   2 | Press/repeat/release events.                     |
+| Report alternate keys           |   4 | Include shifted/alternate key identities.        |
+| Report all keys as escape codes |   8 | Printable keys also encoded as escape sequences. |
+| Report associated text          |  16 | Include text generated by key event.             |
 
 ### 16.10.2 Query and mode setting
 
@@ -1655,17 +1655,17 @@ Terminal applications usually receive committed text, not composition state. Do 
 
 ## 17.1 Mouse protocol families
 
-| Mode | Enable | Name | Notes |
-|---:|---|---|---|
-| 9 | `CSI ? 9 h` | X10 | Press only, old format. |
-| 1000 | `CSI ? 1000 h` | X11/VT200 normal tracking | Press/release. |
-| 1002 | `CSI ? 1002 h` | Button-event tracking | Press/release/drag. |
-| 1003 | `CSI ? 1003 h` | Any-event tracking | All motion; high volume. |
-| 1004 | `CSI ? 1004 h` | Focus events | Focus in/out. |
-| 1005 | `CSI ? 1005 h` | UTF-8 mouse | Obsolete/problematic. |
-| 1006 | `CSI ? 1006 h` | SGR mouse | Recommended cell-coordinate protocol. |
-| 1015 | `CSI ? 1015 h` | urxvt mouse | Legacy extension. |
-| 1016 | `CSI ? 1016 h` | SGR pixel mouse | Pixel coordinates. |
+| Mode | Enable         | Name                      | Notes                                 |
+| ---: | -------------- | ------------------------- | ------------------------------------- |
+|    9 | `CSI ? 9 h`    | X10                       | Press only, old format.               |
+| 1000 | `CSI ? 1000 h` | X11/VT200 normal tracking | Press/release.                        |
+| 1002 | `CSI ? 1002 h` | Button-event tracking     | Press/release/drag.                   |
+| 1003 | `CSI ? 1003 h` | Any-event tracking        | All motion; high volume.              |
+| 1004 | `CSI ? 1004 h` | Focus events              | Focus in/out.                         |
+| 1005 | `CSI ? 1005 h` | UTF-8 mouse               | Obsolete/problematic.                 |
+| 1006 | `CSI ? 1006 h` | SGR mouse                 | Recommended cell-coordinate protocol. |
+| 1015 | `CSI ? 1015 h` | urxvt mouse               | Legacy extension.                     |
+| 1016 | `CSI ? 1016 h` | SGR pixel mouse           | Pixel coordinates.                    |
 
 ## 17.2 X10 / legacy mouse encoding
 
@@ -1690,29 +1690,29 @@ Coordinates are 1-based cell coordinates unless pixel mode is active.
 
 Common base button codes:
 
-| Cb | Meaning |
-|---:|---|
-| 0 | Left press. |
-| 1 | Middle press. |
-| 2 | Right press. |
-| 3 | Release/no button. |
-| 32 | Left drag. |
-| 33 | Middle drag. |
-| 34 | Right drag. |
+| Cb | Meaning                                    |
+| -: | ------------------------------------------ |
+|  0 | Left press.                                |
+|  1 | Middle press.                              |
+|  2 | Right press.                               |
+|  3 | Release/no button.                         |
+| 32 | Left drag.                                 |
+| 33 | Middle drag.                               |
+| 34 | Right drag.                                |
 | 35 | Release/motion variant depending protocol. |
-| 64 | Wheel up. |
-| 65 | Wheel down. |
-| 66 | Wheel left or button depending terminal. |
-| 67 | Wheel right or button depending terminal. |
-| 96 | Motion with no button in any-event mode. |
+| 64 | Wheel up.                                  |
+| 65 | Wheel down.                                |
+| 66 | Wheel left or button depending terminal.   |
+| 67 | Wheel right or button depending terminal.  |
+| 96 | Motion with no button in any-event mode.   |
 
 Modifier bits in xterm-style mouse encoding:
 
 | Bit value | Modifier |
-|---:|---|
-| 4 | Shift |
-| 8 | Meta/Alt |
-| 16 | Ctrl |
+| --------: | -------- |
+|         4 | Shift    |
+|         8 | Meta/Alt |
+|        16 | Ctrl     |
 
 Important correction: do not confuse mouse modifier bits with Kitty keyboard modifier bits.
 
@@ -1750,10 +1750,10 @@ CSI ? 1004 h
 
 Events:
 
-| Event | Sequence |
-|---|---|
-| Focus in | `CSI I` |
-| Focus out | `CSI O` |
+| Event     | Sequence |
+| --------- | -------- |
+| Focus in  | `CSI I`  |
+| Focus out | `CSI O`  |
 
 Use cases:
 
@@ -1814,14 +1814,14 @@ Terminal graphics are not one protocol. They are a family of historical and mode
 
 Most portable approach:
 
-| Technique | Characters | Use |
-|---|---|---|
-| Box drawing | `─│┌┐└┘├┤┬┴┼` | Borders, tables. |
-| Block elements | `█▓▒░▀▄▌▐` | Bars, crude images. |
-| Braille | `⠁`..`⣿` | High-density plots: 2×4 dots per cell. |
-| Quadrants | `▖▗▘▙▚▛▜▝▞▟` | 2×2 pixel-ish rendering. |
-| Sextants | Unicode sextant blocks where supported | Higher-density graphics. |
-| Half blocks | `▀▄` with foreground/background | Two vertical pixels per cell. |
+| Technique      | Characters                             | Use                                    |
+| -------------- | -------------------------------------- | -------------------------------------- |
+| Box drawing    | `─│┌┐└┘├┤┬┴┼`                          | Borders, tables.                       |
+| Block elements | `█▓▒░▀▄▌▐`                             | Bars, crude images.                    |
+| Braille        | `⠁`..`⣿`                               | High-density plots: 2×4 dots per cell. |
+| Quadrants      | `▖▗▘▙▚▛▜▝▞▟`                           | 2×2 pixel-ish rendering.               |
+| Sextants       | Unicode sextant blocks where supported | Higher-density graphics.               |
+| Half blocks    | `▀▄` with foreground/background        | Two vertical pixels per cell.          |
 
 Advantages:
 
@@ -1848,16 +1848,16 @@ DCS Pq ; Pu ; Ph q sixel-data ST
 
 Common elements:
 
-| Token | Meaning |
-|---|---|
-| `q` final | Enters Sixel data mode. |
-| `?`..`~` | Sixel characters encoding six vertical pixels. |
-| `! n char` | Repeat introducer; repeat char n times. |
-| `# n` | Select color register n. |
-| `# n ; mode ; ...` | Define color register. |
-| `" pan ; pad ; ph ; pv` | Raster attributes. |
-| `$` | Carriage return within sixel graphics. |
-| `-` | New line in sixel graphics. |
+| Token                   | Meaning                                        |
+| ----------------------- | ---------------------------------------------- |
+| `q` final               | Enters Sixel data mode.                        |
+| `?`..`~`                | Sixel characters encoding six vertical pixels. |
+| `! n char`              | Repeat introducer; repeat char n times.        |
+| `# n`                   | Select color register n.                       |
+| `# n ; mode ; ...`      | Define color register.                         |
+| `" pan ; pad ; ph ; pv` | Raster attributes.                             |
+| `$`                     | Carriage return within sixel graphics.         |
+| `-`                     | New line in sixel graphics.                    |
 
 Color definition examples:
 
@@ -1907,14 +1907,14 @@ OSC 1337 ; File = key=value ; key=value : base64-data ST
 
 Common parameters:
 
-| Parameter | Meaning |
-|---|---|
-| `name` | Base64 filename. |
-| `size` | File size in bytes. |
-| `width` | Width in cells, pixels, percent, or auto depending syntax. |
-| `height` | Height in cells, pixels, percent, or auto. |
-| `preserveAspectRatio` | `1` or `0`. |
-| `inline` | `1` to display inline. |
+| Parameter             | Meaning                                                    |
+| --------------------- | ---------------------------------------------------------- |
+| `name`                | Base64 filename.                                           |
+| `size`                | File size in bytes.                                        |
+| `width`               | Width in cells, pixels, percent, or auto depending syntax. |
+| `height`              | Height in cells, pixels, percent, or auto.                 |
+| `preserveAspectRatio` | `1` or `0`.                                                |
+| `inline`              | `1` to display inline.                                     |
 
 Example shape:
 
@@ -1936,18 +1936,18 @@ Its goals include performant raster graphics, pixel positioning, text integratio
 
 Major concepts:
 
-| Concept | Description |
-|---|---|
-| action | transmit, display, delete, query, animate depending `a=`. |
+| Concept             | Description                                                         |
+| ------------------- | ------------------------------------------------------------------- |
+| action              | transmit, display, delete, query, animate depending `a=`.           |
 | transmission medium | direct payload, file, temporary file, shared memory depending `t=`. |
-| format | RGB, RGBA, PNG and protocol-defined formats. |
-| image id | numeric id for reuse/deletion. |
-| placement id | separate placement of transmitted image. |
-| z-index | layering relative to text. |
-| rows/columns | cell-sized display placement. |
-| pixel offsets | precise placement/cropping. |
-| chunks | large payload split across multiple APC sequences. |
-| responses | terminal can report success/error. |
+| format              | RGB, RGBA, PNG and protocol-defined formats.                        |
+| image id            | numeric id for reuse/deletion.                                      |
+| placement id        | separate placement of transmitted image.                            |
+| z-index             | layering relative to text.                                          |
+| rows/columns        | cell-sized display placement.                                       |
+| pixel offsets       | precise placement/cropping.                                         |
+| chunks              | large payload split across multiple APC sequences.                  |
+| responses           | terminal can report success/error.                                  |
 
 A framework should implement Kitty graphics as a backend with:
 
@@ -1992,11 +1992,11 @@ OSC sequences are vendor-heavy and security-sensitive.
 
 ## 19.1 Window and icon titles
 
-| OSC | Meaning |
-|---|---|
+| OSC                | Meaning                         |
+| ------------------ | ------------------------------- |
 | `OSC 0 ; title ST` | Set icon name and window title. |
-| `OSC 1 ; title ST` | Set icon name. |
-| `OSC 2 ; title ST` | Set window title. |
+| `OSC 1 ; title ST` | Set icon name.                  |
+| `OSC 2 ; title ST` | Set window title.               |
 
 Security concern: remote programs can spoof window titles.
 
@@ -2038,11 +2038,11 @@ OSC 52 ; Pc ; base64-data ST
 
 `Pc` selects clipboard/selection targets, commonly:
 
-| Pc | Meaning |
-|---|---|
-| `c` | Clipboard. |
-| `p` | Primary selection. |
-| `s` | Select. |
+| Pc    | Meaning                    |
+| ----- | -------------------------- |
+| `c`   | Clipboard.                 |
+| `p`   | Primary selection.         |
+| `s`   | Select.                    |
 | empty | Terminal-specific default. |
 
 Security concerns:
@@ -2054,16 +2054,16 @@ Security concerns:
 
 ## 19.5 Palette and dynamic colors
 
-| OSC | Meaning |
-|---|---|
-| 4 | Set/query palette entries. |
-| 10 | Foreground color. |
-| 11 | Background color. |
-| 12 | Cursor color. |
-| 104 | Reset palette entries. |
-| 110 | Reset foreground. |
-| 111 | Reset background. |
-| 112 | Reset cursor color. |
+| OSC | Meaning                    |
+| --- | -------------------------- |
+| 4   | Set/query palette entries. |
+| 10  | Foreground color.          |
+| 11  | Background color.          |
+| 12  | Cursor color.              |
+| 104 | Reset palette entries.     |
+| 110 | Reset foreground.          |
+| 111 | Reset background.          |
+| 112 | Reset cursor color.        |
 
 Frameworks generally should not globally mutate user palette without consent. Prefer SGR colors.
 
@@ -2073,12 +2073,12 @@ FinalTerm/modern shell integration marks shell prompt and command regions.
 
 Common sequences:
 
-| Sequence | Meaning |
-|---|---|
-| `OSC 133 ; A ST` | Prompt start. |
-| `OSC 133 ; B ST` | Prompt end. |
-| `OSC 133 ; C ST` | Command/pre-exec start. |
-| `OSC 133 ; D ; exitcode ST` | Command finished. |
+| Sequence                    | Meaning                 |
+| --------------------------- | ----------------------- |
+| `OSC 133 ; A ST`            | Prompt start.           |
+| `OSC 133 ; B ST`            | Prompt end.             |
+| `OSC 133 ; C ST`            | Command/pre-exec start. |
+| `OSC 133 ; D ; exitcode ST` | Command finished.       |
 
 Useful for terminal scrollback navigation, command status, and shell-aware UI. A TUI usually consumes this only if embedding a shell.
 
@@ -2102,11 +2102,11 @@ Do not use unless targeting iTerm2-compatible behavior or after detection.
 
 Notification OSCs vary:
 
-| Protocol | Example | Notes |
-|---|---|---|
-| iTerm2/macOS legacy | `OSC 9 ; message ST` | Historically used by iTerm-like terminals. |
-| Kitty notifications | `OSC 99 ; ... ST` | Extensible notification protocol. |
-| rxvt/urxvt variants | `OSC 777 ; notify ; ... ST` | Seen in some ecosystems. |
+| Protocol            | Example                     | Notes                                      |
+| ------------------- | --------------------------- | ------------------------------------------ |
+| iTerm2/macOS legacy | `OSC 9 ; message ST`        | Historically used by iTerm-like terminals. |
+| Kitty notifications | `OSC 99 ; ... ST`           | Extensible notification protocol.          |
+| rxvt/urxvt variants | `OSC 777 ; notify ; ... ST` | Seen in some ecosystems.                   |
 
 Notifications are user-visible side effects. Gate behind explicit app/user permission.
 
@@ -2148,10 +2148,10 @@ DCS ... q data ST  Sixel, depending introducer
 
 Request status string. Example uses:
 
-| Request | Meaning |
-|---|---|
-| `DCS $ q m ST` | Request current SGR. |
-| `DCS $ q r ST` | Request scroll region. |
+| Request        | Meaning                                               |
+| -------------- | ----------------------------------------------------- |
+| `DCS $ q m ST` | Request current SGR.                                  |
+| `DCS $ q r ST` | Request scroll region.                                |
 | `DCS $ q q ST` | Request cursor style or protection depending context. |
 
 Responses encode valid/invalid and current value. Parsing requires DCS response handling.
@@ -2199,13 +2199,13 @@ Issues:
 
 Relevant concepts:
 
-| tmux concept | Purpose |
-|---|---|
-| `terminal-overrides` | Override capabilities by terminal pattern. |
-| `terminal-features` | Declare modern features such as RGB/clipboard in newer tmux. |
-| `set-clipboard` | Control OSC 52 behavior. |
-| `allow-passthrough` | Permit passthrough sequences for protocols like graphics. |
-| mouse option | tmux pane mouse support and forwarding. |
+| tmux concept         | Purpose                                                      |
+| -------------------- | ------------------------------------------------------------ |
+| `terminal-overrides` | Override capabilities by terminal pattern.                   |
+| `terminal-features`  | Declare modern features such as RGB/clipboard in newer tmux. |
+| `set-clipboard`      | Control OSC 52 behavior.                                     |
+| `allow-passthrough`  | Permit passthrough sequences for protocols like graphics.    |
+| mouse option         | tmux pane mouse support and forwarding.                      |
 
 ## 21.2 GNU screen
 
@@ -2387,26 +2387,26 @@ Untrusted bytes can come from:
 
 ## 24.2 Dangerous capabilities
 
-| Capability | Risk |
-|---|---|
-| OSC 52 clipboard | Clipboard overwrite or read where supported. |
-| OSC 8 hyperlinks | Phishing, hidden URI. |
-| OSC title | Spoofing terminal/window state. |
-| OSC palette | Visual deception. |
-| DCS/APC payloads | Resource exhaustion, parser bugs, image/file payloads. |
-| Query responses | Input injection into application state. |
-| Bracketed paste delimiters | Confusing typed vs pasted input if spoofed in logs. |
-| Alternate screen | Hiding output/history. |
-| Keyboard protocol changes | Capturing `Ctrl+C` as key instead of signal. |
+| Capability                 | Risk                                                   |
+| -------------------------- | ------------------------------------------------------ |
+| OSC 52 clipboard           | Clipboard overwrite or read where supported.           |
+| OSC 8 hyperlinks           | Phishing, hidden URI.                                  |
+| OSC title                  | Spoofing terminal/window state.                        |
+| OSC palette                | Visual deception.                                      |
+| DCS/APC payloads           | Resource exhaustion, parser bugs, image/file payloads. |
+| Query responses            | Input injection into application state.                |
+| Bracketed paste delimiters | Confusing typed vs pasted input if spoofed in logs.    |
+| Alternate screen           | Hiding output/history.                                 |
+| Keyboard protocol changes  | Capturing `Ctrl+C` as key instead of signal.           |
 
 ## 24.3 Sanitization levels
 
-| Level | Behavior |
-|---|---|
-| Plain text | Strip all controls except `\n`, `\t` maybe. |
-| Safe ANSI | Allow SGR only, strip OSC/DCS/APC and cursor movement. |
-| TUI trusted | Allow cursor/screen controls generated by framework only. |
-| Full passthrough | Allow all; only for trusted terminal emulator sessions. |
+| Level            | Behavior                                                  |
+| ---------------- | --------------------------------------------------------- |
+| Plain text       | Strip all controls except `\n`, `\t` maybe.               |
+| Safe ANSI        | Allow SGR only, strip OSC/DCS/APC and cursor movement.    |
+| TUI trusted      | Allow cursor/screen controls generated by framework only. |
+| Full passthrough | Allow all; only for trusted terminal emulator sessions.   |
 
 ## 24.4 Logging policy
 
@@ -2604,14 +2604,14 @@ Each field should have confidence and source.
 
 ## 25.9 Renderer backends
 
-| Backend | Features |
-|---|---|
-| Dumb | Plain text only. |
-| ANSI basic | cursor, clear, 8 colors. |
-| ECMA-48 | full classic TUI controls. |
-| xterm modern | mouse, paste, focus, 256/truecolor, OSC 8/52. |
-| Rich graphics | Kitty/Sixel/iTerm2 images. |
-| Test backend | Deterministic transcript and screen assertions. |
+| Backend       | Features                                        |
+| ------------- | ----------------------------------------------- |
+| Dumb          | Plain text only.                                |
+| ANSI basic    | cursor, clear, 8 colors.                        |
+| ECMA-48       | full classic TUI controls.                      |
+| xterm modern  | mouse, paste, focus, 256/truecolor, OSC 8/52.   |
+| Rich graphics | Kitty/Sixel/iTerm2 images.                      |
+| Test backend  | Deterministic transcript and screen assertions. |
 
 ## 25.10 Widget system considerations
 
@@ -2765,60 +2765,60 @@ Track exactly what you enabled and restore only those modes where possible.
 
 ## A.1 Common output sequences
 
-| Purpose | Sequence |
-|---|---|
-| Reset attributes | `CSI 0 m` |
-| Clear screen | `CSI 2 J` |
-| Clear scrollback | `CSI 3 J` |
-| Move cursor | `CSI row ; col H` |
-| Hide cursor | `CSI ? 25 l` |
-| Show cursor | `CSI ? 25 h` |
-| Enter alternate screen | `CSI ? 1049 h` |
-| Exit alternate screen | `CSI ? 1049 l` |
-| Enable bracketed paste | `CSI ? 2004 h` |
-| Disable bracketed paste | `CSI ? 2004 l` |
-| Enable SGR mouse | `CSI ? 1006 h` |
-| Enable mouse drag | `CSI ? 1002 h` |
-| Enable all mouse motion | `CSI ? 1003 h` |
-| Enable focus events | `CSI ? 1004 h` |
-| Begin synchronized output | `CSI ? 2026 h` |
-| End synchronized output | `CSI ? 2026 l` |
-| Set title | `OSC 2 ; title ST` |
-| Hyperlink start | `OSC 8 ; params ; uri ST` |
-| Hyperlink end | `OSC 8 ; ; ST` |
+| Purpose                   | Sequence                  |
+| ------------------------- | ------------------------- |
+| Reset attributes          | `CSI 0 m`                 |
+| Clear screen              | `CSI 2 J`                 |
+| Clear scrollback          | `CSI 3 J`                 |
+| Move cursor               | `CSI row ; col H`         |
+| Hide cursor               | `CSI ? 25 l`              |
+| Show cursor               | `CSI ? 25 h`              |
+| Enter alternate screen    | `CSI ? 1049 h`            |
+| Exit alternate screen     | `CSI ? 1049 l`            |
+| Enable bracketed paste    | `CSI ? 2004 h`            |
+| Disable bracketed paste   | `CSI ? 2004 l`            |
+| Enable SGR mouse          | `CSI ? 1006 h`            |
+| Enable mouse drag         | `CSI ? 1002 h`            |
+| Enable all mouse motion   | `CSI ? 1003 h`            |
+| Enable focus events       | `CSI ? 1004 h`            |
+| Begin synchronized output | `CSI ? 2026 h`            |
+| End synchronized output   | `CSI ? 2026 l`            |
+| Set title                 | `OSC 2 ; title ST`        |
+| Hyperlink start           | `OSC 8 ; params ; uri ST` |
+| Hyperlink end             | `OSC 8 ; ; ST`            |
 
 ## A.2 Common input sequences
 
-| Input | Sequence |
-|---|---|
-| Up | `CSI A` |
-| Down | `CSI B` |
-| Right | `CSI C` |
-| Left | `CSI D` |
-| Focus in | `CSI I` |
-| Focus out | `CSI O` |
-| Paste start | `CSI 200 ~` |
-| Paste end | `CSI 201 ~` |
-| SGR mouse press | `CSI < Cb ; Cx ; Cy M` |
-| SGR mouse release | `CSI < Cb ; Cx ; Cy m` |
-| Cursor position response | `CSI row ; col R` |
+| Input                    | Sequence               |
+| ------------------------ | ---------------------- |
+| Up                       | `CSI A`                |
+| Down                     | `CSI B`                |
+| Right                    | `CSI C`                |
+| Left                     | `CSI D`                |
+| Focus in                 | `CSI I`                |
+| Focus out                | `CSI O`                |
+| Paste start              | `CSI 200 ~`            |
+| Paste end                | `CSI 201 ~`            |
+| SGR mouse press          | `CSI < Cb ; Cx ; Cy M` |
+| SGR mouse release        | `CSI < Cb ; Cx ; Cy m` |
+| Cursor position response | `CSI row ; col R`      |
 
 ## A.3 Common SGR
 
-| Purpose | Sequence |
-|---|---|
-| Bold | `CSI 1 m` |
-| Dim | `CSI 2 m` |
-| Italic | `CSI 3 m` |
-| Underline | `CSI 4 m` |
-| Reverse | `CSI 7 m` |
-| Strike | `CSI 9 m` |
-| Foreground RGB | `CSI 38 ; 2 ; r ; g ; b m` |
-| Background RGB | `CSI 48 ; 2 ; r ; g ; b m` |
-| Foreground 256 | `CSI 38 ; 5 ; n m` |
-| Background 256 | `CSI 48 ; 5 ; n m` |
-| Reset foreground | `CSI 39 m` |
-| Reset background | `CSI 49 m` |
+| Purpose          | Sequence                   |
+| ---------------- | -------------------------- |
+| Bold             | `CSI 1 m`                  |
+| Dim              | `CSI 2 m`                  |
+| Italic           | `CSI 3 m`                  |
+| Underline        | `CSI 4 m`                  |
+| Reverse          | `CSI 7 m`                  |
+| Strike           | `CSI 9 m`                  |
+| Foreground RGB   | `CSI 38 ; 2 ; r ; g ; b m` |
+| Background RGB   | `CSI 48 ; 2 ; r ; g ; b m` |
+| Foreground 256   | `CSI 38 ; 5 ; n m`         |
+| Background 256   | `CSI 48 ; 5 ; n m`         |
+| Reset foreground | `CSI 39 m`                 |
+| Reset background | `CSI 49 m`                 |
 
 ---
 
@@ -2837,20 +2837,20 @@ Example JSON-like schema:
     "platform": "posix"
   },
   "screen": {
-    "alternate_screen": {"value": true, "source": "terminfo"},
-    "synchronized_output": {"value": true, "source": "probe"},
-    "cursor_shape": {"value": true, "source": "terminfo-extension"}
+    "alternate_screen": { "value": true, "source": "terminfo" },
+    "synchronized_output": { "value": true, "source": "probe" },
+    "cursor_shape": { "value": true, "source": "terminfo-extension" }
   },
   "colors": {
     "ansi_16": true,
     "palette_256": true,
-    "truecolor": {"value": true, "source": "env+terminfo"},
-    "underline_color": {"value": false, "source": "default"}
+    "truecolor": { "value": true, "source": "env+terminfo" },
+    "underline_color": { "value": false, "source": "default" }
   },
   "input": {
     "legacy": true,
     "xterm_modified_keys": true,
-    "kitty_keyboard": {"value": false, "source": "not-probed"},
+    "kitty_keyboard": { "value": false, "source": "not-probed" },
     "bracketed_paste": true
   },
   "mouse": {
@@ -2859,15 +2859,15 @@ Example JSON-like schema:
     "focus_events": true
   },
   "osc": {
-    "hyperlinks": {"value": true, "policy": "allow"},
-    "clipboard": {"value": true, "policy": "ask"},
-    "title": {"value": true, "policy": "allow"}
+    "hyperlinks": { "value": true, "policy": "allow" },
+    "clipboard": { "value": true, "policy": "ask" },
+    "title": { "value": true, "policy": "allow" }
   },
   "graphics": {
     "unicode_blocks": true,
-    "sixel": {"value": false, "source": "not-probed"},
-    "kitty": {"value": false, "source": "not-probed"},
-    "iterm2": {"value": false, "source": "env"}
+    "sixel": { "value": false, "source": "not-probed" },
+    "kitty": { "value": false, "source": "not-probed" },
+    "iterm2": { "value": false, "source": "env" }
   }
 }
 ```
@@ -3015,25 +3015,25 @@ Security requirement: no panic, no unbounded memory growth, no stuck parser stat
 
 # Glossary
 
-| Term | Meaning |
-|---|---|
-| ANSI escape sequence | Informal name for ECMA-48/ANSI-style terminal controls. |
-| APC | Application Program Command, string control introduced by `ESC _`. |
-| C0 | 7-bit control character range `0x00..0x1F` plus DEL. |
-| C1 | 8-bit control range `0x80..0x9F` or 7-bit ESC-prefixed equivalents. |
-| CSI | Control Sequence Introducer, `ESC [` or `0x9B`. |
-| DCS | Device Control String, `ESC P` or `0x90`. |
-| DECSET | DEC private mode set, `CSI ? Ps h`. |
-| DECRST | DEC private mode reset, `CSI ? Ps l`. |
-| ECMA-48 | Formal standard defining terminal control functions. |
-| Grapheme cluster | User-perceived character, possibly multiple Unicode code points. |
-| OSC | Operating System Command, `ESC ]`. |
-| PTY | Pseudo-terminal. |
-| SGR | Select Graphic Rendition, `CSI ... m`. |
-| Sixel | DEC raster graphics protocol using DCS. |
-| ST | String Terminator, `ESC \` or C1 `0x9C`. |
-| TTY | Teletype/terminal device abstraction. |
-| xterm | Terminal emulator and de facto reference for many extensions. |
+| Term                 | Meaning                                                             |
+| -------------------- | ------------------------------------------------------------------- |
+| ANSI escape sequence | Informal name for ECMA-48/ANSI-style terminal controls.             |
+| APC                  | Application Program Command, string control introduced by `ESC _`.  |
+| C0                   | 7-bit control character range `0x00..0x1F` plus DEL.                |
+| C1                   | 8-bit control range `0x80..0x9F` or 7-bit ESC-prefixed equivalents. |
+| CSI                  | Control Sequence Introducer, `ESC [` or `0x9B`.                     |
+| DCS                  | Device Control String, `ESC P` or `0x90`.                           |
+| DECSET               | DEC private mode set, `CSI ? Ps h`.                                 |
+| DECRST               | DEC private mode reset, `CSI ? Ps l`.                               |
+| ECMA-48              | Formal standard defining terminal control functions.                |
+| Grapheme cluster     | User-perceived character, possibly multiple Unicode code points.    |
+| OSC                  | Operating System Command, `ESC ]`.                                  |
+| PTY                  | Pseudo-terminal.                                                    |
+| SGR                  | Select Graphic Rendition, `CSI ... m`.                              |
+| Sixel                | DEC raster graphics protocol using DCS.                             |
+| ST                   | String Terminator, `ESC \` or C1 `0x9C`.                            |
+| TTY                  | Teletype/terminal device abstraction.                               |
+| xterm                | Terminal emulator and de facto reference for many extensions.       |
 
 ---
 
@@ -3160,124 +3160,124 @@ This is a compact engineering catalog. Not every function is implemented by ever
 
 ## F.1 C0 control functions
 
-| Code | Mnemonic | Name | TUI relevance |
-|---:|---|---|---|
-| 0x00 | NUL | Null | padding/ignored |
-| 0x01 | SOH | Start of Heading | input control key only |
-| 0x02 | STX | Start of Text | input control key only |
-| 0x03 | ETX | End of Text | Ctrl+C / signal |
-| 0x04 | EOT | End of Transmission | Ctrl+D / EOF in canonical mode |
-| 0x05 | ENQ | Enquiry | may trigger answerback historically |
-| 0x06 | ACK | Acknowledge | rarely used |
-| 0x07 | BEL | Bell | alert / OSC terminator |
-| 0x08 | BS | Backspace | cursor left |
-| 0x09 | HT | Horizontal Tab | tab stops |
-| 0x0A | LF | Line Feed | newline/scroll |
-| 0x0B | VT | Vertical Tab | rarely used |
-| 0x0C | FF | Form Feed | rarely used |
-| 0x0D | CR | Carriage Return | column 1 |
-| 0x0E | SO | Shift Out | invoke G1 |
-| 0x0F | SI | Shift In | invoke G0 |
-| 0x10 | DLE | Data Link Escape | rarely used |
-| 0x11 | DC1 | XON | flow control |
-| 0x12 | DC2 | Device Control 2 | rarely used |
-| 0x13 | DC3 | XOFF | flow control |
-| 0x14 | DC4 | Device Control 4 | rarely used |
-| 0x15 | NAK | Negative Ack | Ctrl+U line kill historically |
-| 0x16 | SYN | Synchronous Idle | rarely used |
-| 0x17 | ETB | End Transmission Block | rarely used |
-| 0x18 | CAN | Cancel | abort sequence |
-| 0x19 | EM | End of Medium | rarely used |
-| 0x1A | SUB | Substitute | abort/replace |
-| 0x1B | ESC | Escape | sequence introducer |
-| 0x1C | FS | File Separator | rarely used |
-| 0x1D | GS | Group Separator | rarely used |
-| 0x1E | RS | Record Separator | rarely used |
-| 0x1F | US | Unit Separator | rarely used |
-| 0x7F | DEL | Delete | input erase in some modes |
+| Code | Mnemonic | Name                   | TUI relevance                       |
+| ---: | -------- | ---------------------- | ----------------------------------- |
+| 0x00 | NUL      | Null                   | padding/ignored                     |
+| 0x01 | SOH      | Start of Heading       | input control key only              |
+| 0x02 | STX      | Start of Text          | input control key only              |
+| 0x03 | ETX      | End of Text            | Ctrl+C / signal                     |
+| 0x04 | EOT      | End of Transmission    | Ctrl+D / EOF in canonical mode      |
+| 0x05 | ENQ      | Enquiry                | may trigger answerback historically |
+| 0x06 | ACK      | Acknowledge            | rarely used                         |
+| 0x07 | BEL      | Bell                   | alert / OSC terminator              |
+| 0x08 | BS       | Backspace              | cursor left                         |
+| 0x09 | HT       | Horizontal Tab         | tab stops                           |
+| 0x0A | LF       | Line Feed              | newline/scroll                      |
+| 0x0B | VT       | Vertical Tab           | rarely used                         |
+| 0x0C | FF       | Form Feed              | rarely used                         |
+| 0x0D | CR       | Carriage Return        | column 1                            |
+| 0x0E | SO       | Shift Out              | invoke G1                           |
+| 0x0F | SI       | Shift In               | invoke G0                           |
+| 0x10 | DLE      | Data Link Escape       | rarely used                         |
+| 0x11 | DC1      | XON                    | flow control                        |
+| 0x12 | DC2      | Device Control 2       | rarely used                         |
+| 0x13 | DC3      | XOFF                   | flow control                        |
+| 0x14 | DC4      | Device Control 4       | rarely used                         |
+| 0x15 | NAK      | Negative Ack           | Ctrl+U line kill historically       |
+| 0x16 | SYN      | Synchronous Idle       | rarely used                         |
+| 0x17 | ETB      | End Transmission Block | rarely used                         |
+| 0x18 | CAN      | Cancel                 | abort sequence                      |
+| 0x19 | EM       | End of Medium          | rarely used                         |
+| 0x1A | SUB      | Substitute             | abort/replace                       |
+| 0x1B | ESC      | Escape                 | sequence introducer                 |
+| 0x1C | FS       | File Separator         | rarely used                         |
+| 0x1D | GS       | Group Separator        | rarely used                         |
+| 0x1E | RS       | Record Separator       | rarely used                         |
+| 0x1F | US       | Unit Separator         | rarely used                         |
+| 0x7F | DEL      | Delete                 | input erase in some modes           |
 
 ## F.2 C1 control functions
 
-| 8-bit | 7-bit | Mnemonic | Meaning |
-|---:|---|---|---|
-| 0x80 | `ESC @` | PAD | Padding character |
-| 0x81 | `ESC A` | HOP | High octet preset |
-| 0x82 | `ESC B` | BPH | Break permitted here |
-| 0x83 | `ESC C` | NBH | No break here |
-| 0x84 | `ESC D` | IND | Index |
-| 0x85 | `ESC E` | NEL | Next line |
-| 0x86 | `ESC F` | SSA | Start selected area |
-| 0x87 | `ESC G` | ESA | End selected area |
-| 0x88 | `ESC H` | HTS | Horizontal tab set |
-| 0x89 | `ESC I` | HTJ | Horizontal tab with justification |
-| 0x8A | `ESC J` | VTS | Vertical tab set |
-| 0x8B | `ESC K` | PLD | Partial line down |
-| 0x8C | `ESC L` | PLU | Partial line up |
-| 0x8D | `ESC M` | RI | Reverse index |
-| 0x8E | `ESC N` | SS2 | Single shift 2 |
-| 0x8F | `ESC O` | SS3 | Single shift 3 |
-| 0x90 | `ESC P` | DCS | Device control string |
-| 0x91 | `ESC Q` | PU1 | Private use 1 |
-| 0x92 | `ESC R` | PU2 | Private use 2 |
-| 0x93 | `ESC S` | STS | Set transmit state |
-| 0x94 | `ESC T` | CCH | Cancel character |
-| 0x95 | `ESC U` | MW | Message waiting |
-| 0x96 | `ESC V` | SPA | Start protected area |
-| 0x97 | `ESC W` | EPA | End protected area |
-| 0x98 | `ESC X` | SOS | Start of string |
-| 0x99 | `ESC Y` | SGCI | Single graphic character introducer |
-| 0x9A | `ESC Z` | SCI | Single character introducer |
-| 0x9B | `ESC [` | CSI | Control sequence introducer |
-| 0x9C | `ESC \\` | ST | String terminator |
-| 0x9D | `ESC ]` | OSC | Operating system command |
-| 0x9E | `ESC ^` | PM | Privacy message |
-| 0x9F | `ESC _` | APC | Application program command |
+| 8-bit | 7-bit    | Mnemonic | Meaning                             |
+| ----: | -------- | -------- | ----------------------------------- |
+|  0x80 | `ESC @`  | PAD      | Padding character                   |
+|  0x81 | `ESC A`  | HOP      | High octet preset                   |
+|  0x82 | `ESC B`  | BPH      | Break permitted here                |
+|  0x83 | `ESC C`  | NBH      | No break here                       |
+|  0x84 | `ESC D`  | IND      | Index                               |
+|  0x85 | `ESC E`  | NEL      | Next line                           |
+|  0x86 | `ESC F`  | SSA      | Start selected area                 |
+|  0x87 | `ESC G`  | ESA      | End selected area                   |
+|  0x88 | `ESC H`  | HTS      | Horizontal tab set                  |
+|  0x89 | `ESC I`  | HTJ      | Horizontal tab with justification   |
+|  0x8A | `ESC J`  | VTS      | Vertical tab set                    |
+|  0x8B | `ESC K`  | PLD      | Partial line down                   |
+|  0x8C | `ESC L`  | PLU      | Partial line up                     |
+|  0x8D | `ESC M`  | RI       | Reverse index                       |
+|  0x8E | `ESC N`  | SS2      | Single shift 2                      |
+|  0x8F | `ESC O`  | SS3      | Single shift 3                      |
+|  0x90 | `ESC P`  | DCS      | Device control string               |
+|  0x91 | `ESC Q`  | PU1      | Private use 1                       |
+|  0x92 | `ESC R`  | PU2      | Private use 2                       |
+|  0x93 | `ESC S`  | STS      | Set transmit state                  |
+|  0x94 | `ESC T`  | CCH      | Cancel character                    |
+|  0x95 | `ESC U`  | MW       | Message waiting                     |
+|  0x96 | `ESC V`  | SPA      | Start protected area                |
+|  0x97 | `ESC W`  | EPA      | End protected area                  |
+|  0x98 | `ESC X`  | SOS      | Start of string                     |
+|  0x99 | `ESC Y`  | SGCI     | Single graphic character introducer |
+|  0x9A | `ESC Z`  | SCI      | Single character introducer         |
+|  0x9B | `ESC [`  | CSI      | Control sequence introducer         |
+|  0x9C | `ESC \\` | ST       | String terminator                   |
+|  0x9D | `ESC ]`  | OSC      | Operating system command            |
+|  0x9E | `ESC ^`  | PM       | Privacy message                     |
+|  0x9F | `ESC _`  | APC      | Application program command         |
 
 ## F.3 Additional CSI functions often forgotten
 
-| Function | Sequence | Notes |
-|---|---|---|
-| ICH | `CSI Ps @` | Insert blank chars. |
-| SL | `CSI Ps SP @` | Shift left; not universally supported. |
-| SR | `CSI Ps SP A` | Shift right; not universally supported. |
-| GSM | `CSI Ps ; Ps SP B` | Graphic size modification; rarely supported. |
-| GSS | `CSI Ps SP C` | Graphic size selection; rarely supported. |
-| FNT | `CSI Ps ; Ps SP D` | Font selection; rarely supported. |
-| TSS | `CSI Ps SP E` | Thin space specification. |
-| JFY | `CSI Ps SP F` | Justify. |
-| SPI | `CSI Ps ; Ps SP G` | Spacing increment. |
-| QUAD | `CSI Ps SP H` | Quad. |
-| SSU | `CSI Ps SP I` | Select size unit. |
-| PFS | `CSI Ps SP J` | Page format selection. |
-| SHS | `CSI Ps SP K` | Select horizontal spacing. |
-| SVS | `CSI Ps SP L` | Select vertical spacing. |
-| IGS | `CSI Ps SP M` | Identify graphic subrepertoire. |
-| IDCS | `CSI Ps SP O` | Identify device control string. |
-| PPA | `CSI Ps SP P` | Page position absolute. |
-| PPR | `CSI Ps SP Q` | Page position relative. |
-| PPB | `CSI Ps SP R` | Page position backward. |
-| SPD | `CSI Ps SP S` | Select presentation directions. |
-| DTA | `CSI Ps ; Ps SP T` | Dimension text area. |
-| SHL | `CSI Ps SP U` | Select character path / line orientation. |
-| SLL | `CSI Ps SP V` | Set line limit. |
-| FNK | `CSI Ps SP W` | Function key. |
-| SPQR | `CSI Ps SP X` | Select print quality and rapidity. |
-| SEF | `CSI Ps ; Ps SP Y` | Sheet eject and feed. |
-| PEC | `CSI Ps SP Z` | Presentation expand/compress. |
-| SSW | `CSI Ps SP [` | Set space width. |
-| SACS | `CSI Ps SP \\` | Set additional character separation. |
-| SAPV | `CSI Ps SP ]` | Select alternative presentation variants. |
-| STAB | `CSI Ps SP ^` | Selective tabulation. |
-| GCC | `CSI Ps SP _` | Graphic character combination. |
-| TATE | `CSI Ps SP `` | Tabulation aligned trailing edge. |
-| TALE | `CSI Ps SP a` | Tabulation aligned leading edge. |
-| TAC | `CSI Ps SP b` | Tabulation aligned centered. |
-| TCC | `CSI Ps SP c` | Tabulation centered on character. |
-| TSR | `CSI Ps SP d` | Tabulation stop remove. |
-| SCO | `CSI Ps SP e` | Select character orientation. |
-| SRCS | `CSI Ps SP f` | Set reduced character separation. |
-| SCS | `CSI Ps SP g` | Set character spacing. |
-| SLS | `CSI Ps SP h` | Set line spacing. |
+| Function | Sequence           | Notes                                        |
+| -------- | ------------------ | -------------------------------------------- |
+| ICH      | `CSI Ps @`         | Insert blank chars.                          |
+| SL       | `CSI Ps SP @`      | Shift left; not universally supported.       |
+| SR       | `CSI Ps SP A`      | Shift right; not universally supported.      |
+| GSM      | `CSI Ps ; Ps SP B` | Graphic size modification; rarely supported. |
+| GSS      | `CSI Ps SP C`      | Graphic size selection; rarely supported.    |
+| FNT      | `CSI Ps ; Ps SP D` | Font selection; rarely supported.            |
+| TSS      | `CSI Ps SP E`      | Thin space specification.                    |
+| JFY      | `CSI Ps SP F`      | Justify.                                     |
+| SPI      | `CSI Ps ; Ps SP G` | Spacing increment.                           |
+| QUAD     | `CSI Ps SP H`      | Quad.                                        |
+| SSU      | `CSI Ps SP I`      | Select size unit.                            |
+| PFS      | `CSI Ps SP J`      | Page format selection.                       |
+| SHS      | `CSI Ps SP K`      | Select horizontal spacing.                   |
+| SVS      | `CSI Ps SP L`      | Select vertical spacing.                     |
+| IGS      | `CSI Ps SP M`      | Identify graphic subrepertoire.              |
+| IDCS     | `CSI Ps SP O`      | Identify device control string.              |
+| PPA      | `CSI Ps SP P`      | Page position absolute.                      |
+| PPR      | `CSI Ps SP Q`      | Page position relative.                      |
+| PPB      | `CSI Ps SP R`      | Page position backward.                      |
+| SPD      | `CSI Ps SP S`      | Select presentation directions.              |
+| DTA      | `CSI Ps ; Ps SP T` | Dimension text area.                         |
+| SHL      | `CSI Ps SP U`      | Select character path / line orientation.    |
+| SLL      | `CSI Ps SP V`      | Set line limit.                              |
+| FNK      | `CSI Ps SP W`      | Function key.                                |
+| SPQR     | `CSI Ps SP X`      | Select print quality and rapidity.           |
+| SEF      | `CSI Ps ; Ps SP Y` | Sheet eject and feed.                        |
+| PEC      | `CSI Ps SP Z`      | Presentation expand/compress.                |
+| SSW      | `CSI Ps SP [`      | Set space width.                             |
+| SACS     | `CSI Ps SP \\`     | Set additional character separation.         |
+| SAPV     | `CSI Ps SP ]`      | Select alternative presentation variants.    |
+| STAB     | `CSI Ps SP ^`      | Selective tabulation.                        |
+| GCC      | `CSI Ps SP _`      | Graphic character combination.               |
+| TATE     | `CSI Ps SP ``      | Tabulation aligned trailing edge.            |
+| TALE     | `CSI Ps SP a`      | Tabulation aligned leading edge.             |
+| TAC      | `CSI Ps SP b`      | Tabulation aligned centered.                 |
+| TCC      | `CSI Ps SP c`      | Tabulation centered on character.            |
+| TSR      | `CSI Ps SP d`      | Tabulation stop remove.                      |
+| SCO      | `CSI Ps SP e`      | Select character orientation.                |
+| SRCS     | `CSI Ps SP f`      | Set reduced character separation.            |
+| SCS      | `CSI Ps SP g`      | Set character spacing.                       |
+| SLS      | `CSI Ps SP h`      | Set line spacing.                            |
 
 Many of these are formal ECMA-48 functions but are effectively irrelevant to mainstream terminal emulators. A parser should recognize their syntax; a renderer can ignore them unless implementing full ECMA conformance.
 
@@ -3287,36 +3287,36 @@ Many of these are formal ECMA-48 functions but are effectively irrelevant to mai
 
 ## G.1 Reset and alignment
 
-| Sequence | Name | Meaning |
-|---|---|---|
-| `ESC c` | RIS | Full reset / Reset to Initial State. Dangerous in apps. |
-| `ESC # 8` | DECALN | Screen alignment test; fills screen with `E`. |
-| `CSI ! p` | DECSTR | Soft terminal reset. |
+| Sequence  | Name   | Meaning                                                 |
+| --------- | ------ | ------------------------------------------------------- |
+| `ESC c`   | RIS    | Full reset / Reset to Initial State. Dangerous in apps. |
+| `ESC # 8` | DECALN | Screen alignment test; fills screen with `E`.           |
+| `CSI ! p` | DECSTR | Soft terminal reset.                                    |
 
 ## G.2 DEC selective erase
 
 Selective erase affects erasable/protected cells depending character protection modes.
 
-| Sequence | Name | Meaning |
-|---|---|---|
+| Sequence     | Name   | Meaning                     |
+| ------------ | ------ | --------------------------- |
 | `CSI ? Ps J` | DECSED | Selective erase in display. |
-| `CSI ? Ps K` | DECSEL | Selective erase in line. |
+| `CSI ? Ps K` | DECSEL | Selective erase in line.    |
 
 Most TUIs do not use protected fields; support varies.
 
 ## G.3 Rectangular attribute operations
 
-| Sequence | Name | Meaning |
-|---|---|---|
-| `CSI Pt ; Pl ; Pb ; Pr ; Ps $ r` | DECCARA | Change attributes in rectangle. |
-| `CSI Pt ; Pl ; Pb ; Pr ; Ps $ t` | DECRARA | Reverse attributes in rectangle. |
-| `CSI Ps * x` | DECSACE | Select attribute change extent. |
-| `CSI Pt ; Pl ; Pb ; Pr $ w` | DECRQCRA | Request checksum of rectangular area. |
+| Sequence                         | Name     | Meaning                               |
+| -------------------------------- | -------- | ------------------------------------- |
+| `CSI Pt ; Pl ; Pb ; Pr ; Ps $ r` | DECCARA  | Change attributes in rectangle.       |
+| `CSI Pt ; Pl ; Pb ; Pr ; Ps $ t` | DECRARA  | Reverse attributes in rectangle.      |
+| `CSI Ps * x`                     | DECSACE  | Select attribute change extent.       |
+| `CSI Pt ; Pl ; Pb ; Pr $ w`      | DECRQCRA | Request checksum of rectangular area. |
 
 ## G.4 Column insertion/deletion
 
-| Sequence | Name | Meaning |
-|---|---|---|
+| Sequence     | Name  | Meaning         |
+| ------------ | ----- | --------------- |
 | `CSI Ps ' }` | DECIC | Insert columns. |
 | `CSI Ps ' ~` | DECDC | Delete columns. |
 
@@ -3324,22 +3324,22 @@ Useful for terminal emulators/editors but rarely used by modern diff renderers.
 
 ## G.5 xterm SGR stack and palette stack
 
-| Sequence | Meaning |
-|---|---|
-| `CSI # {` | Push SGR stack. |
-| `CSI # }` | Pop SGR stack. |
+| Sequence  | Meaning             |
+| --------- | ------------------- |
+| `CSI # {` | Push SGR stack.     |
+| `CSI # }` | Pop SGR stack.      |
 | `CSI # P` | Push color palette. |
-| `CSI # Q` | Pop color palette. |
+| `CSI # Q` | Pop color palette.  |
 
 These are not universal. Prefer explicit style tracking in the framework.
 
 ## G.6 XTVERSION and resource queries
 
-| Sequence | Meaning |
-|---|---|
+| Sequence                           | Meaning                                            |
+| ---------------------------------- | -------------------------------------------------- |
 | `CSI > 0 q` or related xterm forms | Request terminal version depending implementation. |
-| `DCS + Q ... ST` | XTGETXRES query xterm resource value. |
-| `DCS + q ... ST` | XTGETTCAP query termcap/terminfo capability. |
+| `DCS + Q ... ST`                   | XTGETXRES query xterm resource value.              |
+| `DCS + q ... ST`                   | XTGETTCAP query termcap/terminfo capability.       |
 
 Exact forms and responses should be implemented from xterm documentation and tested.
 
@@ -3349,53 +3349,53 @@ Exact forms and responses should be implemented from xterm documentation and tes
 
 This list is intentionally broad. Many entries are terminal-specific and should be gated.
 
-| OSC | Common meaning | Portability |
-|---:|---|---|
-| 0 | Icon + window title | common |
-| 1 | Icon name | common |
-| 2 | Window title | common |
-| 3 | xterm property | xterm-specific |
-| 4 | Palette color set/query | xterm-like |
-| 5 | Special color | xterm-like |
-| 6 | Special color variant | limited |
-| 7 | Current directory URI | common modern shell integration |
-| 8 | Hyperlink | common modern |
-| 9 | Notification / iTerm2 variants | nonstandard |
-| 9;4 | Progress indicator in some terminals | nonstandard |
-| 10 | Foreground color | xterm-like |
-| 11 | Background color | xterm-like |
-| 12 | Cursor color | xterm-like |
-| 17 | Highlight background | xterm-like |
-| 19 | Highlight foreground | xterm-like |
-| 21 | Kitty color protocol / terminal-specific | nonstandard |
-| 22 | Pointer shape in some ecosystems | nonstandard |
-| 50 | Font in xterm / historical conflict with iTerm2 | avoid |
-| 52 | Clipboard | common but security-gated |
-| 66 | Text sizing in some ecosystems | nonstandard |
-| 99 | Kitty desktop notifications | modern extension |
-| 104 | Reset palette | xterm-like |
-| 105 | Reset special color | xterm-like |
-| 110 | Reset foreground | xterm-like |
-| 111 | Reset background | xterm-like |
-| 112 | Reset cursor color | xterm-like |
-| 113/114 | Reset pointer colors | terminal-specific |
-| 117/119 | Reset highlight colors | xterm-like |
-| 133 | Shell integration marks | common modern |
-| 176 | Wayland app-id in some terminals | terminal-specific |
-| 440 | Audio/sound in some terminals | terminal-specific |
-| 555 | Screen flash in some terminals | terminal-specific |
-| 633 | VS Code shell integration | host-specific |
-| 666 | VTE termprops | VTE-specific |
-| 701/702 | Locale/version query-set variants | terminal-specific |
-| 710 | Font query/set variants | terminal-specific |
-| 720 | Scroll view variants | terminal-specific |
-| 776 | Cell size report variants | terminal-specific |
-| 777 | Notification variants | terminal-specific |
-| 1337 | iTerm2 proprietary protocols | iTerm2/compatible |
-| 3008 | systemd context | specific ecosystem |
-| 5522 | advanced clipboard variants | emerging/nonstandard |
-| 7770/7777 | font/window sizing variants | terminal-specific |
-| 30001/30101 | Kitty color stack push/pop | Kitty-specific |
+|         OSC | Common meaning                                  | Portability                     |
+| ----------: | ----------------------------------------------- | ------------------------------- |
+|           0 | Icon + window title                             | common                          |
+|           1 | Icon name                                       | common                          |
+|           2 | Window title                                    | common                          |
+|           3 | xterm property                                  | xterm-specific                  |
+|           4 | Palette color set/query                         | xterm-like                      |
+|           5 | Special color                                   | xterm-like                      |
+|           6 | Special color variant                           | limited                         |
+|           7 | Current directory URI                           | common modern shell integration |
+|           8 | Hyperlink                                       | common modern                   |
+|           9 | Notification / iTerm2 variants                  | nonstandard                     |
+|         9;4 | Progress indicator in some terminals            | nonstandard                     |
+|          10 | Foreground color                                | xterm-like                      |
+|          11 | Background color                                | xterm-like                      |
+|          12 | Cursor color                                    | xterm-like                      |
+|          17 | Highlight background                            | xterm-like                      |
+|          19 | Highlight foreground                            | xterm-like                      |
+|          21 | Kitty color protocol / terminal-specific        | nonstandard                     |
+|          22 | Pointer shape in some ecosystems                | nonstandard                     |
+|          50 | Font in xterm / historical conflict with iTerm2 | avoid                           |
+|          52 | Clipboard                                       | common but security-gated       |
+|          66 | Text sizing in some ecosystems                  | nonstandard                     |
+|          99 | Kitty desktop notifications                     | modern extension                |
+|         104 | Reset palette                                   | xterm-like                      |
+|         105 | Reset special color                             | xterm-like                      |
+|         110 | Reset foreground                                | xterm-like                      |
+|         111 | Reset background                                | xterm-like                      |
+|         112 | Reset cursor color                              | xterm-like                      |
+|     113/114 | Reset pointer colors                            | terminal-specific               |
+|     117/119 | Reset highlight colors                          | xterm-like                      |
+|         133 | Shell integration marks                         | common modern                   |
+|         176 | Wayland app-id in some terminals                | terminal-specific               |
+|         440 | Audio/sound in some terminals                   | terminal-specific               |
+|         555 | Screen flash in some terminals                  | terminal-specific               |
+|         633 | VS Code shell integration                       | host-specific                   |
+|         666 | VTE termprops                                   | VTE-specific                    |
+|     701/702 | Locale/version query-set variants               | terminal-specific               |
+|         710 | Font query/set variants                         | terminal-specific               |
+|         720 | Scroll view variants                            | terminal-specific               |
+|         776 | Cell size report variants                       | terminal-specific               |
+|         777 | Notification variants                           | terminal-specific               |
+|        1337 | iTerm2 proprietary protocols                    | iTerm2/compatible               |
+|        3008 | systemd context                                 | specific ecosystem              |
+|        5522 | advanced clipboard variants                     | emerging/nonstandard            |
+|   7770/7777 | font/window sizing variants                     | terminal-specific               |
+| 30001/30101 | Kitty color stack push/pop                      | Kitty-specific                  |
 
 Policy: unknown OSC sequences from untrusted data should be stripped or visibly escaped.
 
@@ -3511,7 +3511,6 @@ If you want to push beyond this v3 into an archival corpus, collect and index:
 
 This v3 is structured so those sources can be added as machine-readable entries later.
 
-
 ---
 
 # Part IX — Terminal-by-Terminal Standards Profiles
@@ -3526,34 +3525,34 @@ This v3 is structured so those sources can be added as machine-readable entries 
 
 Use these labels consistently in the framework:
 
-| Label | Meaning | Examples |
-|---|---|---|
-| **FORMAL** | Published general standard or operating-system standard | ASCII, ISO 646, ISO 2022, ECMA-35, ECMA-48 / ISO 6429, POSIX `termios`, Unicode |
-| **DEC** | DEC hardware terminal behavior or DEC private extensions | VT52, VT100, VT102, VT220, VT320, VT420, VT510/520/525, DEC private modes, DEC Special Graphics, Sixel, ReGIS |
-| **XTERM** | xterm behavior used as a de facto compatibility target | xterm `ctlseqs`, OSC 4/8/10/11/12/52, focus tracking, bracketed paste, modifyOtherKeys, SGR mouse, XTGETTCAP |
-| **VTE** | GNOME/VTE behavior and conventions | OSC 7 current directory, OSC 8 hyperlinks, VTE environment variables, some semantic prompt conventions |
-| **KITTY** | Kitty-originated extensions | Kitty keyboard protocol, Kitty graphics protocol, Kitty color stack, Kitty pointer and desktop extensions |
-| **ITERM2** | iTerm2-originated extensions | OSC 1337 inline images, ReportCellSize, Copy, annotations, proprietary shell integration helpers |
-| **FINALTERM** | Semantic prompt marks adopted by iTerm2, WezTerm, VS Code, etc. | OSC 133 A/B/C/D/P |
-| **VSCODE** | VS Code integrated terminal extensions | OSC 633 prompt integration and command metadata |
-| **WINDOWS** | Microsoft console / ConPTY / Windows Terminal behavior | Win32 Console API, ENABLE_VIRTUAL_TERMINAL_PROCESSING, VT input mode, ConPTY bridge |
-| **WEB** | Browser terminal implementations and constraints | xterm.js parser, hterm, sandboxed OSC handling |
-| **MULTIPLEXER** | Terminal multiplexer protocol translation and passthrough | tmux, GNU screen, Zellij, WezTerm mux |
-| **PROPRIETARY** | Vendor-specific behavior with no broad standardization | Warp blocks, older terminal-specific escape codes, terminal app automation APIs |
+| Label           | Meaning                                                         | Examples                                                                                                      |
+| --------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **FORMAL**      | Published general standard or operating-system standard         | ASCII, ISO 646, ISO 2022, ECMA-35, ECMA-48 / ISO 6429, POSIX `termios`, Unicode                               |
+| **DEC**         | DEC hardware terminal behavior or DEC private extensions        | VT52, VT100, VT102, VT220, VT320, VT420, VT510/520/525, DEC private modes, DEC Special Graphics, Sixel, ReGIS |
+| **XTERM**       | xterm behavior used as a de facto compatibility target          | xterm `ctlseqs`, OSC 4/8/10/11/12/52, focus tracking, bracketed paste, modifyOtherKeys, SGR mouse, XTGETTCAP  |
+| **VTE**         | GNOME/VTE behavior and conventions                              | OSC 7 current directory, OSC 8 hyperlinks, VTE environment variables, some semantic prompt conventions        |
+| **KITTY**       | Kitty-originated extensions                                     | Kitty keyboard protocol, Kitty graphics protocol, Kitty color stack, Kitty pointer and desktop extensions     |
+| **ITERM2**      | iTerm2-originated extensions                                    | OSC 1337 inline images, ReportCellSize, Copy, annotations, proprietary shell integration helpers              |
+| **FINALTERM**   | Semantic prompt marks adopted by iTerm2, WezTerm, VS Code, etc. | OSC 133 A/B/C/D/P                                                                                             |
+| **VSCODE**      | VS Code integrated terminal extensions                          | OSC 633 prompt integration and command metadata                                                               |
+| **WINDOWS**     | Microsoft console / ConPTY / Windows Terminal behavior          | Win32 Console API, ENABLE_VIRTUAL_TERMINAL_PROCESSING, VT input mode, ConPTY bridge                           |
+| **WEB**         | Browser terminal implementations and constraints                | xterm.js parser, hterm, sandboxed OSC handling                                                                |
+| **MULTIPLEXER** | Terminal multiplexer protocol translation and passthrough       | tmux, GNU screen, Zellij, WezTerm mux                                                                         |
+| **PROPRIETARY** | Vendor-specific behavior with no broad standardization          | Warp blocks, older terminal-specific escape codes, terminal app automation APIs                               |
 
 ### IX.1.2 Capability Levels
 
 Use these levels instead of a boolean whenever possible:
 
-| Level | Meaning |
-|---|---|
-| **Native** | The terminal implements the protocol itself. |
-| **Compatible** | The terminal intentionally emulates another protocol well enough for applications. |
-| **Partial** | Some sequences work, but not the complete protocol or not all modes. |
-| **Config-gated** | Works only when a setting is enabled. |
-| **Proxy** | Works only through a passthrough mechanism or a multiplexer translation layer. |
-| **Blocked** | The terminal, OS layer, multiplexer, browser, or security policy blocks it. |
-| **Unknown** | Do not assume support. Probe or fall back. |
+| Level            | Meaning                                                                            |
+| ---------------- | ---------------------------------------------------------------------------------- |
+| **Native**       | The terminal implements the protocol itself.                                       |
+| **Compatible**   | The terminal intentionally emulates another protocol well enough for applications. |
+| **Partial**      | Some sequences work, but not the complete protocol or not all modes.               |
+| **Config-gated** | Works only when a setting is enabled.                                              |
+| **Proxy**        | Works only through a passthrough mechanism or a multiplexer translation layer.     |
+| **Blocked**      | The terminal, OS layer, multiplexer, browser, or security policy blocks it.        |
+| **Unknown**      | Do not assume support. Probe or fall back.                                         |
 
 ### IX.1.3 Framework Policy from a Profile
 
@@ -3589,28 +3588,28 @@ TerminalProfile {
 
 Legend: `N` = native, `C` = compatible, `P` = partial, `G` = gated/configurable, `X` = generally unsupported, `?` = version-dependent or must probe.
 
-| Terminal / Environment | ECMA-48 / ANSI | DEC VT / xterm | terminfo | Truecolor | OSC 8 | OSC 52 | Bracketed Paste | Focus | SGR Mouse | Kitty Keyboard | modifyOtherKeys / CSI-u | Sixel | Kitty Graphics | iTerm2 Images | Shell Marks | Notes |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| **xterm** | N | N | N | C | C | C/G | C | C | C | X | N | G | X | X | P | De facto reference for many control sequences. |
-| **VTE / GNOME Terminal** | C | C | N | C | C | G | C | C | C | X/P | P | X/P | X | X | C | Common Linux desktop baseline. |
-| **Konsole** | C | C | N | C | C | G | C | C | C | P/? | P/? | C/G | P/? | X/P | C | KDE terminal; features vary by version. |
-| **iTerm2** | C | C | N | C | N | G | C | C | C | P | P | P/? | P/? | N | N | macOS-only, rich OSC 1337 ecosystem. |
-| **Terminal.app** | C | C/P | N | C | P/? | X/P | C | P | C/P | X | X/P | X | X | X | P | Conservative macOS terminal. |
-| **Kitty** | C | C | N | N | N | G | N | N | N | N | N | X | N | P/C | N | Origin of Kitty keyboard/graphics. |
-| **WezTerm** | C | C | N | N | N | G | N | N | N | N/G | N/G | C/G | P/C | N/C | N | Cross-platform terminal + multiplexer. |
-| **Ghostty** | C | C | N | N | N | G | N | N | N | N | P/? | X by design? | N | P/? | N | Modern xterm-compatible terminal. |
-| **Alacritty** | C | C | N | N | N | G | N | N | N | P/N depending version | P/N | X | X/P | X | P | Minimal terminal; avoids many rich protocols. |
-| **foot** | C | C | N | N | N | G | N | N | N | P/N | P/N | N | X | X | P | Wayland-focused, strong Sixel support. |
-| **Windows Terminal** | P/C | C via VT layer | P | C | C | P/G | C | P | C | P/? | P/? | P/? | X/P | P/? | C/P | Depends on ConPTY and app mode. |
-| **Windows Console Host** | P | P | P | P | X/P | X/P | P | X/P | P | X | X/P | X | X | X | X/P | Historically API-first, VT layer added later. |
-| **mintty** | C | C | N | N | N | G | N | N | N | P/? | P | N | X/P | P | C | Cygwin/MSYS2 terminal; xterm-like. |
-| **PuTTY** | P/C | P/C | N | P/C | P/? | G | C | P | P/C | X | P | X/P | X | X | P | SSH client with independent terminal emulator. |
-| **tmux** | Proxy | Proxy | Own entries | Proxy | Proxy/G | Proxy/G | Proxy | Proxy | Proxy | Proxy/P | Proxy/P | Proxy/G | Proxy/G | Proxy/G | Proxy/G | Must handle outer terminal separately. |
-| **GNU screen** | Proxy | Proxy/P | Own entries | P | P/X | P/X | P | P/X | P | X | X/P | X/P | X | X | P/X | Older multiplexer, more destructive to extensions. |
-| **Zellij** | Proxy | Proxy | Own behavior | Proxy | Proxy | Proxy/G | Proxy | Proxy | Proxy | P/? | P/? | Proxy/G | Proxy/G | Proxy/G | Proxy | Rust multiplexer; support evolves quickly. |
-| **xterm.js** | C/P | C/P | App-defined | C | C/P | G/X | C | C/P | C | X/P | P | X/addon | X/addon | X/addon | C/P | Browser security model controls features. |
-| **VS Code Integrated Terminal** | xterm.js-based | xterm.js-based | App-defined | C | C | G | C | C | C | X/P | P | X/addon | X/addon | X/addon | N | OSC 633 is important. |
-| **hterm / ChromeOS Secure Shell** | C/P | C/P | App-defined | C | C/P | G | C | P | C/P | X | P | X | X | X | P | Browser/extension sandbox. |
+| Terminal / Environment            | ECMA-48 / ANSI | DEC VT / xterm |     terminfo | Truecolor |   OSC 8 |  OSC 52 | Bracketed Paste | Focus | SGR Mouse |        Kitty Keyboard | modifyOtherKeys / CSI-u |        Sixel | Kitty Graphics | iTerm2 Images | Shell Marks | Notes                                              |
+| --------------------------------- | -------------: | -------------: | -----------: | --------: | ------: | ------: | --------------: | ----: | --------: | --------------------: | ----------------------: | -----------: | -------------: | ------------: | ----------: | -------------------------------------------------- |
+| **xterm**                         |              N |              N |            N |         C |       C |     C/G |               C |     C |         C |                     X |                       N |            G |              X |             X |           P | De facto reference for many control sequences.     |
+| **VTE / GNOME Terminal**          |              C |              C |            N |         C |       C |       G |               C |     C |         C |                   X/P |                       P |          X/P |              X |             X |           C | Common Linux desktop baseline.                     |
+| **Konsole**                       |              C |              C |            N |         C |       C |       G |               C |     C |         C |                   P/? |                     P/? |          C/G |            P/? |           X/P |           C | KDE terminal; features vary by version.            |
+| **iTerm2**                        |              C |              C |            N |         C |       N |       G |               C |     C |         C |                     P |                       P |          P/? |            P/? |             N |           N | macOS-only, rich OSC 1337 ecosystem.               |
+| **Terminal.app**                  |              C |            C/P |            N |         C |     P/? |     X/P |               C |     P |       C/P |                     X |                     X/P |            X |              X |             X |           P | Conservative macOS terminal.                       |
+| **Kitty**                         |              C |              C |            N |         N |       N |       G |               N |     N |         N |                     N |                       N |            X |              N |           P/C |           N | Origin of Kitty keyboard/graphics.                 |
+| **WezTerm**                       |              C |              C |            N |         N |       N |       G |               N |     N |         N |                   N/G |                     N/G |          C/G |            P/C |           N/C |           N | Cross-platform terminal + multiplexer.             |
+| **Ghostty**                       |              C |              C |            N |         N |       N |       G |               N |     N |         N |                     N |                     P/? | X by design? |              N |           P/? |           N | Modern xterm-compatible terminal.                  |
+| **Alacritty**                     |              C |              C |            N |         N |       N |       G |               N |     N |         N | P/N depending version |                     P/N |            X |            X/P |             X |           P | Minimal terminal; avoids many rich protocols.      |
+| **foot**                          |              C |              C |            N |         N |       N |       G |               N |     N |         N |                   P/N |                     P/N |            N |              X |             X |           P | Wayland-focused, strong Sixel support.             |
+| **Windows Terminal**              |            P/C | C via VT layer |            P |         C |       C |     P/G |               C |     P |         C |                   P/? |                     P/? |          P/? |            X/P |           P/? |         C/P | Depends on ConPTY and app mode.                    |
+| **Windows Console Host**          |              P |              P |            P |         P |     X/P |     X/P |               P |   X/P |         P |                     X |                     X/P |            X |              X |             X |         X/P | Historically API-first, VT layer added later.      |
+| **mintty**                        |              C |              C |            N |         N |       N |       G |               N |     N |         N |                   P/? |                       P |            N |            X/P |             P |           C | Cygwin/MSYS2 terminal; xterm-like.                 |
+| **PuTTY**                         |            P/C |            P/C |            N |       P/C |     P/? |       G |               C |     P |       P/C |                     X |                       P |          X/P |              X |             X |           P | SSH client with independent terminal emulator.     |
+| **tmux**                          |          Proxy |          Proxy |  Own entries |     Proxy | Proxy/G | Proxy/G |           Proxy | Proxy |     Proxy |               Proxy/P |                 Proxy/P |      Proxy/G |        Proxy/G |       Proxy/G |     Proxy/G | Must handle outer terminal separately.             |
+| **GNU screen**                    |          Proxy |        Proxy/P |  Own entries |         P |     P/X |     P/X |               P |   P/X |         P |                     X |                     X/P |          X/P |              X |             X |         P/X | Older multiplexer, more destructive to extensions. |
+| **Zellij**                        |          Proxy |          Proxy | Own behavior |     Proxy |   Proxy | Proxy/G |           Proxy | Proxy |     Proxy |                   P/? |                     P/? |      Proxy/G |        Proxy/G |       Proxy/G |       Proxy | Rust multiplexer; support evolves quickly.         |
+| **xterm.js**                      |            C/P |            C/P |  App-defined |         C |     C/P |     G/X |               C |   C/P |         C |                   X/P |                       P |      X/addon |        X/addon |       X/addon |         C/P | Browser security model controls features.          |
+| **VS Code Integrated Terminal**   | xterm.js-based | xterm.js-based |  App-defined |         C |       C |       G |               C |     C |         C |                   X/P |                       P |      X/addon |        X/addon |       X/addon |           N | OSC 633 is important.                              |
+| **hterm / ChromeOS Secure Shell** |            C/P |            C/P |  App-defined |         C |     C/P |       G |               C |     P |       C/P |                     X |                       P |            X |              X |             X |           P | Browser/extension sandbox.                         |
 
 ## IX.3 Historical Hardware Terminal Profiles
 
@@ -4106,22 +4105,22 @@ A TUI framework should choose graphics in this order:
 
 ### IX.11.2 Terminal Graphics Matrix
 
-| Terminal | Sixel | Kitty Graphics | iTerm2 Images | ReGIS/Tektronix | Unicode Fallback | Preferred Framework Path |
-|---|---:|---:|---:|---:|---:|---|
-| xterm | G | X | X | G/P | N | Sixel if enabled, otherwise Unicode. |
-| mlterm | N/G | X | X | P | N | Sixel. |
-| foot | N | X | X | X | N | Sixel. |
-| Kitty | X | N | P/C | X | N | Kitty graphics. |
-| Ghostty | X/P | N | P/? | X | N | Kitty graphics. |
-| WezTerm | G/P | P/? | N/C | X/P | N | Probe: iTerm2 image or Kitty graphics; Sixel if enabled. |
-| iTerm2 | P/? | P/? | N | X | N | iTerm2 image protocol. |
-| Konsole | G/N depending version | P/? | X/P | X/P | N | Probe Sixel first unless Kitty graphics confirmed. |
-| Windows Terminal | P/? | X/P | P/? | X | N | Probe; otherwise Unicode. |
-| Alacritty | X | X/P | X | X | N | Unicode fallback unless feature becomes available and probe confirms. |
-| VTE / GNOME Terminal | X/P | X | X | X | N | Unicode fallback; Sixel only if distribution/version confirms. |
-| tmux | Proxy/G | Proxy/G | Proxy/G | Proxy | N | Prefer Sixel if passthrough; otherwise Unicode. |
-| screen | X/P | X | X | X | N | Unicode/text. |
-| xterm.js | Addon | Addon | Addon | X | N | Host-specific addon; otherwise Unicode. |
+| Terminal             |                 Sixel | Kitty Graphics | iTerm2 Images | ReGIS/Tektronix | Unicode Fallback | Preferred Framework Path                                              |
+| -------------------- | --------------------: | -------------: | ------------: | --------------: | ---------------: | --------------------------------------------------------------------- |
+| xterm                |                     G |              X |             X |             G/P |                N | Sixel if enabled, otherwise Unicode.                                  |
+| mlterm               |                   N/G |              X |             X |               P |                N | Sixel.                                                                |
+| foot                 |                     N |              X |             X |               X |                N | Sixel.                                                                |
+| Kitty                |                     X |              N |           P/C |               X |                N | Kitty graphics.                                                       |
+| Ghostty              |                   X/P |              N |           P/? |               X |                N | Kitty graphics.                                                       |
+| WezTerm              |                   G/P |            P/? |           N/C |             X/P |                N | Probe: iTerm2 image or Kitty graphics; Sixel if enabled.              |
+| iTerm2               |                   P/? |            P/? |             N |               X |                N | iTerm2 image protocol.                                                |
+| Konsole              | G/N depending version |            P/? |           X/P |             X/P |                N | Probe Sixel first unless Kitty graphics confirmed.                    |
+| Windows Terminal     |                   P/? |            X/P |           P/? |               X |                N | Probe; otherwise Unicode.                                             |
+| Alacritty            |                     X |            X/P |             X |               X |                N | Unicode fallback unless feature becomes available and probe confirms. |
+| VTE / GNOME Terminal |                   X/P |              X |             X |               X |                N | Unicode fallback; Sixel only if distribution/version confirms.        |
+| tmux                 |               Proxy/G |        Proxy/G |       Proxy/G |           Proxy |                N | Prefer Sixel if passthrough; otherwise Unicode.                       |
+| screen               |                   X/P |              X |             X |               X |                N | Unicode/text.                                                         |
+| xterm.js             |                 Addon |          Addon |         Addon |               X |                N | Host-specific addon; otherwise Unicode.                               |
 
 ### IX.11.3 Why Image Support Cannot Be Static
 
@@ -4148,21 +4147,21 @@ Preferred order:
 
 ### IX.12.2 Terminal Keyboard Matrix
 
-| Terminal | Legacy Keys | App Cursor / Keypad | xterm Modified Keys | modifyOtherKeys | CSI-u | Kitty Keyboard | Release/Repeat Events | Associated Text | Policy |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| xterm | N | N | N | N | P | X | X | X | Use modifyOtherKeys if needed. |
-| Kitty | N | N | C | N/C | N | N | N | N | Use Kitty keyboard with push/pop. |
-| WezTerm | N | N | C | G | G | G/N | G/N | G/N | Probe and respect config. |
-| Ghostty | N | N | C | P | N | N | N | N | Use Kitty keyboard if query succeeds. |
-| Alacritty | N | N | C | P | P/N | P/N | P/? | P/? | Probe; avoid assuming full stack. |
-| foot | N | N | C | P | P/N | P/N | P/? | P/? | Probe. |
-| iTerm2 | N | N | C | P | P | P | P/? | P/? | Probe; may support only subsets. |
-| VTE | N | N | C | P/X | P/X | X/P | X | X | Use legacy/xterm path. |
-| Windows Terminal | N | N | C/P | P/? | P/? | P/? | P/? | P/? | Use Windows/VT input mode and probe. |
-| Terminal.app | N | N | P/C | X/P | X/P | X | X | X | Conservative. |
-| tmux | Proxy | Proxy | Proxy | Proxy/P | Proxy/P | Proxy/P | Proxy/P | Proxy/P | Use tmux-aware negotiation. |
-| screen | Proxy | Proxy | P | X/P | X | X | X | X | Conservative. |
-| xterm.js | N | N | P/C | P/X | P/X | X/P | X/P | X/P | Host-specific. |
+| Terminal         | Legacy Keys | App Cursor / Keypad | xterm Modified Keys | modifyOtherKeys |   CSI-u | Kitty Keyboard | Release/Repeat Events | Associated Text | Policy                                |
+| ---------------- | ----------: | ------------------: | ------------------: | --------------: | ------: | -------------: | --------------------: | --------------: | ------------------------------------- |
+| xterm            |           N |                   N |                   N |               N |       P |              X |                     X |               X | Use modifyOtherKeys if needed.        |
+| Kitty            |           N |                   N |                   C |             N/C |       N |              N |                     N |               N | Use Kitty keyboard with push/pop.     |
+| WezTerm          |           N |                   N |                   C |               G |       G |            G/N |                   G/N |             G/N | Probe and respect config.             |
+| Ghostty          |           N |                   N |                   C |               P |       N |              N |                     N |               N | Use Kitty keyboard if query succeeds. |
+| Alacritty        |           N |                   N |                   C |               P |     P/N |            P/N |                   P/? |             P/? | Probe; avoid assuming full stack.     |
+| foot             |           N |                   N |                   C |               P |     P/N |            P/N |                   P/? |             P/? | Probe.                                |
+| iTerm2           |           N |                   N |                   C |               P |       P |              P |                   P/? |             P/? | Probe; may support only subsets.      |
+| VTE              |           N |                   N |                   C |             P/X |     P/X |            X/P |                     X |               X | Use legacy/xterm path.                |
+| Windows Terminal |           N |                   N |                 C/P |             P/? |     P/? |            P/? |                   P/? |             P/? | Use Windows/VT input mode and probe.  |
+| Terminal.app     |           N |                   N |                 P/C |             X/P |     X/P |              X |                     X |               X | Conservative.                         |
+| tmux             |       Proxy |               Proxy |               Proxy |         Proxy/P | Proxy/P |        Proxy/P |               Proxy/P |         Proxy/P | Use tmux-aware negotiation.           |
+| screen           |       Proxy |               Proxy |                   P |             X/P |       X |              X |                     X |               X | Conservative.                         |
+| xterm.js         |           N |                   N |                 P/C |             P/X |     P/X |            X/P |                   X/P |             X/P | Host-specific.                        |
 
 ### IX.12.3 Framework Keyboard Rules
 
@@ -4192,103 +4191,103 @@ Preferred order:
 
 ### IX.13.2 Mouse Matrix
 
-| Terminal | X10 | Normal 1000 | Button 1002 | Any 1003 | SGR 1006 | urxvt 1015 | UTF-8 1005 | Pixel 1016 | Policy |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| xterm | N | N | N | N | N | P | P/deprecated | G/N | SGR default. |
-| Kitty | C | C | C | C | N | P/C | X/P | N | SGR; pixel if needed. |
-| WezTerm | C | C | C | C | N | P | X/P | P/N | SGR. |
-| Ghostty | C | C | C | C | N | P/? | X/P | P/N | SGR. |
-| Alacritty | C | C | C | C | N | P/? | X/P | P/? | SGR. |
-| foot | C | C | C | C | N | P/? | X/P | P/? | SGR. |
-| iTerm2 | C | C | C | C | N | P | X/P | P/? | SGR. |
-| VTE | C | C | C | C | N | P/? | X/P | P/? | SGR. |
-| Windows Terminal | P | C | C | C | C/N | X/P | X | P/? | SGR if available. |
-| tmux | Proxy | Proxy | Proxy | Proxy | Proxy | Proxy/P | X/P | Proxy/P | Enable mouse in tmux and probe outer. |
-| screen | P | P | P | P | P | X/P | X | X | Conservative. |
-| xterm.js | C | C | C | C | C | P/X | X/P | X/P | SGR in browser. |
+| Terminal         |   X10 | Normal 1000 | Button 1002 | Any 1003 | SGR 1006 | urxvt 1015 |   UTF-8 1005 | Pixel 1016 | Policy                                |
+| ---------------- | ----: | ----------: | ----------: | -------: | -------: | ---------: | -----------: | ---------: | ------------------------------------- |
+| xterm            |     N |           N |           N |        N |        N |          P | P/deprecated |        G/N | SGR default.                          |
+| Kitty            |     C |           C |           C |        C |        N |        P/C |          X/P |          N | SGR; pixel if needed.                 |
+| WezTerm          |     C |           C |           C |        C |        N |          P |          X/P |        P/N | SGR.                                  |
+| Ghostty          |     C |           C |           C |        C |        N |        P/? |          X/P |        P/N | SGR.                                  |
+| Alacritty        |     C |           C |           C |        C |        N |        P/? |          X/P |        P/? | SGR.                                  |
+| foot             |     C |           C |           C |        C |        N |        P/? |          X/P |        P/? | SGR.                                  |
+| iTerm2           |     C |           C |           C |        C |        N |          P |          X/P |        P/? | SGR.                                  |
+| VTE              |     C |           C |           C |        C |        N |        P/? |          X/P |        P/? | SGR.                                  |
+| Windows Terminal |     P |           C |           C |        C |      C/N |        X/P |            X |        P/? | SGR if available.                     |
+| tmux             | Proxy |       Proxy |       Proxy |    Proxy |    Proxy |    Proxy/P |          X/P |    Proxy/P | Enable mouse in tmux and probe outer. |
+| screen           |     P |           P |           P |        P |        P |        X/P |            X |          X | Conservative.                         |
+| xterm.js         |     C |           C |           C |        C |        C |        P/X |          X/P |        X/P | SGR in browser.                       |
 
 ## IX.14 OSC, DCS, and Shell Integration by Terminal Family
 
 ### IX.14.1 OSC Families
 
-| OSC | Family | Common Use | Risk |
-|---|---|---|---|
-| OSC 0/1/2 | xterm | window/icon title | low/medium: can spoof title |
-| OSC 4 | xterm | palette query/set | medium: visual spoofing |
-| OSC 7 | VTE/iTerm2/etc. | current directory | medium: path leakage |
-| OSC 8 | xterm/VTE/iTerm2 | hyperlinks | medium/high: phishing if untrusted |
-| OSC 9 / 777 / 99 | vendor-specific | notifications | medium: spam/spoofing |
-| OSC 10/11/12 | xterm | fg/bg/cursor color | medium |
-| OSC 52 | xterm | clipboard | high: data exfiltration/injection |
-| OSC 133 | FinalTerm/iTerm2/modern | semantic prompt marks | low/medium |
-| OSC 633 | VS Code | shell integration | low/medium |
-| OSC 666 | VTE | term properties | medium |
-| OSC 1337 | iTerm2 | images, files, variables, UI | high: file/image/clipboard/UI effects |
-| OSC 30001/30101 | Kitty | color stack | medium |
+| OSC              | Family                  | Common Use                   | Risk                                  |
+| ---------------- | ----------------------- | ---------------------------- | ------------------------------------- |
+| OSC 0/1/2        | xterm                   | window/icon title            | low/medium: can spoof title           |
+| OSC 4            | xterm                   | palette query/set            | medium: visual spoofing               |
+| OSC 7            | VTE/iTerm2/etc.         | current directory            | medium: path leakage                  |
+| OSC 8            | xterm/VTE/iTerm2        | hyperlinks                   | medium/high: phishing if untrusted    |
+| OSC 9 / 777 / 99 | vendor-specific         | notifications                | medium: spam/spoofing                 |
+| OSC 10/11/12     | xterm                   | fg/bg/cursor color           | medium                                |
+| OSC 52           | xterm                   | clipboard                    | high: data exfiltration/injection     |
+| OSC 133          | FinalTerm/iTerm2/modern | semantic prompt marks        | low/medium                            |
+| OSC 633          | VS Code                 | shell integration            | low/medium                            |
+| OSC 666          | VTE                     | term properties              | medium                                |
+| OSC 1337         | iTerm2                  | images, files, variables, UI | high: file/image/clipboard/UI effects |
+| OSC 30001/30101  | Kitty                   | color stack                  | medium                                |
 
 ### IX.14.2 DCS Families
 
-| DCS | Family | Common Use | Risk |
-|---|---|---|---|
-| DECRQSS | DEC/xterm | request status string | low/medium |
-| XTGETTCAP | xterm | query terminfo capabilities | medium: information disclosure |
-| XTSETTCAP | xterm | set terminfo data | high if accepted without policy |
-| Sixel | DEC | raster image data | medium/high: large payloads |
-| tmux passthrough | tmux | pass sequence to outer terminal | high: bypasses multiplexer policy if misconfigured |
+| DCS              | Family    | Common Use                      | Risk                                               |
+| ---------------- | --------- | ------------------------------- | -------------------------------------------------- |
+| DECRQSS          | DEC/xterm | request status string           | low/medium                                         |
+| XTGETTCAP        | xterm     | query terminfo capabilities     | medium: information disclosure                     |
+| XTSETTCAP        | xterm     | set terminfo data               | high if accepted without policy                    |
+| Sixel            | DEC       | raster image data               | medium/high: large payloads                        |
+| tmux passthrough | tmux      | pass sequence to outer terminal | high: bypasses multiplexer policy if misconfigured |
 
 ### IX.14.3 Shell Integration Matrix
 
-| Terminal | OSC 133 | OSC 633 | OSC 1337 | OSC 7 | Notes |
-|---|---:|---:|---:|---:|---|
-| iTerm2 | N | P/C | N | N | Rich shell integration and proprietary commands. |
-| VS Code | P/C | N | X/P | C | OSC 633 is primary. |
-| Kitty | C | C/P | P/X | C | Has own shell integration too. |
-| WezTerm | C | C/P | C/P | C | Supports several ecosystems. |
-| Ghostty | C | C/P | P/? | C | Modern semantic prompt support. |
-| VTE | P/C | X/P | X | N/C | VTE-style current-directory integration. |
-| Terminal.app | P/? | X | X | P | Conservative. |
-| xterm.js hosts | Host-dependent | Host-dependent | Host-dependent | Host-dependent | Depends on host application. |
+| Terminal       |        OSC 133 |        OSC 633 |       OSC 1337 |          OSC 7 | Notes                                            |
+| -------------- | -------------: | -------------: | -------------: | -------------: | ------------------------------------------------ |
+| iTerm2         |              N |            P/C |              N |              N | Rich shell integration and proprietary commands. |
+| VS Code        |            P/C |              N |            X/P |              C | OSC 633 is primary.                              |
+| Kitty          |              C |            C/P |            P/X |              C | Has own shell integration too.                   |
+| WezTerm        |              C |            C/P |            C/P |              C | Supports several ecosystems.                     |
+| Ghostty        |              C |            C/P |            P/? |              C | Modern semantic prompt support.                  |
+| VTE            |            P/C |            X/P |              X |            N/C | VTE-style current-directory integration.         |
+| Terminal.app   |            P/? |              X |              X |              P | Conservative.                                    |
+| xterm.js hosts | Host-dependent | Host-dependent | Host-dependent | Host-dependent | Depends on host application.                     |
 
 ## IX.15 `terminfo` Names and Environment Identity
 
 ### IX.15.1 Common TERM Values
 
-| TERM | Typical Meaning | Warning |
-|---|---|---|
-| `xterm` | xterm-like terminal | Usually too vague; may lack 256-color info. |
-| `xterm-256color` | common modern xterm-like fallback | Does not imply OSC 8, OSC 52, Kitty graphics, Sixel, or Kitty keyboard. |
-| `xterm-kitty` | Kitty terminfo | Strong Kitty hint, but remote/mux can interfere. |
-| `wezterm` / `wezterm-256color` | WezTerm-specific terminfo | Requires terminfo installed on remote host. |
-| `alacritty` | Alacritty-specific terminfo | Requires terminfo installed. |
-| `foot` / `foot-extra` | foot-specific terminfo | `foot-extra` may advertise more. |
-| `screen` / `screen-256color` | inside GNU screen or tmux older config | Outer terminal hidden. |
-| `tmux` / `tmux-256color` | inside tmux modern config | Use tmux-specific feature discovery. |
-| `linux` | Linux virtual console | Conservative feature set. |
-| `vt100` / `vt220` | legacy compatibility | Do not use modern features. |
-| `ansi` | vague ANSI subset | Treat conservatively. |
-| `dumb` | no cursor-addressable terminal | Avoid full-screen TUI. |
+| TERM                           | Typical Meaning                        | Warning                                                                 |
+| ------------------------------ | -------------------------------------- | ----------------------------------------------------------------------- |
+| `xterm`                        | xterm-like terminal                    | Usually too vague; may lack 256-color info.                             |
+| `xterm-256color`               | common modern xterm-like fallback      | Does not imply OSC 8, OSC 52, Kitty graphics, Sixel, or Kitty keyboard. |
+| `xterm-kitty`                  | Kitty terminfo                         | Strong Kitty hint, but remote/mux can interfere.                        |
+| `wezterm` / `wezterm-256color` | WezTerm-specific terminfo              | Requires terminfo installed on remote host.                             |
+| `alacritty`                    | Alacritty-specific terminfo            | Requires terminfo installed.                                            |
+| `foot` / `foot-extra`          | foot-specific terminfo                 | `foot-extra` may advertise more.                                        |
+| `screen` / `screen-256color`   | inside GNU screen or tmux older config | Outer terminal hidden.                                                  |
+| `tmux` / `tmux-256color`       | inside tmux modern config              | Use tmux-specific feature discovery.                                    |
+| `linux`                        | Linux virtual console                  | Conservative feature set.                                               |
+| `vt100` / `vt220`              | legacy compatibility                   | Do not use modern features.                                             |
+| `ansi`                         | vague ANSI subset                      | Treat conservatively.                                                   |
+| `dumb`                         | no cursor-addressable terminal         | Avoid full-screen TUI.                                                  |
 
 ### IX.15.2 Environment Variables Worth Reading
 
-| Variable | Meaning |
-|---|---|
-| `TERM` | terminfo entry name, not exact terminal identity. |
-| `COLORTERM` | often `truecolor` or `24bit`, but not standardized. |
-| `TERM_PROGRAM` | terminal app hint on macOS/VS Code/etc. |
-| `TERM_PROGRAM_VERSION` | app version hint. |
-| `VTE_VERSION` | VTE-based terminal hint. |
-| `WT_SESSION` | Windows Terminal session hint. |
-| `KITTY_WINDOW_ID`, `KITTY_PID` | Kitty session hints. |
-| `WEZTERM_PANE`, `WEZTERM_EXECUTABLE`, etc. | WezTerm hints. |
-| `ALACRITTY_WINDOW_ID` | Alacritty hint. |
-| `KONSOLE_VERSION` | Konsole hint. |
-| `TMUX` | inside tmux. |
-| `STY` | inside GNU screen. |
-| `ZELLIJ` | inside Zellij if set. |
-| `SSH_TTY`, `SSH_CONNECTION` | remote transport; local terminal may differ from remote process. |
-| `NO_COLOR` | user requests no color. |
-| `CLICOLOR`, `CLICOLOR_FORCE` | common color conventions. |
-| `TERM_FEATURES` | emerging feature-reporting idea used by some environments. |
+| Variable                                   | Meaning                                                          |
+| ------------------------------------------ | ---------------------------------------------------------------- |
+| `TERM`                                     | terminfo entry name, not exact terminal identity.                |
+| `COLORTERM`                                | often `truecolor` or `24bit`, but not standardized.              |
+| `TERM_PROGRAM`                             | terminal app hint on macOS/VS Code/etc.                          |
+| `TERM_PROGRAM_VERSION`                     | app version hint.                                                |
+| `VTE_VERSION`                              | VTE-based terminal hint.                                         |
+| `WT_SESSION`                               | Windows Terminal session hint.                                   |
+| `KITTY_WINDOW_ID`, `KITTY_PID`             | Kitty session hints.                                             |
+| `WEZTERM_PANE`, `WEZTERM_EXECUTABLE`, etc. | WezTerm hints.                                                   |
+| `ALACRITTY_WINDOW_ID`                      | Alacritty hint.                                                  |
+| `KONSOLE_VERSION`                          | Konsole hint.                                                    |
+| `TMUX`                                     | inside tmux.                                                     |
+| `STY`                                      | inside GNU screen.                                               |
+| `ZELLIJ`                                   | inside Zellij if set.                                            |
+| `SSH_TTY`, `SSH_CONNECTION`                | remote transport; local terminal may differ from remote process. |
+| `NO_COLOR`                                 | user requests no color.                                          |
+| `CLICOLOR`, `CLICOLOR_FORCE`               | common color conventions.                                        |
+| `TERM_FEATURES`                            | emerging feature-reporting idea used by some environments.       |
 
 ### IX.15.3 Precedence Rules
 
@@ -4303,23 +4302,23 @@ Preferred order:
 
 ### IX.16.1 Defaults Table
 
-| Profile | Color | Mouse | Keyboard | Images | Clipboard | Hyperlinks | Renderer |
-|---|---|---|---|---|---|---|---|
-| `dumb` | none | off | bytes only | none | off | off | line-mode |
-| `vt100` | mono | off | legacy | none | off | off | full-screen minimal |
-| `linux-console` | 16-color | off/gpm | legacy | none | off | off | conservative |
-| `xterm-basic` | 256-color | SGR if probe | legacy + xterm mods | none/Sixel probe | OSC52 opt-in | OSC8 probe | differential |
-| `vte-modern` | truecolor | SGR | legacy/xterm | unicode fallback | opt-in | on if probe | differential |
-| `iterm2-rich` | truecolor | SGR | probe CSI-u/Kitty | iTerm2 images | policy-gated | on | differential/sync if available |
-| `kitty-rich` | truecolor | SGR/pixel | Kitty keyboard | Kitty graphics | policy-gated | on | synchronized output |
-| `wezterm-rich` | truecolor | SGR | probe Kitty/CSI-u | probe iTerm2/Kitty/Sixel | policy-gated | on | synchronized output if confirmed |
-| `ghostty-rich` | truecolor | SGR | Kitty keyboard | Kitty graphics | policy-gated | on | synchronized output if confirmed |
-| `alacritty-modern` | truecolor | SGR | probe CSI-u | unicode fallback | policy-gated | on if probe | differential |
-| `foot-rich` | truecolor | SGR | probe CSI-u/Kitty | Sixel | policy-gated | on | differential |
-| `windows-terminal` | truecolor | SGR/probe | Windows VT/probe | probe/unicode | policy-gated | on if supported | differential |
-| `tmux` | inherited | tmux mouse | tmux-aware | passthrough/probe | tmux policy | tmux policy | differential |
-| `screen` | 256/limited | limited | legacy | none | off | off/probe | conservative |
-| `xtermjs-hosted` | truecolor | SGR | host-limited | addon/unicode | host policy | host policy | differential |
+| Profile            | Color       | Mouse        | Keyboard            | Images                   | Clipboard    | Hyperlinks      | Renderer                         |
+| ------------------ | ----------- | ------------ | ------------------- | ------------------------ | ------------ | --------------- | -------------------------------- |
+| `dumb`             | none        | off          | bytes only          | none                     | off          | off             | line-mode                        |
+| `vt100`            | mono        | off          | legacy              | none                     | off          | off             | full-screen minimal              |
+| `linux-console`    | 16-color    | off/gpm      | legacy              | none                     | off          | off             | conservative                     |
+| `xterm-basic`      | 256-color   | SGR if probe | legacy + xterm mods | none/Sixel probe         | OSC52 opt-in | OSC8 probe      | differential                     |
+| `vte-modern`       | truecolor   | SGR          | legacy/xterm        | unicode fallback         | opt-in       | on if probe     | differential                     |
+| `iterm2-rich`      | truecolor   | SGR          | probe CSI-u/Kitty   | iTerm2 images            | policy-gated | on              | differential/sync if available   |
+| `kitty-rich`       | truecolor   | SGR/pixel    | Kitty keyboard      | Kitty graphics           | policy-gated | on              | synchronized output              |
+| `wezterm-rich`     | truecolor   | SGR          | probe Kitty/CSI-u   | probe iTerm2/Kitty/Sixel | policy-gated | on              | synchronized output if confirmed |
+| `ghostty-rich`     | truecolor   | SGR          | Kitty keyboard      | Kitty graphics           | policy-gated | on              | synchronized output if confirmed |
+| `alacritty-modern` | truecolor   | SGR          | probe CSI-u         | unicode fallback         | policy-gated | on if probe     | differential                     |
+| `foot-rich`        | truecolor   | SGR          | probe CSI-u/Kitty   | Sixel                    | policy-gated | on              | differential                     |
+| `windows-terminal` | truecolor   | SGR/probe    | Windows VT/probe    | probe/unicode            | policy-gated | on if supported | differential                     |
+| `tmux`             | inherited   | tmux mouse   | tmux-aware          | passthrough/probe        | tmux policy  | tmux policy     | differential                     |
+| `screen`           | 256/limited | limited      | legacy              | none                     | off          | off/probe       | conservative                     |
+| `xtermjs-hosted`   | truecolor   | SGR          | host-limited        | addon/unicode            | host policy  | host policy     | differential                     |
 
 ### IX.16.2 Exit Cleanup by Profile
 
@@ -4348,20 +4347,20 @@ A TUI framework should not blast every terminal with every probe. Use a staged b
 
 ### IX.17.2 Recommended Probes
 
-| Feature | Probe | Notes |
-|---|---|---|
-| Cursor position | `CSI 6 n` | Must parse response safely and time out. |
-| Primary DA | `CSI c` | Hints only. |
-| Secondary DA | `CSI > c` | Hints xterm/VT lineage. |
-| Kitty keyboard | Kitty query sequence | Use exact spec and stack semantics. |
-| SGR mouse | Enable and test only when interactive | Requires actual mouse event or synthetic test environment. |
-| Bracketed paste | Usually safe to enable | Restore on exit. |
-| OSC 8 | No reliable universal probe | Use allowlist/profile or test visually. |
-| OSC 52 | Avoid read probes by default | Clipboard access is high-risk. |
-| Sixel | DA1 sixel code or controlled DCS test | Beware multiplexer stripping. |
-| Kitty graphics | Kitty graphics query | Must handle `OK`/error response and timeouts. |
-| iTerm2 images | identity + optional test | No universal cross-terminal query. |
-| Synchronized output | enable around frame only if known/probed | Restore even on panic/crash. |
+| Feature             | Probe                                    | Notes                                                      |
+| ------------------- | ---------------------------------------- | ---------------------------------------------------------- |
+| Cursor position     | `CSI 6 n`                                | Must parse response safely and time out.                   |
+| Primary DA          | `CSI c`                                  | Hints only.                                                |
+| Secondary DA        | `CSI > c`                                | Hints xterm/VT lineage.                                    |
+| Kitty keyboard      | Kitty query sequence                     | Use exact spec and stack semantics.                        |
+| SGR mouse           | Enable and test only when interactive    | Requires actual mouse event or synthetic test environment. |
+| Bracketed paste     | Usually safe to enable                   | Restore on exit.                                           |
+| OSC 8               | No reliable universal probe              | Use allowlist/profile or test visually.                    |
+| OSC 52              | Avoid read probes by default             | Clipboard access is high-risk.                             |
+| Sixel               | DA1 sixel code or controlled DCS test    | Beware multiplexer stripping.                              |
+| Kitty graphics      | Kitty graphics query                     | Must handle `OK`/error response and timeouts.              |
+| iTerm2 images       | identity + optional test                 | No universal cross-terminal query.                         |
+| Synchronized output | enable around frame only if known/probed | Restore even on panic/crash.                               |
 
 ## IX.18 Known False Assumptions
 
@@ -4435,7 +4434,14 @@ A framework can ship a seed database like this, then override it with runtime pr
     "lineage": ["MULTIPLEXER"],
     "env_hints": ["TMUX"],
     "safe_defaults": ["alt_screen", "bracketed_paste", "mouse_if_enabled"],
-    "probe_before_use": ["truecolor", "osc52", "osc8", "sixel_passthrough", "kitty_graphics_passthrough", "kitty_keyboard"]
+    "probe_before_use": [
+      "truecolor",
+      "osc52",
+      "osc8",
+      "sixel_passthrough",
+      "kitty_graphics_passthrough",
+      "kitty_keyboard"
+    ]
   },
   "screen": {
     "lineage": ["MULTIPLEXER"],

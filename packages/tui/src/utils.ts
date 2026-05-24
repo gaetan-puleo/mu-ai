@@ -1,6 +1,6 @@
-// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape stripping
+// deno-lint-ignore no-control-regex
 const ANSI_RE = /\u001B\[[0-?]*[ -/]*[@-~]|\u001B\][^\u0007]*(?:\u0007|\u001B\\)/g;
-// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape tokenization
+// deno-lint-ignore no-control-regex
 const ANSI_TOKEN_RE = /\u001B\[[0-?]*[ -/]*[@-~]|\u001B\][^\u0007]*(?:\u0007|\u001B\\)/gy;
 
 export function stripAnsi(s: string): string {
@@ -14,7 +14,7 @@ export function stripAnsi(s: string): string {
 export function visibleWidth(s: string): number {
   const stripped = stripAnsi(s);
   let w = 0;
-  for (let i = 0; i < stripped.length; ) {
+  for (let i = 0; i < stripped.length;) {
     const code = stripped.codePointAt(i) ?? 0;
     w += charWidth(code);
     i += code > 0xffff ? 2 : 1;
@@ -95,7 +95,6 @@ function pushLine(state: WrapState): void {
   state.col = 0;
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: word wrap algorithm inherently complex
 function wrapSegment(segment: string, width: number): string[] {
   if (segment.length === 0) return [''];
   const tokens = segment.split(/(\s+)/);
@@ -155,7 +154,6 @@ function wrapSegment(segment: string, width: number): string[] {
  * Slice a string by visible column range, preserving ANSI codes.
  * `strict: true` prevents splitting a wide character at the boundary.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: column-based string slicing with ANSI preservation is inherently complex
 export function sliceByColumn(s: string, start: number, end: number, strict = false): string {
   let col = 0;
   let result = '';
@@ -208,7 +206,7 @@ function tokenizeAnsi(s: string): Array<{ value: string; ansi: boolean }> {
 }
 
 function extractTrailingAnsi(s: string): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequence extraction
+  // deno-lint-ignore no-control-regex
   const match = s.match(/(\u001B\[[0-?]*[ -/]*[@-~])$/);
   return match ? match[1] : '';
 }

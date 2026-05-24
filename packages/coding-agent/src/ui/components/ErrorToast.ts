@@ -18,8 +18,9 @@ export class ErrorToast implements Component {
     const prefixSgr = styleToAnsi(theme.styles.errorPrefix);
     const bodySgr = styleToAnsi(theme.styles.errorLine);
     const maxTextWidth = Math.max(0, width - 4);
-    const text =
-      this.content.length > maxTextWidth ? `${this.content.slice(0, Math.max(0, maxTextWidth - 3))}...` : this.content;
+    const text = this.content.length > maxTextWidth
+      ? `${this.content.slice(0, Math.max(0, maxTextWidth - 3))}...`
+      : this.content;
     const prefix = prefixSgr ? `${prefixSgr}!${RESET}` : '!';
     const body = bodySgr ? `${bodySgr}${text}${RESET}` : text;
     return [`${prefix} ${body}`.padEnd(width, ' ')];

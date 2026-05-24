@@ -16,13 +16,6 @@ export interface ToolCall {
   args: string;
 }
 
-export interface Response {
-  type: 'response';
-  content: string;
-}
-
-export type Action = ToolCall | Response;
-
 export interface LLMResponseContextSlot {
   id: number;
   n_ctx: number;

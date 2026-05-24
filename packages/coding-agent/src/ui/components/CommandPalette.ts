@@ -1,5 +1,3 @@
-// biome-ignore-all lint/suspicious/noFocusedTests: `fit` is a terminal width helper, not a focused test call.
-// biome-ignore-all lint/nursery/useConsistentTestIt: `fit` is a terminal width helper, not a test call.
 import type { Component, EventContext, InputEvent, LayoutStyle, RenderContext } from 'mu-tui';
 import { truncateToWidth, visibleWidth } from 'mu-tui';
 import { getTheme, styleToAnsi } from '../theme';

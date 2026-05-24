@@ -1,8 +1,8 @@
 export {
   type Capabilities,
   type Capability,
-  type CapabilitySource,
   capability,
+  type CapabilitySource,
   createDefaultCapabilities,
   mergeCapabilities,
   type PartialCapabilities,
@@ -24,12 +24,7 @@ export type {
 } from './events';
 export type { FeatureContext, RuntimeEnv, TuiFeature } from './feature';
 export { type GlobalKeybinding, type KeyChord, keyMatches } from './keybinds';
-export {
-  eventToMouseEvent,
-  type KeyEvent,
-  parseInput,
-  probeKittyKeyboard,
-} from './keyboard';
+export { eventToMouseEvent, type KeyEvent, parseInput, probeKittyKeyboard } from './keyboard';
 export type {
   BorderChars,
   BorderStyle,
@@ -58,9 +53,4 @@ export type { Component, Container, Focusable, FocusableNavigation } from './typ
 export { isFocusable, isFocusableNavigation } from './types/guards';
 export type { MouseButton, MouseEvent, MouseMotion } from './types/mouse';
 export type { Terminal, TerminalMode } from './types/terminal';
-export {
-  sliceByColumn,
-  truncateToWidth,
-  visibleWidth,
-  wrapText,
-} from './utils';
+export { sliceByColumn, truncateToWidth, visibleWidth, wrapText } from './utils';

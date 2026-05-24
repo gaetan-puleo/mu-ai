@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
-import { ThemeProvider } from './ThemeProvider';
+import { expect, fn } from '@std/expect';
+import { describe, it } from '@std/testing/bdd';
+import { ThemeProvider, type ThemeSubscriber } from './ThemeProvider';
 import { darkTheme } from './themes/dark';
 import { lightTheme } from './themes/light';
 
@@ -11,7 +12,7 @@ describe('ThemeProvider', () => {
 
   it('notifies subscribers when the theme changes', () => {
     const provider = new ThemeProvider(darkTheme);
-    const subscriber = vi.fn();
+    const subscriber = fn() as ThemeSubscriber;
     provider.subscribe(subscriber);
 
     provider.setTheme(lightTheme);
@@ -23,7 +24,7 @@ describe('ThemeProvider', () => {
 
   it('does not notify when the theme is unchanged', () => {
     const provider = new ThemeProvider(darkTheme);
-    const subscriber = vi.fn();
+    const subscriber = fn() as ThemeSubscriber;
     provider.subscribe(subscriber);
 
     provider.setTheme(darkTheme);
@@ -33,7 +34,7 @@ describe('ThemeProvider', () => {
 
   it('stops notifying after unsubscribe()', () => {
     const provider = new ThemeProvider(darkTheme);
-    const subscriber = vi.fn();
+    const subscriber = fn() as ThemeSubscriber;
     const unsubscribe = provider.subscribe(subscriber);
 
     unsubscribe();
@@ -44,10 +45,10 @@ describe('ThemeProvider', () => {
 
   it('isolates subscriber errors', () => {
     const provider = new ThemeProvider(darkTheme);
-    const noisy = vi.fn(() => {
+    const noisy = fn(() => {
       throw new Error('boom');
-    });
-    const quiet = vi.fn();
+    }) as ThemeSubscriber;
+    const quiet = fn() as ThemeSubscriber;
     provider.subscribe(noisy);
     provider.subscribe(quiet);
 

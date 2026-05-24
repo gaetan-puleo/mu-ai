@@ -12,7 +12,7 @@
     "isolatedModules": true,
     "declaration": true,
     "composite": true,
-    "types": ["node", "vitest/globals"]
+    "types": ["node"]
   },
   "files": [],
   "references": [

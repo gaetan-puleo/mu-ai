@@ -1,31 +1,21 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S deno run -A
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const ROOT = resolve(import.meta.dirname, '..');
+const ROOT = resolve(import.meta.dirname ?? '.', '..');
 
 // Publish order is a topological sort of the internal dependency graph.
-// Tier 0 (no internal deps):       mu-core
-// Tier 1 (depend on mu-core only): mu-openai-provider, mu-agents,
-//                                  mu-repomap, mu-coding-agents
-// Tier 2 (depend on tier 1):       mu-coding (→ mu-agents, mu-openai-provider)
-//
-// mu-repomap and mu-coding-agents are opt-in plugins (not depended on by
-// mu-coding) but are still published so users can `mu install` them.
 const PACKAGES = [
-  // tier 0
-  'mu-core',
-  // tier 1
-  'mu-openai-provider',
-  'mu-agents',
-  'mu-repomap',
-  'mu-coding-agents',
-  // tier 2
-  'mu-coding',
+  { name: 'mu-core', dir: 'core' },
+  { name: 'mu-tui', dir: 'tui' },
+  { name: 'mu-tools', dir: 'tools' },
+  { name: 'mu-local-provider', dir: 'local-provider' },
+  { name: 'mu-webfetch', dir: 'webfetch' },
+  { name: 'coding-agent', dir: 'coding-agent' },
 ] as const;
 
-const INTERNAL_NAMES = new Set<string>(PACKAGES);
+const INTERNAL_NAMES = new Set<string>(PACKAGES.map((pkg) => pkg.name));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,16 +52,16 @@ function bumpVersion(current: string, bump: 'patch' | 'minor' | 'major'): string
 
 function usage(): never {
   console.log(`
-Usage: bun scripts/publish.ts <patch|minor|major|x.y.z> [options]
+Usage: deno run -A scripts/publish.ts <patch|minor|major|x.y.z> [options]
 
 Options:
   --dry-run      Show what would happen without making changes
   --tag <tag>    Publish with a custom dist-tag (default: latest)
 
 Examples:
-  bun scripts/publish.ts patch
-  bun scripts/publish.ts 1.0.0
-  bun scripts/publish.ts minor --dry-run
+  deno run -A scripts/publish.ts patch
+  deno run -A scripts/publish.ts 1.0.0
+  deno run -A scripts/publish.ts minor --dry-run
 `);
   process.exit(1);
 }
@@ -87,7 +77,7 @@ const versionArg = args.find((a) => !a.startsWith('--'));
 if (!versionArg) usage();
 
 // Resolve the target version
-const currentVersion = readPkg(resolve(ROOT, 'packages', PACKAGES[0])).version as string;
+const currentVersion = readPkg(resolve(ROOT, 'packages', PACKAGES[0].dir)).version as string;
 const BUMP_TYPES = new Set(['patch', 'minor', 'major']);
 
 const nextVersion = BUMP_TYPES.has(versionArg)
@@ -106,8 +96,8 @@ if (dryRun) console.log('(dry-run — no changes will be made)\n');
 // 1. Update versions in every package.json
 // ---------------------------------------------------------------------------
 
-for (const name of PACKAGES) {
-  const dir = resolve(ROOT, 'packages', name);
+for (const { name, dir: packageDir } of PACKAGES) {
+  const dir = resolve(ROOT, 'packages', packageDir);
   const pkg = readPkg(dir);
   pkg.version = nextVersion;
 
@@ -134,10 +124,25 @@ for (const name of PACKAGES) {
 // 2. Publish packages in dependency order
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// 2. Build npm packages via dnt
+// ---------------------------------------------------------------------------
+
+console.log('\nBuilding npm packages…');
+if (dryRun) {
+  console.log('  (would run) deno run -A scripts/build_npm.ts');
+} else {
+  run('deno run -A --sloppy-imports scripts/build_npm.ts');
+}
+
+// ---------------------------------------------------------------------------
+// 3. Publish packages in dependency order (from npm/ output dirs)
+// ---------------------------------------------------------------------------
+
 console.log('\nPublishing packages…');
 
-for (const name of PACKAGES) {
-  const dir = resolve(ROOT, 'packages', name);
+for (const { name, dir: packageDir } of PACKAGES) {
+  const dir = resolve(ROOT, 'packages', packageDir, 'npm');
   const cmd = `npm publish --access public --tag ${tag}`;
   if (dryRun) {
     console.log(`  (would publish) ${name}@${nextVersion}  [${cmd}]`);
@@ -148,7 +153,7 @@ for (const name of PACKAGES) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Git tag
+// 4. Git tag
 // ---------------------------------------------------------------------------
 
 const gitTag = `v${nextVersion}`;

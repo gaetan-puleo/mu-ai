@@ -277,13 +277,13 @@ export class ChatApp {
     this.themeProvider.setTheme(next);
   }
 
-  start(): void {
+  async start(): Promise<void> {
     this.unsubscribe = this.bus.subscribe((event) => this.handleEvent(event));
-    this.runtime.start();
+    await this.runtime.start();
     this.tui.start();
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
     this.unsubscribe?.();
@@ -296,7 +296,7 @@ export class ChatApp {
     if (this.toastTimer) clearTimeout(this.toastTimer);
     this.toastTimer = undefined;
     this.stopSpinner();
-    this.runtime.stop();
+    await this.runtime.stop();
     this.tui.stop();
   }
 
@@ -307,8 +307,7 @@ export class ChatApp {
       return;
     }
 
-    this.stop();
-    this.onExit?.(130);
+    void this.stop().then(() => this.onExit?.(130));
   }
 
   private handleSubmit(value: string): void {
@@ -463,14 +462,13 @@ export class ChatApp {
         name: 'quit',
         description: 'exit the agent',
         run: () => {
-          this.stop();
-          this.onExit?.(0);
+          void this.stop().then(() => this.onExit?.(0));
         },
       },
     ];
   }
 
-  private startNewSession(): void {
+  private async startNewSession(): Promise<void> {
     if (!this.modelController) {
       this.showErrorToast('No runtime controller is configured.');
       return;
@@ -481,9 +479,9 @@ export class ChatApp {
       return;
     }
 
-    this.runtime.stop();
+    await this.runtime.stop();
     this.runtime = this.modelController.createRuntime();
-    this.runtime.start();
+    await this.runtime.start();
     this.transcript = [];
     this.queuedUserLines = [];
     this.visibleQueuedLines = [];
@@ -858,10 +856,9 @@ export class ChatApp {
 
   private appendQueuedMessage(message: Message, queue: 'steering' | 'follow_up'): void {
     const visibleIndex = this.visibleQueuedLines.findIndex((entry) => entry.message === message);
-    const line =
-      visibleIndex === -1
-        ? this.createQueuedUserLine(message, queue)
-        : this.visibleQueuedLines.splice(visibleIndex, 1)[0].line;
+    const line = visibleIndex === -1
+      ? this.createQueuedUserLine(message, queue)
+      : this.visibleQueuedLines.splice(visibleIndex, 1)[0].line;
 
     this.transcript.push(line);
     this.queuedUserLines.push(line);
@@ -1008,8 +1005,9 @@ export class ChatApp {
     this.latestContext = context;
     const used = context.usage?.promptTokens;
     const total = context.props?.n_ctx ?? context.currentSlot?.n_ctx;
-    this.contextText =
-      used !== undefined && total !== undefined ? `${used} (${Math.round((used / total) * 100)}%)` : '';
+    this.contextText = used !== undefined && total !== undefined
+      ? `${used} (${Math.round((used / total) * 100)}%)`
+      : '';
     this.updateStatusLine();
   }
 

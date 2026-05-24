@@ -8,6 +8,7 @@ It must not contain provider-specific implementations such as OpenAI, Ollama, LM
 `mu-core` is the provider-agnostic runtime package.
 
 It owns:
+
 - Runtime primitives
 - Message types
 - Tool types
@@ -17,6 +18,7 @@ It owns:
 - Hook primitives
 
 It does not own:
+
 - OpenAI SDK code
 - HTTP request code for model APIs
 - Local model server defaults
@@ -32,13 +34,14 @@ A provider receives the current transcript and available tools, then returns a n
 ```ts
 type LLMProvider = (
   messages: Message[],
-  tools: Tools
+  tools: Tools,
 ) => Promise<LLMResponse>;
 ```
 
 Providers live outside `mu-core`.
 
 Examples:
+
 - `mu-local-provider`
 - Future OpenAI provider
 - Future Anthropic provider
@@ -57,6 +60,7 @@ type ProviderFactory<Config> = (config: Config) => LLMProvider;
 ## Runtime
 
 A runtime is the long-lived reactive process that connects:
+
 - User messages
 - Provider calls
 - Tool calls
@@ -76,7 +80,7 @@ It allows the host to publish user input and subscribe to runtime output.
 
 ```ts
 bus.publish({ type: 'user_message', message });
-bus.subscribe(event => {});
+bus.subscribe((event) => {});
 ```
 
 The bus is synchronous and minimal by default.
@@ -167,6 +171,7 @@ Hooks are runtime extension points around tool execution.
 They are provider-agnostic and stay in `mu-core`.
 
 Examples:
+
 - `beforeTool`
 - `afterTool`
 
@@ -181,12 +186,14 @@ A runtime may use a session, but sessions must remain provider-agnostic.
 The host is the application using `mu-core`.
 
 Examples:
+
 - `mu-coding`
 - TUI
 - CLI
 - tests
 
 The host wires together:
+
 - bus
 - runtime
 - provider
@@ -198,6 +205,7 @@ The host wires together:
 `mu-local-provider` is the provider package for OpenAI-compatible local model servers.
 
 It owns:
+
 - OpenAI SDK dependency
 - Ollama defaults
 - LM Studio defaults
@@ -207,6 +215,7 @@ It owns:
 ## Forbidden In mu-core
 
 Do not add these to `mu-core`:
+
 - `openai`
 - `fetch()` calls to model APIs
 - `/v1/chat/completions`

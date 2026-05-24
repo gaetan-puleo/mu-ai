@@ -37,6 +37,11 @@ export type {
 
 const DEFAULT_BASE_URL = 'http://localhost:8080';
 const DEBUG_LOG = process.env.MU_TUI_DEBUG_LOG;
+let OpenAIClient = OpenAI;
+
+export function setOpenAIClientForTesting(client: typeof OpenAI): void {
+  OpenAIClient = client;
+}
 
 function debugLog(data: Record<string, unknown>): void {
   if (!DEBUG_LOG) return;
@@ -238,12 +243,10 @@ function labelContextPart(kind: LocalContextPartKind): string {
   }
 }
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: Provider closure owns cached backend/client state.
 export const createLocalProvider = defineProvider<LocalProviderConfig>((config): LLMProvider => {
   let backendPromise: Promise<LocalBackendInfo> | undefined;
   let client: OpenAI | undefined;
 
-  // biome-ignore lint/complexity/noExcessiveLinesPerFunction: Request construction and stream creation share provider-local state.
   return async (messages, tools): Promise<LLMProviderResult> => {
     backendPromise ??= detectLocalBackend({
       kind: config.kind,
@@ -254,12 +257,14 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
 
     if (!config.model) {
       throw new Error(
-        `Local provider requires a model. Backend: ${backend.kind}. Available models: ${backend.models.map((m) => m.id).join(', ')}`,
+        `Local provider requires a model. Backend: ${backend.kind}. Available models: ${
+          backend.models.map((m) => m.id).join(', ')
+        }`,
       );
     }
     const model = config.model;
 
-    client ??= new OpenAI({
+    client ??= new OpenAIClient({
       baseURL: getLlamaSwapOpenAIBaseUrl(backend.baseUrl),
       apiKey: config.apiKey ?? 'local',
     });
@@ -286,18 +291,14 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
       }
     }
 
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Streaming OpenAI-compatible chunks requires ordered buffering and finalization.
-    // biome-ignore lint/complexity/noExcessiveLinesPerFunction: Keeping stream chunk state together avoids splitting the buffering protocol.
     async function* streamCompletion(): AsyncIterable<LLMStreamEvent> {
       let content = '';
       let usage: LLMResponseContext['usage'] | undefined;
       const toolCallBuffers = new Map<number, { id: string; name: string; args: string; emitted: boolean }>();
 
       debugLog({ stage: 'provider.stream.start', model, messages: messages.length, tools: Object.keys(tools) });
-      // biome-ignore lint/suspicious/noExplicitAny: OpenAI's streaming overload does not accept the normalized request object type directly.
       const stream = await client?.chat.completions.create(requestOptions as any);
 
-      // biome-ignore lint/suspicious/noExplicitAny: OpenAI-compatible backends may add provider-specific streaming fields.
       for await (const chunk of stream as any) {
         if (chunk.usage) {
           usage = {
@@ -322,10 +323,10 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
 
         const toolCallDeltas = choiceDelta?.tool_calls as
           | Array<{
-              index?: number;
-              id?: string;
-              function?: { name?: string; arguments?: string };
-            }>
+            index?: number;
+            id?: string;
+            function?: { name?: string; arguments?: string };
+          }>
           | undefined;
         if (toolCallDeltas) {
           for (const tc of toolCallDeltas) {
@@ -402,14 +403,13 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
         response: {
           content,
           tool_calls: collectedToolCalls.length > 0 ? collectedToolCalls : undefined,
-          context:
-            backendContext || usage
-              ? ({
-                  ...backendContext,
-                  usage,
-                  localContext: buildLocalContextMap({ backend, model, messages, tools, usage, backendContext }),
-                } as LLMResponseContext)
-              : undefined,
+          context: backendContext || usage
+            ? ({
+              ...backendContext,
+              usage,
+              localContext: buildLocalContextMap({ backend, model, messages, tools, usage, backendContext }),
+            } as LLMResponseContext)
+            : undefined,
         },
       };
       debugLog({ stage: 'provider.stream.done', contentLen: content.length, toolCalls: collectedToolCalls.length });

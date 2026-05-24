@@ -1,5 +1,3 @@
-// biome-ignore-all lint/suspicious/noFocusedTests: `fit` is a terminal width helper, not a focused test call.
-// biome-ignore-all lint/nursery/useConsistentTestIt: `fit` is a terminal width helper, not a test call.
 import type { Constraints, LayoutStyle, RenderContext, Size } from '../layout/types';
 import type { Component } from '../types/component';
 import { truncateToWidth, visibleWidth } from '../utils';
@@ -85,15 +83,15 @@ export class Diff implements Component {
     const maxWidth = Number.isFinite(constraints.maxWidth)
       ? Math.max(0, constraints.maxWidth)
       : naturalWidth(rows, this.showLineNumbers);
-    const lines =
-      this.mode === 'side-by-side' ? this.renderSideBySide(rows, maxWidth) : this.renderInline(rows, maxWidth);
+    const lines = this.mode === 'side-by-side'
+      ? this.renderSideBySide(rows, maxWidth)
+      : this.renderInline(rows, maxWidth);
     let width = 0;
     for (const line of lines) width = Math.max(width, visibleWidth(line));
     if (Number.isFinite(maxWidth)) width = Math.min(width, maxWidth);
     return { width, height: lines.length };
   }
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: groups adjacent delete/insert runs into visual rows.
   private rows(): DiffRow[] {
     const parts = applyContext(diffLines(splitLines(this.before), splitLines(this.after)), this.contextLines);
     const rows: DiffRow[] = [];
@@ -136,7 +134,7 @@ export class Diff implements Component {
       for (let j = 0; j < length; j++) {
         const del = deletes[j];
         const ins = inserts[j];
-        if (del && ins)
+        if (del && ins) {
           rows.push({
             type: 'replace',
             beforeLine: del.beforeLine,
@@ -144,7 +142,7 @@ export class Diff implements Component {
             beforeText: del.text,
             afterText: ins.text,
           });
-        else if (del) rows.push({ type: 'delete', beforeLine: del.beforeLine, beforeText: del.text });
+        } else if (del) rows.push({ type: 'delete', beforeLine: del.beforeLine, beforeText: del.text });
         else if (ins) rows.push({ type: 'insert', afterLine: ins.afterLine, afterText: ins.text });
       }
     }

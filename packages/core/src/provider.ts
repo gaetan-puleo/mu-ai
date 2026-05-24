@@ -2,7 +2,7 @@ import type { Message } from './types/Message';
 import type { LLMResponse, LLMStreamEvent, Tools } from './types/Tool';
 
 export type { Message } from './types/Message';
-export type { LLMResponse, Tools } from './types/Tool';
+export type { LLMResponse, LLMStreamEvent, Tools } from './types/Tool';
 
 export type LLMProviderResult = LLMResponse | AsyncIterable<LLMStreamEvent>;
 

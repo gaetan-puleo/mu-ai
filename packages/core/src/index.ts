@@ -1,4 +1,5 @@
 export { createBus, type EventBus, type Unsubscribe } from './bus';
+export { loadPlugins, type LoadPluginsOptions } from './loader';
 export { definePlugin, type Plugin, type PluginHooks } from './plugin';
 export { defineProvider, type LLMProvider, type LLMProviderResult, type ProviderFactory } from './provider';
 export {

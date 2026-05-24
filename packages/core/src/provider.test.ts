@@ -1,8 +1,14 @@
-import type { LLMProvider, LLMProviderResult, LLMResponse, Message, Tools } from './provider';
+import { expect } from '@std/expect';
+import { describe, it } from '@std/testing/bdd';
+import type { LLMProvider, LLMProviderResult, LLMResponse, LLMStreamEvent, Message, Tools } from './provider';
 import { defineProvider } from './provider';
 
+function isStream(result: LLMProviderResult): result is AsyncIterable<LLMStreamEvent> {
+  return !!result && typeof result === 'object' && Symbol.asyncIterator in result;
+}
+
 function expectResponse(result: LLMProviderResult): LLMResponse {
-  if (result && typeof result === 'object' && Symbol.asyncIterator in result) {
+  if (isStream(result)) {
     throw new Error('Expected non-streaming response');
   }
   return result;

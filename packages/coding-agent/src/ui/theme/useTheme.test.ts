@@ -1,5 +1,6 @@
+import { expect } from '@std/expect';
+import { describe, it } from '@std/testing/bdd';
 import { createDefaultCapabilities, type RenderContext } from 'mu-tui';
-import { describe, expect, it } from 'vitest';
 import { ThemeProvider } from './ThemeProvider';
 import { darkTheme } from './themes/dark';
 import { lightTheme } from './themes/light';

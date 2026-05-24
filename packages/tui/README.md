@@ -87,7 +87,7 @@ This installs the package to `~/.local/share/mu/node_modules/` and adds it to yo
 LLM provider abstraction for local runners and OpenAI-compatible APIs.
 
 ```typescript
-import { streamChat, listModels } from 'mu-provider';
+import { listModels, streamChat } from 'mu-provider';
 ```
 
 ### `mu-agents`
@@ -95,8 +95,8 @@ import { streamChat, listModels } from 'mu-provider';
 Agent loop orchestration with a full plugin system.
 
 ```typescript
-import { runAgent, PluginRegistry, createBuiltinPlugin } from 'mu-agents';
-import type { Plugin, PluginTool, LifecycleHooks } from 'mu-agents';
+import { createBuiltinPlugin, PluginRegistry, runAgent } from 'mu-agents';
+import type { LifecycleHooks, Plugin, PluginTool } from 'mu-agents';
 ```
 
 **Plugin interface:**
@@ -111,8 +111,8 @@ const myPlugin: Plugin = {
     afterToolExec: (toolCall, result) => result,
   },
   commands: [{ name: 'hello', description: 'Say hi', execute: async () => 'Hello!' }],
-  activate: async (ctx) => { /* setup */ },
-  deactivate: async () => { /* cleanup */ },
+  activate: async (ctx) => {/* setup */},
+  deactivate: async () => {/* cleanup */},
 };
 ```
 
@@ -147,6 +147,7 @@ Config lives at `~/.config/mu/config.json`:
 ```
 
 Plugin sources:
+
 - **Workspace packages** — resolved from the monorepo (e.g. `mu-repomap`)
 - **npm packages** — prefixed with `npm:`, installed to `~/.local/share/mu/node_modules/`
 - **Local files** — `.ts` files in `~/.config/mu/plugins/` are auto-loaded
@@ -154,17 +155,17 @@ Plugin sources:
 
 ## Keyboard Shortcuts
 
-| Key | Action |
-|-----|--------|
-| `Enter` / `Ctrl+S` | Send message |
-| `Shift+Enter` | New line |
-| `Ctrl+C` | Abort streaming / Quit (press twice) |
-| `Esc` | Stop generation / Dismiss toast |
-| `Ctrl+N` | New conversation |
-| `Ctrl+M` | Cycle models |
-| `Ctrl+O` | Model picker |
-| `↑` / `↓` | Navigate input history |
-| `PageUp` / `PageDown` | Scroll chat |
+| Key                   | Action                               |
+| --------------------- | ------------------------------------ |
+| `Enter` / `Ctrl+S`    | Send message                         |
+| `Shift+Enter`         | New line                             |
+| `Ctrl+C`              | Abort streaming / Quit (press twice) |
+| `Esc`                 | Stop generation / Dismiss toast      |
+| `Ctrl+N`              | New conversation                     |
+| `Ctrl+M`              | Cycle models                         |
+| `Ctrl+O`              | Model picker                         |
+| `↑` / `↓`             | Navigate input history               |
+| `PageUp` / `PageDown` | Scroll chat                          |
 
 ## Configuration
 
@@ -181,27 +182,27 @@ First run auto-creates `~/.config/mu/config.json`:
 
 ### XDG Directories
 
-| Path | Purpose |
-|------|---------|
-| `~/.config/mu/config.json` | Configuration |
-| `~/.config/mu/SYSTEM.md` | System prompt |
-| `~/.config/mu/plugins/` | Local plugin files |
-| `~/.local/share/mu/sessions/` | Saved conversations |
+| Path                              | Purpose               |
+| --------------------------------- | --------------------- |
+| `~/.config/mu/config.json`        | Configuration         |
+| `~/.config/mu/SYSTEM.md`          | System prompt         |
+| `~/.config/mu/plugins/`           | Local plugin files    |
+| `~/.local/share/mu/sessions/`     | Saved conversations   |
 | `~/.local/share/mu/node_modules/` | Installed npm plugins |
-| `~/.cache/mu/repomap/` | Code index cache |
+| `~/.cache/mu/repomap/`            | Code index cache      |
 
 Models are auto-discovered from the API at startup. Use `-m` or `MU_MODEL` to override.
 
 ### Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MU_BASE_URL` | `http://localhost:8080/v1` | OpenAI-compatible API endpoint |
-| `MU_MODEL` | *(auto-detected)* | Model name (fetched from API if not set) |
-| `MU_MAX_TOKENS` | `4096` | Max generation tokens |
-| `MU_TEMPERATURE` | `0.7` | Sampling temperature |
-| `MU_STREAM_TIMEOUT` | `60000` | Stream inactivity timeout (ms) |
-| `MU_SYSTEM_PROMPT` | *(none)* | System prompt text |
+| Variable            | Default                    | Description                              |
+| ------------------- | -------------------------- | ---------------------------------------- |
+| `MU_BASE_URL`       | `http://localhost:8080/v1` | OpenAI-compatible API endpoint           |
+| `MU_MODEL`          | _(auto-detected)_          | Model name (fetched from API if not set) |
+| `MU_MAX_TOKENS`     | `4096`                     | Max generation tokens                    |
+| `MU_TEMPERATURE`    | `0.7`                      | Sampling temperature                     |
+| `MU_STREAM_TIMEOUT` | `60000`                    | Stream inactivity timeout (ms)           |
+| `MU_SYSTEM_PROMPT`  | _(none)_                   | System prompt text                       |
 
 ## Supported Backends
 

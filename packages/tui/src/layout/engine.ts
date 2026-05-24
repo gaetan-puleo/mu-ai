@@ -141,20 +141,19 @@ function layoutRelative(
     const innerCross = resolveCrossSize(child, crossAxis, crossTotal, margin);
     const outerCross = innerCross + insetsForAxis(margin, crossAxis);
 
-    const slotRect: Rect =
-      direction === 'row'
-        ? {
-            x: cursor,
-            y: parentContentRect.y,
-            width: outerMain,
-            height: outerCross,
-          }
-        : {
-            x: parentContentRect.x,
-            y: cursor,
-            width: outerCross,
-            height: outerMain,
-          };
+    const slotRect: Rect = direction === 'row'
+      ? {
+        x: cursor,
+        y: parentContentRect.y,
+        width: outerMain,
+        height: outerCross,
+      }
+      : {
+        x: parentContentRect.x,
+        y: cursor,
+        width: outerCross,
+        height: outerMain,
+      };
 
     placeAndRegister(child, slotRect, parentClipRect, depth, parent, inheritedBackgroundColor, ctx);
     cursor += outerMain;
@@ -245,8 +244,9 @@ function placeAndRegister(
     // computed content rect (e.g. Modal centering a panel).
     child.prepareLayout?.(contentRect);
 
-    const childClipRect =
-      overflow === 'hidden' || overflow === 'scroll' ? intersectRect(contentRect, clipRect) : clipRect;
+    const childClipRect = overflow === 'hidden' || overflow === 'scroll'
+      ? intersectRect(contentRect, clipRect)
+      : clipRect;
     const childDirection = child.layout?.direction ?? 'column';
     layoutChildren(child.children, contentRect, childClipRect, childDirection, depth + 1, child, backgroundColor, ctx);
   }

@@ -41,8 +41,7 @@ export class ErrorOutputBlock implements Component {
       ? Math.max(0, constraints.maxWidth) - padding.left - padding.right
       : 80;
     const wrappedLines = wrapText(this.props.output, maxWidth);
-    const height =
-      1 +
+    const height = 1 +
       1 + // empty line between header and output
       wrappedLines.length +
       padding.top +

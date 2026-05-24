@@ -11,7 +11,11 @@ export function createBus<Event>(): EventBus<Event> {
   return {
     publish(event) {
       for (const listener of listeners) {
-        listener(event);
+        try {
+          listener(event);
+        } catch {
+          // Isolate listener errors so one bad handler cannot block delivery to others
+        }
       }
     },
 

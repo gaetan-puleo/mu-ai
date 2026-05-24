@@ -3,8 +3,9 @@
  * stub so the tool runs offline and we can assert the exact request
  * sequence (Cloudflare retry, UA fallback, timeout abort, size cap, etc.).
  */
+import { expect } from '@std/expect';
+import { afterEach, beforeEach, describe, it } from '@std/testing/bdd';
 import type { Tool } from 'mu-core';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createWebFetchTool } from './plugin';
 
 type FetchStub = (input: string, init?: RequestInit) => Promise<Response>;
