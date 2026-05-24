@@ -1,7 +1,2 @@
-export { bgToAnsi, fgToAnsi, styleToAnsi, wrapWithStyle } from './ansi';
-export { type Palette, palette } from './palette';
-export { ThemeProvider, type ThemeSubscriber } from './ThemeProvider';
-export { darkTheme } from './themes/dark';
-export { lightTheme } from './themes/light';
-export type { TextStyle, Theme, ThemeColors, ThemeStyles } from './tokens';
-export { getTheme } from './useTheme';
+export { bgToAnsi, fgToAnsi, getTheme, styleToAnsi, ThemeProvider, type ThemeSubscriber, wrapWithStyle } from './theme';
+export { darkTheme, lightTheme, palette, type TextStyle, type Theme, type ThemeColors, type ThemeStyles } from './themes';

@@ -19,14 +19,6 @@ export interface ProtocolResult {
   inlineImages: boolean;
 }
 
-/**
- * Environment-only protocol hints. Active probing belongs in optional features
- * or query managers so core code never injects proprietary probes by default.
- */
-export async function detectTerminalProtocol(): Promise<ProtocolResult> {
-  return detectTerminalProtocolSync();
-}
-
 export function detectTerminalProtocolSync(env: NodeJS.ProcessEnv = process.env): ProtocolResult {
   const program = env.TERM_PROGRAM ?? '';
   const term = env.TERM ?? '';

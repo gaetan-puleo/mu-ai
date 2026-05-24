@@ -1,4 +1,26 @@
+import type { LLMResponseContext } from 'mu-core';
+
 export type LocalBackendKind = 'llama-swap';
+
+export interface LLMResponseContextSlot {
+  id: number;
+  n_ctx: number;
+  is_processing: boolean;
+}
+
+export interface LLMResponseContextProps {
+  n_ctx: number;
+  total_slots: number;
+  model_path: string;
+  model_alias: string;
+}
+
+export interface LocalLLMResponseContext extends LLMResponseContext {
+  props?: LLMResponseContextProps;
+  slots?: LLMResponseContextSlot[];
+  currentSlot?: LLMResponseContextSlot;
+  localContext?: LocalContextMap;
+}
 
 export interface LocalModel {
   id: string;
@@ -30,8 +52,7 @@ export type LocalContextPartKind =
   | 'tool_results'
   | 'skills'
   | 'mcp'
-  | 'other'
-  | 'empty';
+  | 'other';
 
 export interface LocalContextPart {
   kind: LocalContextPartKind;

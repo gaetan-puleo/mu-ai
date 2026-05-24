@@ -6,8 +6,7 @@
  * Differences vs. opencode:
  *  - mu's Tool has no native attachment channel, so image responses
  *    return a `data:<mime>;base64,...` URL inline as text.
- *  - HTML→text uses Bun's HTMLRewriter when available with a regex fallback
- *    for non-Bun hosts.
+ *  - HTML→text uses HTMLRewriter when available with a regex fallback.
  *  - Cloudflare retry uses `User-Agent: mu` (vs. `opencode`).
  */
 
@@ -52,12 +51,10 @@ function buildHeaders(format: WebFetchFormat, userAgent: string): Record<string,
   };
 }
 
-/** Build the internal timeout signal used by the fetch request. */
-function createTimeoutSignal(timeoutMs: number): { signal: AbortSignal; cancel: () => void } {
-  const timer = new AbortController();
-  const timerId = setTimeout(() => timer.abort(new Error('Request timed out')), timeoutMs);
-  const cancel = () => clearTimeout(timerId);
-  return { signal: timer.signal, cancel };
+function createTimeoutSignal(timeoutMs: number): { controller: AbortController; timerId: ReturnType<typeof setTimeout> } {
+  const controller = new AbortController();
+  const timerId = setTimeout(() => controller.abort(new Error('Request timed out')), timeoutMs);
+  return { controller, timerId };
 }
 
 const NON_IMAGE_MIMES = new Set(['image/svg+xml', 'image/vnd.microsoft.icon']);
@@ -79,12 +76,13 @@ function convertHtmlToMarkdown(html: string): string {
 }
 
 const SKIP_TAGS = ['script', 'style', 'noscript', 'iframe', 'object', 'embed'] as const;
+const SKIP_TAGS_RE = new RegExp(`<(${SKIP_TAGS.join('|')})[\\s\\S]*?<\\/\\1>`, 'gi');
 
 async function extractTextFromHtml(html: string): Promise<string> {
   const Rewriter = (globalThis as { HTMLRewriter?: new () => any }).HTMLRewriter;
   if (typeof Rewriter !== 'function') {
     return html
-      .replace(/<(script|style|noscript|iframe|object|embed)[\s\S]*?<\/\1>/gi, '')
+      .replace(SKIP_TAGS_RE, '')
       .replace(/<[^>]+>/g, '')
       .replace(/\s+\n/g, '\n')
       .trim();
@@ -116,8 +114,10 @@ async function extractTextFromHtml(html: string): Promise<string> {
   return text.trim();
 }
 
-function err(content: string): string {
-  return content.startsWith('Error:') ? content : `Error: ${content}`;
+function formatError(error: unknown): string {
+  if (error instanceof Error) return `Error: ${error.message}`;
+  const str = String(error);
+  return str.startsWith('Error:') ? str : `Error: ${str}`;
 }
 
 function isHttpUrl(url: string): boolean {
@@ -149,18 +149,29 @@ async function fetchWithCloudflareRetry(
     if ((e as Error)?.name === 'AbortError') {
       return {
         ok: false,
-        error: err(`Error fetching ${url}: request timed out after ${Math.round(timeoutMs)}ms`),
+        error: formatError(`Error fetching ${url}: request timed out after ${Math.round(timeoutMs)}ms`),
       };
     }
     const message = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: err(`Error fetching ${url}: ${message}`) };
+    return { ok: false, error: formatError(`Error fetching ${url}: ${message}`) };
   }
 
   if (response.status === 403 && response.headers.get('cf-mitigated') === 'challenge') {
-    response = await fetch(url, {
-      signal: fetchSignal,
-      headers: { ...headers, 'User-Agent': UA_RETRY },
-    });
+    try {
+      response = await fetch(url, {
+        signal: fetchSignal,
+        headers: { ...headers, 'User-Agent': UA_RETRY },
+      });
+    } catch (e) {
+      if ((e as Error)?.name === 'AbortError') {
+        return {
+          ok: false,
+          error: formatError(`Error fetching ${url}: request timed out after ${Math.round(timeoutMs)}ms`),
+        };
+      }
+      const message = e instanceof Error ? e.message : String(e);
+      return { ok: false, error: formatError(`Error fetching ${url}: ${message}`) };
+    }
   }
 
   return { ok: true, response };
@@ -171,13 +182,30 @@ type BoundedRead = { ok: true; buf: ArrayBuffer } | { ok: false; error: string }
 async function readBoundedBuffer(response: Response): Promise<BoundedRead> {
   const declaredLen = response.headers.get('content-length');
   if (declaredLen && Number.parseInt(declaredLen, 10) > MAX_RESPONSE_SIZE) {
-    return { ok: false, error: err('Error: Response too large (exceeds 5MB limit)') };
+    return { ok: false, error: formatError('Response too large (exceeds 5MB limit)') };
   }
-  const buf = await response.arrayBuffer();
-  if (buf.byteLength > MAX_RESPONSE_SIZE) {
-    return { ok: false, error: err('Error: Response too large (exceeds 5MB limit)') };
+  if (!response.body) {
+    const buf = await response.arrayBuffer();
+    return buf.byteLength > MAX_RESPONSE_SIZE
+      ? { ok: false, error: formatError('Response too large (exceeds 5MB limit)') }
+      : { ok: true, buf };
   }
-  return { ok: true, buf };
+  const chunks: Uint8Array[] = [];
+  let totalSize = 0;
+  for await (const chunk of response.body) {
+    totalSize += chunk.byteLength;
+    if (totalSize > MAX_RESPONSE_SIZE) {
+      return { ok: false, error: formatError('Response too large (exceeds 5MB limit)') };
+    }
+    chunks.push(chunk);
+  }
+  const buf = new Uint8Array(totalSize);
+  let offset = 0;
+  for (const chunk of chunks) {
+    buf.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { ok: true, buf: buf.buffer };
 }
 
 function imageDataUrl(url: string, mime: string, buf: ArrayBuffer): string {
@@ -202,26 +230,21 @@ function parseArgs(args: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-function formatError(error: unknown): string {
-  if (error instanceof Error) return `Error: ${error.message}`;
-  return `Error: ${String(error)}`;
-}
-
 async function runWebFetch(args: Record<string, unknown>): Promise<string> {
   const url = typeof args.url === 'string' ? args.url : '';
-  if (!url) return err('Error: url is required');
-  if (!isHttpUrl(url)) return err('Error: URL must start with http:// or https://');
+  if (!url) return formatError('url is required');
+  if (!isHttpUrl(url)) return formatError('URL must start with http:// or https://');
 
   const format = pickFormat(args.format);
   const timeoutMs = pickTimeoutMs(args.timeout);
-  const { signal: fetchSignal, cancel } = createTimeoutSignal(timeoutMs);
+  const { controller, timerId } = createTimeoutSignal(timeoutMs);
 
   try {
-    const attempt = await fetchWithCloudflareRetry(url, format, fetchSignal, timeoutMs);
+    const attempt = await fetchWithCloudflareRetry(url, format, controller.signal, timeoutMs);
     if ('error' in attempt) return attempt.error;
     const { response } = attempt;
     if (!response.ok) {
-      return err(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+      return formatError(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
     }
 
     const bounded = await readBoundedBuffer(response);
@@ -234,7 +257,7 @@ async function runWebFetch(args: Record<string, unknown>): Promise<string> {
     if (isImageMime(mime)) return imageDataUrl(url, mime, buf);
     return await renderBody(buf, contentType, format);
   } finally {
-    cancel();
+    clearTimeout(timerId);
   }
 }
 

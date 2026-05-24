@@ -1,7 +1,7 @@
-import type { Color } from 'mu-tui';
-import type { TextStyle } from './tokens';
+import type { Color, EventContext, RenderContext } from 'mu-tui';
+import { darkTheme, type TextStyle, type Theme } from './themes';
 
-const RESET = '\x1b[0m';
+// --- ANSI encoding ---
 
 const NAMED_FG: Record<string, string> = {
   black: '\x1b[30m',
@@ -55,7 +55,6 @@ function hexToRgb(hex: string): [number, number, number] | undefined {
   return [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff];
 }
 
-/** Convert a `Color` to an SGR foreground escape. Returns '' on failure. */
 export function fgToAnsi(color: Color): string {
   if (color.startsWith('#')) {
     const rgb = hexToRgb(color);
@@ -64,7 +63,6 @@ export function fgToAnsi(color: Color): string {
   return NAMED_FG[color] ?? '';
 }
 
-/** Convert a `Color` to an SGR background escape. Returns '' on failure. */
 export function bgToAnsi(color: Color): string {
   if (color.startsWith('#')) {
     const rgb = hexToRgb(color);
@@ -73,11 +71,6 @@ export function bgToAnsi(color: Color): string {
   return NAMED_BG[color] ?? '';
 }
 
-/**
- * Build an SGR prefix from a `TextStyle`. The result is a concatenation of
- * style SGRs ready to be prepended to text. Use `wrapWithStyle` to also append
- * a reset.
- */
 export function styleToAnsi(style: TextStyle): string {
   let out = '';
   if (style.bold) out += '\x1b[1m';
@@ -89,9 +82,55 @@ export function styleToAnsi(style: TextStyle): string {
   return out;
 }
 
-/** Wrap text with the SGR prefix from `style` and a trailing reset. */
 export function wrapWithStyle(text: string, style: TextStyle): string {
   const prefix = styleToAnsi(style);
   if (!prefix) return text;
-  return `${prefix}${text}${RESET}`;
+  return `${prefix}${text}\x1b[0m`;
+}
+
+// --- ThemeProvider ---
+
+export type ThemeSubscriber = (theme: Theme) => void;
+
+export class ThemeProvider {
+  private theme: Theme;
+  private readonly subscribers: Set<ThemeSubscriber> = new Set();
+
+  constructor(initial: Theme) {
+    this.theme = initial;
+  }
+
+  current(): Theme {
+    return this.theme;
+  }
+
+  setTheme(next: Theme): void {
+    if (this.theme === next) return;
+    this.theme = next;
+    for (const subscriber of this.subscribers) {
+      try {
+        subscriber(next);
+      } catch {
+        /* subscriber errors must not break the provider */
+      }
+    }
+  }
+
+  subscribe(fn: ThemeSubscriber): () => void {
+    this.subscribers.add(fn);
+    return () => {
+      this.subscribers.delete(fn);
+    };
+  }
+}
+
+// --- getTheme ---
+
+export function getTheme(ctx: RenderContext | EventContext): Theme {
+  const value = ctx.userContext;
+  if (value instanceof ThemeProvider) return value.current();
+  if (typeof value === 'object' && value !== null && 'colors' in value && 'styles' in value && 'name' in value) {
+    return value as Theme;
+  }
+  return darkTheme;
 }

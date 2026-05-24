@@ -96,9 +96,12 @@ if (dryRun) console.log('(dry-run — no changes will be made)\n');
 // 1. Update versions in every package.json
 // ---------------------------------------------------------------------------
 
+const originalPkgs: Map<string, Record<string, unknown>> = new Map();
+
 for (const { name, dir: packageDir } of PACKAGES) {
   const dir = resolve(ROOT, 'packages', packageDir);
   const pkg = readPkg(dir);
+  originalPkgs.set(dir, JSON.parse(JSON.stringify(pkg)));
   pkg.version = nextVersion;
 
   // Update internal dependency references
@@ -153,7 +156,19 @@ for (const { name, dir: packageDir } of PACKAGES) {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Git tag
+// 4. Restore workspace:* references in source package.json files
+// ---------------------------------------------------------------------------
+
+if (!dryRun) {
+  for (const [dir, original] of originalPkgs) {
+    original.version = nextVersion;
+    writePkg(dir, original);
+  }
+  console.log('\n  ✓ Restored workspace:* references in source package.json files');
+}
+
+// ---------------------------------------------------------------------------
+// 5. Git tag
 // ---------------------------------------------------------------------------
 
 const gitTag = `v${nextVersion}`;

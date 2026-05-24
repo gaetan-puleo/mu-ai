@@ -19,22 +19,21 @@ function normalizePadding(padding: LayoutStyle['padding']) {
 export interface OutputBlockProps {
   command: string;
   output: string;
-  isError?: boolean;
+  variant?: 'default' | 'error';
   theme: Theme;
 }
 
 export class OutputBlock implements Component {
   layout: LayoutStyle;
-  props: OutputBlockProps;
 
-  constructor(props: OutputBlockProps) {
-    this.props = props;
+  constructor(private readonly props: OutputBlockProps) {
+    const isError = props.variant === 'error';
     this.layout = {
       width: 'fill',
       height: 'auto',
       margin: { bottom: 1 },
       padding: { top: 1, right: 1, bottom: 1, left: 1 },
-      backgroundColor: props.theme.colors.surface,
+      backgroundColor: isError ? props.theme.colors.surfaceMuted : props.theme.colors.surface,
     };
   }
 
@@ -68,9 +67,7 @@ export class OutputBlock implements Component {
     lines.push(`${headerStyle}${this.props.command}${RESET}`);
     lines.push('');
 
-    const padding = normalizePadding(this.layout.padding);
-    const innerWidth = width - padding.left - padding.right;
-    const wrappedLines = wrapText(this.props.output, innerWidth);
+    const wrappedLines = wrapText(this.props.output, width);
     for (const line of wrappedLines) {
       lines.push(`${outputStyle}${line}${RESET}`);
     }

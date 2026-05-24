@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process';
 import type { Tool } from 'mu-core';
 import { formatError, parseArgs } from './utils';
 
+const DEFAULT_TIMEOUT_MS = 120_000;
+
 function executeBash(command: string, cwd: string): Promise<string> {
   return new Promise((resolve) => {
     const proc = spawn('bash', ['-c', command], {
@@ -12,23 +14,33 @@ function executeBash(command: string, cwd: string): Promise<string> {
 
     let stdout = '';
     let stderr = '';
+    let killed = false;
+
+    const timer = setTimeout(() => {
+      killed = true;
+      if (proc.pid) {
+        try {
+          process.kill(-proc.pid, 'SIGKILL');
+        } catch {
+          proc.kill('SIGKILL');
+        }
+      }
+    }, DEFAULT_TIMEOUT_MS);
 
     proc.stdout.on('data', (data: Buffer) => {
-      try {
-        stdout += data.toString('utf-8');
-      } catch {
-        // skip binary data
-      }
+      stdout += data.toString('utf-8');
     });
     proc.stderr.on('data', (data: Buffer) => {
-      try {
-        stderr += data.toString('utf-8');
-      } catch {
-        // skip binary data
-      }
+      stderr += data.toString('utf-8');
     });
 
     proc.on('close', (code) => {
+      clearTimeout(timer);
+      if (killed) {
+        const partial = [stdout, stderr].map((s) => s.trim()).filter(Boolean).join('\n');
+        resolve(`Error: Process timed out after ${DEFAULT_TIMEOUT_MS / 1000}s${partial ? `\n${partial}` : ''}`);
+        return;
+      }
       const output = [stdout, stderr]
         .map((s) => s.trim())
         .filter(Boolean)
@@ -41,6 +53,7 @@ function executeBash(command: string, cwd: string): Promise<string> {
     });
 
     proc.on('error', (err) => {
+      clearTimeout(timer);
       resolve(formatError(err));
     });
   });

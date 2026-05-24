@@ -12,14 +12,20 @@ export {
 } from './runtime';
 export { Session } from './session';
 export { callTool } from './tools/callTool';
-export type { AfterToolData, AfterToolHook, BeforeToolData, BeforeToolHook, ToolHooks } from './types/Hook';
+export type {
+  AfterToolData,
+  AfterToolHook,
+  AfterToolResult,
+  BeforeToolData,
+  BeforeToolHook,
+  BeforeToolResult,
+  ToolHooks,
+} from './types/Hook';
 export type { Message } from './types/Message';
-export type { SessionState } from './types/Session';
+export type { SessionConfig, SessionState } from './types/Session';
 export type {
   LLMResponse,
   LLMResponseContext,
-  LLMResponseContextProps,
-  LLMResponseContextSlot,
   LLMStreamEvent,
   Tool,
   ToolCall,

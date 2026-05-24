@@ -259,6 +259,5 @@ export class ProcessTerminal implements Terminal {
   private restoreInputNow(): void {
     process.stdin.pause();
     process.stdin.setRawMode(false);
-    process.stdin.setEncoding(undefined);
   }
 }

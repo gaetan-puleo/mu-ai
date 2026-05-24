@@ -51,5 +51,5 @@ export { createBashTool } from './bash';
 export { createEditFileTool } from './edit-file';
 export { createListDirTool } from './list-dir';
 export { createReadFileTool } from './read-file';
-export { sanitizePath } from './utils';
+export { formatError, parseArgs, sanitizePath } from './utils';
 export { createWriteFileTool } from './write-file';

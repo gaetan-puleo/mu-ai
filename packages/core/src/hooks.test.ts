@@ -96,7 +96,7 @@ describe('tool hooks', () => {
 
     expect(
       events.some(
-        (event) => event.type === 'error' && event.error instanceof Error && event.error.message === 'Blocked by hook',
+        (event) => event.type === 'tool_result' && event.message?.content === 'Blocked: Blocked by hook',
       ),
     ).toBe(true);
   });

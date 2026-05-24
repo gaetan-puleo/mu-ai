@@ -2,7 +2,6 @@ import { appendFileSync } from 'node:fs';
 import type {
   LLMProvider,
   LLMProviderResult,
-  LLMResponseContext,
   LLMStreamEvent,
   Message,
   Tool,
@@ -11,7 +10,6 @@ import type {
 import { defineProvider } from 'mu-core';
 import OpenAI from 'openai';
 import type {
-  ChatCompletionMessage,
   ChatCompletionMessageParam,
   ChatCompletionTool,
 } from 'openai/resources/chat/completions';
@@ -22,15 +20,25 @@ import {
   LLAMA_SWAP_KIND,
   prepareLlamaSwapChatRequest,
 } from './backends/llama-swap';
-import type { LocalBackendInfo, LocalContextMap, LocalContextPartKind, LocalModel, LocalProviderConfig } from './types';
+import type {
+  LocalBackendInfo,
+  LocalContextMap,
+  LocalContextPartKind,
+  LocalLLMResponseContext,
+  LocalModel,
+  LocalProviderConfig,
+} from './types';
 
 export type {
+  LLMResponseContextProps,
+  LLMResponseContextSlot,
   LocalBackendIdentity,
   LocalBackendInfo,
   LocalBackendKind,
   LocalContextMap,
   LocalContextPart,
   LocalContextPartKind,
+  LocalLLMResponseContext,
   LocalModel,
   LocalProviderConfig,
 } from './types';
@@ -138,17 +146,6 @@ function convertTools(tools: Record<string, Tool>): ChatCompletionTool[] {
   }));
 }
 
-function _convertToolCalls(toolCalls: NonNullable<ChatCompletionMessage['tool_calls']>): ToolCall[] {
-  return toolCalls
-    .filter((toolCall) => toolCall.type === 'function')
-    .map((toolCall) => ({
-      type: 'tool_call',
-      id: toolCall.id,
-      tool: toolCall.function.name,
-      args: toolCall.function.arguments,
-    }));
-}
-
 function estimateTokens(value: string): number {
   const trimmed = value.trim();
   if (!trimmed) return 0;
@@ -176,8 +173,8 @@ function buildLocalContextMap(config: {
   model: string;
   messages: Message[];
   tools: Record<string, Tool>;
-  usage?: LLMResponseContext['usage'];
-  backendContext?: LLMResponseContext;
+  usage?: LocalLLMResponseContext['usage'];
+  backendContext?: LocalLLMResponseContext;
 }): LocalContextMap {
   const parts = new Map<LocalContextPartKind, number>();
 
@@ -238,8 +235,6 @@ function labelContextPart(kind: LocalContextPartKind): string {
       return 'mcp';
     case 'other':
       return 'other';
-    case 'empty':
-      return 'empty';
   }
 }
 
@@ -269,10 +264,11 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
       apiKey: config.apiKey ?? 'local',
     });
 
+    const convertedTools = convertTools(tools);
     const requestOptions: Record<string, unknown> = {
       model,
       messages: convertMessages(messages),
-      tools: convertTools(tools),
+      ...(convertedTools.length > 0 ? { tools: convertedTools } : {}),
       stream: true,
       stream_options: { include_usage: true },
     };
@@ -293,7 +289,7 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
 
     async function* streamCompletion(): AsyncIterable<LLMStreamEvent> {
       let content = '';
-      let usage: LLMResponseContext['usage'] | undefined;
+      let usage: LocalLLMResponseContext['usage'] | undefined;
       const toolCallBuffers = new Map<number, { id: string; name: string; args: string; emitted: boolean }>();
 
       debugLog({ stage: 'provider.stream.start', model, messages: messages.length, tools: Object.keys(tools) });
@@ -376,7 +372,7 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
         };
       }
 
-      let backendContext: LLMResponseContext | undefined;
+      let backendContext: LocalLLMResponseContext | undefined;
 
       if (backend.kind === 'llama-swap') {
         backendContext = await collectLlamaSwapContext({
@@ -404,11 +400,11 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
           content,
           tool_calls: collectedToolCalls.length > 0 ? collectedToolCalls : undefined,
           context: backendContext || usage
-            ? ({
+            ? {
               ...backendContext,
               usage,
               localContext: buildLocalContextMap({ backend, model, messages, tools, usage, backendContext }),
-            } as LLMResponseContext)
+            } as LocalLLMResponseContext
             : undefined,
         },
       };

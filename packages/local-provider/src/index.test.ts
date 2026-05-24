@@ -106,11 +106,10 @@ describe('selectAvailableSlot', () => {
     expect(slot?.id).toBe(0);
   });
 
-  it('falls back to first slot when all are processing', () => {
+  it('returns undefined when all slots are processing', () => {
     const allBusy = MOCK_SLOTS_RESPONSE.map((s) => ({ ...s, is_processing: true }));
     const slot = selectAvailableSlot(allBusy);
-    expect(slot).toBeDefined();
-    expect(slot?.id).toBe(0);
+    expect(slot).toBeUndefined();
   });
 
   it('returns undefined for empty array', () => {

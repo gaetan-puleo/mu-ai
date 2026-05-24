@@ -71,13 +71,6 @@ export class TerminalInputParser {
     return events;
   }
 
-  flushPendingEscape(): InputEvent[] {
-    if (this.buffer !== ESC) return [];
-    this.buffer = '';
-    const event = parseInput(ESC);
-    return event ? [event] : [];
-  }
-
   flushPending(): InputEvent[] {
     if (this.buffer.length === 0) return [];
     const raw = this.buffer;

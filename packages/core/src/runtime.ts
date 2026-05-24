@@ -176,24 +176,14 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     return true;
   }
 
-  function drainSteeringIntoTranscript(): boolean {
-    const drained = drainQueue(steeringQueue, steeringMode);
+  function drainIntoTranscript(source: Message[], mode: QueueMode, queueType: 'steering' | 'follow_up'): boolean {
+    const drained = drainQueue(source, mode);
     if (!drained.length) {
       return false;
     }
 
     emitQueueUpdate();
-    return appendUserMessages(drained, 'steering');
-  }
-
-  function drainFollowUpIntoTranscript(): boolean {
-    const drained = drainQueue(followUpQueue, followUpMode);
-    if (!drained.length) {
-      return false;
-    }
-
-    emitQueueUpdate();
-    return appendUserMessages(drained, 'follow_up');
+    return appendUserMessages(drained, queueType);
   }
 
   function enqueueSteering(message: Message): void {
@@ -435,10 +425,10 @@ export function createRuntime(config: RuntimeConfig): Runtime {
           const streamedToolCalls = await processStream(result);
           debugLog({ stage: 'runtime.provider.call.stream.done', providerCalls, toolCalls: streamedToolCalls.length });
           if (!streamedToolCalls.length) {
-            if (drainSteeringIntoTranscript()) {
+            if (drainIntoTranscript(steeringQueue, steeringMode, 'steering')) {
               continue;
             }
-            if (drainFollowUpIntoTranscript()) {
+            if (drainIntoTranscript(followUpQueue, followUpMode, 'follow_up')) {
               continue;
             }
             break;
@@ -446,7 +436,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
           checkRepeatedToolCalls(repeatedToolCalls, streamedToolCalls, providerCalls);
           appendAssistantToolCalls(streamedToolCalls);
           await executeToolCalls(streamedToolCalls);
-          drainSteeringIntoTranscript();
+          drainIntoTranscript(steeringQueue, steeringMode, 'steering');
           debugLog({
             stage: 'runtime.loop.continue_after_tools',
             providerCalls,
@@ -463,39 +453,32 @@ export function createRuntime(config: RuntimeConfig): Runtime {
           toolCalls: result.tool_calls?.length ?? 0,
         });
 
-        if (publishResponse(result)) {
-          if (drainSteeringIntoTranscript()) {
-            continue;
+        publishResponse(result);
+
+        if (result.tool_calls?.length) {
+          checkRepeatedToolCalls(repeatedToolCalls, result.tool_calls, providerCalls);
+          for (const call of result.tool_calls) {
+            bus.publish({ type: 'tool_call', call });
           }
-          if (drainFollowUpIntoTranscript()) {
-            continue;
-          }
-          break;
+          appendAssistantToolCalls(result.tool_calls);
+          await executeToolCalls(result.tool_calls);
+          drainIntoTranscript(steeringQueue, steeringMode, 'steering');
+          debugLog({
+            stage: 'runtime.loop.continue_after_tools',
+            providerCalls,
+            toolCalls: result.tool_calls.length,
+            messages: messages.length,
+          });
+          continue;
         }
 
-        if (!result.tool_calls?.length) {
-          if (drainSteeringIntoTranscript()) {
-            continue;
-          }
-          if (drainFollowUpIntoTranscript()) {
-            continue;
-          }
-          break;
+        if (drainIntoTranscript(steeringQueue, steeringMode, 'steering')) {
+          continue;
         }
-
-        checkRepeatedToolCalls(repeatedToolCalls, result.tool_calls, providerCalls);
-        for (const call of result.tool_calls) {
-          bus.publish({ type: 'tool_call', call });
+        if (drainIntoTranscript(followUpQueue, followUpMode, 'follow_up')) {
+          continue;
         }
-        appendAssistantToolCalls(result.tool_calls);
-        await executeToolCalls(result.tool_calls);
-        drainSteeringIntoTranscript();
-        debugLog({
-          stage: 'runtime.loop.continue_after_tools',
-          providerCalls,
-          toolCalls: result.tool_calls.length,
-          messages: messages.length,
-        });
+        break;
       }
     } catch (error) {
       consecutiveErrors++;
@@ -512,6 +495,9 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
         debugLog({ stage: 'runtime.circuit_breaker', consecutiveErrors });
         queue.length = 0;
+        steeringQueue.length = 0;
+        followUpQueue.length = 0;
+        emitQueueUpdate();
         currentState = 'idle';
       } else {
         void processQueue();

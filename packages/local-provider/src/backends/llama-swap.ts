@@ -1,5 +1,9 @@
-import type { LLMResponseContext, LLMResponseContextSlot } from 'mu-core';
-import type { LocalBackendInfo, LocalModel } from '../types';
+import type {
+  LLMResponseContextSlot,
+  LocalBackendInfo,
+  LocalLLMResponseContext,
+  LocalModel,
+} from '../types';
 
 export const LLAMA_SWAP_KIND = 'llama-swap' as const;
 
@@ -44,7 +48,6 @@ export interface LlamaSwapSlotInfo {
     n_remain: number;
     n_decoded: number;
   }>;
-  params?: Record<string, unknown>;
 }
 
 export interface LlamaSwapProps {
@@ -108,7 +111,7 @@ export function selectAvailableSlot(slots: LlamaSwapSlotInfo[]): LlamaSwapSlotIn
       return slot;
     }
   }
-  return slots[0];
+  return undefined;
 }
 
 export interface LlamaSwapChatRequestExtras {
@@ -151,7 +154,7 @@ export async function collectLlamaSwapContext(config: {
   apiKey?: string;
   model: string;
   selectedSlotId?: number;
-}): Promise<LLMResponseContext | undefined> {
+}): Promise<LocalLLMResponseContext | undefined> {
   const [slots, props] = await Promise.all([
     getLlamaSwapSlots(config).catch(() => undefined),
     getLlamaSwapProps(config).catch(() => undefined),
@@ -161,7 +164,7 @@ export async function collectLlamaSwapContext(config: {
     return undefined;
   }
 
-  const context: LLMResponseContext = {};
+  const context: LocalLLMResponseContext = {};
 
   if (props) {
     context.props = {

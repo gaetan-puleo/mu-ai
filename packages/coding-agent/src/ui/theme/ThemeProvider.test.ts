@@ -1,8 +1,7 @@
 import { expect, fn } from '@std/expect';
 import { describe, it } from '@std/testing/bdd';
-import { ThemeProvider, type ThemeSubscriber } from './ThemeProvider';
-import { darkTheme } from './themes/dark';
-import { lightTheme } from './themes/light';
+import { ThemeProvider, type ThemeSubscriber } from './theme';
+import { darkTheme, lightTheme } from './themes';
 
 describe('ThemeProvider', () => {
   it('returns the initial theme via current()', () => {

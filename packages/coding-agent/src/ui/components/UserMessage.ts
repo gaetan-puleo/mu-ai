@@ -1,6 +1,6 @@
 import type { Component, Constraints, LayoutStyle, RenderContext, Size } from 'mu-tui';
 import { truncateToWidth, visibleWidth, wrapText } from 'mu-tui';
-import { Box } from 'mu-tui/components';
+import { Box, Text } from 'mu-tui/components';
 import { getTheme, styleToAnsi, type Theme } from '../theme';
 
 export interface UserMessageProps {
@@ -80,17 +80,28 @@ class UserMessageBody implements Component {
 
 export class UserMessage extends Box {
   constructor(props: UserMessageProps) {
+    const prefix = styleToAnsi(props.theme.styles.muted);
+    const prompt = new Text({
+      text: `${prefix}❯${RESET}`,
+      wrap: false,
+      layout: { width: 2, height: 1 },
+    });
+    const body = new UserMessageBody(props.content);
+    const contentRow = new Box({
+      layout: { width: 'fill', height: 'auto', direction: 'row' },
+      children: [prompt, body],
+    });
+
     const children: Component[] = [];
     if (props.label) children.push(new UserMessageLabel(props.label));
-    children.push(new UserMessageBody(props.content));
+    children.push(contentRow);
 
     super({
       layout: {
         width: 'fill',
         height: 'auto',
         margin: { bottom: 1 },
-        padding: { top: 1, right: 1, bottom: 1, left: 1 },
-        backgroundColor: props.theme.colors.surfaceMuted,
+        padding: { right: 1, left: 1 },
       },
       children,
     });

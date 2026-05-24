@@ -9,7 +9,7 @@ interface PackageDef {
   name: string;
   dir: string;
   description: string;
-  entryPoints: string[] | Record<string, string>[];
+  entryPoints: (string | { name: string; path: string })[];
   mappings?: Record<string, { name: string; version: string }>;
   deps?: Record<string, string>;
   devDeps?: Record<string, string>;
@@ -122,8 +122,8 @@ for (const pkg of packagesToBuild) {
       if (mappingPkg) {
         const mappingPkgDir = resolve(ROOT, 'packages', mappingPkg.dir);
         const entryPoint = typeof mappingPkg.entryPoints[0] === 'string'
-          ? mappingPkg.entryPoints[0] as string
-          : (mappingPkg.entryPoints[0] as Record<string, string>).path;
+          ? mappingPkg.entryPoints[0]
+          : mappingPkg.entryPoints[0].path;
         packageMappings[resolve(mappingPkgDir, entryPoint)] = value;
       }
     }

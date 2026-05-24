@@ -14,15 +14,20 @@ function listDirRecursive(dir: string, prefix: string, depth: number, maxDepth: 
 
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
-    if (entry === undefined) continue;
     const isLast = i === entries.length - 1;
     const connector = isLast ? '└── ' : '├── ';
     const fullPath = join(dir, entry);
-    const stat = statSync(fullPath);
-    const icon = stat.isDirectory() ? '📁' : '📄';
+    let isDir: boolean;
+    try {
+      isDir = statSync(fullPath).isDirectory();
+    } catch {
+      lines.push(`${prefix}${connector}⚠ ${entry}`);
+      continue;
+    }
+    const icon = isDir ? '📁' : '📄';
     lines.push(`${prefix}${connector}${icon} ${entry}`);
 
-    if (recursive && stat.isDirectory() && depth < maxDepth) {
+    if (recursive && isDir && depth < maxDepth) {
       const extension = isLast ? '    ' : '│   ';
       lines.push(listDirRecursive(fullPath, prefix + extension, depth + 1, maxDepth, recursive));
     }

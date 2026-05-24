@@ -26,17 +26,16 @@ function executeReadFileSingle(
     const allLines = content.split('\n');
     const totalLines = allLines.length;
 
-    const startLine = Math.max(1, start ?? 1);
-    const endLine = end ?? totalLines;
-    const clampedStart = Math.min(startLine, totalLines);
-    const clampedEnd = Math.min(endLine, totalLines);
+    const clampedStart = Math.max(1, Math.min(start ?? 1, totalLines));
+    const clampedEnd = Math.min(end ?? totalLines, totalLines);
 
     if (clampedStart > clampedEnd) {
-      return `Error: start (${startLine}) > end (${endLine})`;
+      return `Error: start (${clampedStart}) > end (${clampedEnd})`;
     }
 
     const lines = allLines.slice(clampedStart - 1, clampedEnd);
-    const numbered = lines.map((line, i) => `${String(clampedStart + i).padStart(4)} │ ${line}`).join('\n');
+    const gutterWidth = String(clampedEnd).length;
+    const numbered = lines.map((line, i) => `${String(clampedStart + i).padStart(gutterWidth)} │ ${line}`).join('\n');
     const rangeLabel = start ? ` (lines ${clampedStart}-${clampedEnd})` : '';
     const header = `── ${path}${rangeLabel} (${lines.length} lines) ──`;
     return `${header}\n${numbered}`;

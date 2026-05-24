@@ -48,7 +48,7 @@ function take(mod: unknown, source: string): Plugin {
 }
 
 function isAllowedSpec(spec: string): boolean {
-  return spec.startsWith('npm:') || spec.startsWith('@');
+  return spec.startsWith('npm:') || /^@[\w-]+\/[\w.-]+/.test(spec);
 }
 
 export async function loadPlugins(opts: LoadPluginsOptions = {}): Promise<Plugin[]> {

@@ -41,7 +41,6 @@ export type {
 } from './layout/types';
 export { TerminalInputParser } from './parser';
 export {
-  detectTerminalProtocol,
   detectTerminalProtocolSync,
   type ProtocolResult,
   supportsProtocol,
@@ -53,4 +52,4 @@ export type { Component, Container, Focusable, FocusableNavigation } from './typ
 export { isFocusable, isFocusableNavigation } from './types/guards';
 export type { MouseButton, MouseEvent, MouseMotion } from './types/mouse';
 export type { Terminal, TerminalMode } from './types/terminal';
-export { sliceByColumn, truncateToWidth, visibleWidth, wrapText } from './utils';
+export { sliceByColumn, stripAnsi, truncateToWidth, visibleWidth, wrapText } from './utils';

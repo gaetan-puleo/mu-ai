@@ -1,89 +1,64 @@
-import { type CoreEvent, createBus, createRuntime as createCoreRuntime, loadPlugins, type Plugin } from 'mu-core';
-import type { LocalModel, LocalProviderConfig } from 'mu-local-provider';
-import { createLocalProvider, listLocalModels } from 'mu-local-provider';
-import { createMuTools } from 'mu-tools';
-import { getPluginsDir } from './config';
+import {
+  type CoreEvent,
+  createBus,
+  createRuntime as createCoreRuntime,
+  type LLMProvider,
+  type Plugin,
+  type Tools,
+} from 'mu-core';
+
+export interface Model {
+  id: string;
+  name?: string;
+  description?: string;
+}
 
 export interface AgentRuntime {
   bus: ReturnType<typeof createBus<CoreEvent>>;
   runtime: ReturnType<typeof createCoreRuntime>;
   model: string;
-  models: LocalModel[];
+  models: Model[];
   plugins: Plugin[];
   createRuntime: () => ReturnType<typeof createCoreRuntime>;
-  listModels: () => Promise<LocalModel[]>;
+  listModels: () => Promise<Model[]>;
   getModel: () => string;
   setModel: (model: string) => void;
 }
 
-export async function createAgentRuntime(config: {
-  kind?: string;
-  baseUrl?: string;
+export interface AgentRuntimeConfig {
+  provider?: LLMProvider;
+  tools?: Tools;
+  plugins?: Plugin[];
   model?: string;
-  plugins?: string[];
-  provider?: string;
+  models?: Model[];
+  listModels?: () => Promise<Model[]>;
   onModelChange?: (model: string) => void;
-}): Promise<AgentRuntime> {
-  const providerConfig: LocalProviderConfig = {
-    kind: config.kind as LocalProviderConfig['kind'],
-    baseUrl: config.baseUrl ?? 'http://localhost:8080',
-    model: '',
-  };
+}
 
-  const plugins = await loadPlugins({
-    localDir: getPluginsDir(),
-    npmSpecs: config.plugins,
-  });
-
-  const providerPlugin = config.provider ? plugins.find((p) => p.name === config.provider) : undefined;
-  if (config.provider && !providerPlugin?.provider) {
-    throw new Error(
-      `Provider plugin "${config.provider}" not found or does not export a provider. ` +
-        `Loaded plugins: ${plugins.map((p) => p.name).join(', ') || '(none)'}`,
-    );
-  }
-
-  const useLocal = !providerPlugin;
-  const nonProviderPlugins = providerPlugin ? plugins.filter((p) => p !== providerPlugin) : plugins;
-
-  async function fetchModels(): Promise<LocalModel[]> {
-    if (!useLocal) return [];
-    return listLocalModels({
-      kind: providerConfig.kind,
-      baseUrl: providerConfig.baseUrl,
-    });
-  }
-
-  const models = await fetchModels();
-
-  if (useLocal && models.length === 0) {
-    throw new Error(`No models found at ${providerConfig.baseUrl}. Check your config or backend status.`);
-  }
-
-  const savedModel = config.model && models.some((availableModel) => availableModel.id === config.model)
-    ? config.model
-    : undefined;
-  const model = useLocal ? (savedModel ?? models[0].id) : (config.model ?? '');
-  providerConfig.model = model;
+export function createAgentRuntime(config: AgentRuntimeConfig): AgentRuntime {
+  const { plugins = [], models: initialModels = [] } = config;
+  const model = config.model ?? initialModels[0]?.id ?? '';
+  let currentModel = model;
 
   const bus = createBus<CoreEvent>();
-  const provider = useLocal ? createLocalProvider(providerConfig) : undefined;
-  const tools = createMuTools({ restrictToCwd: false });
+
   const createRuntime = (): ReturnType<typeof createCoreRuntime> =>
-    createCoreRuntime({ provider, tools, plugins, bus });
+    createCoreRuntime({ provider: config.provider, tools: config.tools, plugins, bus });
   const runtime = createRuntime();
+
+  const listModels = config.listModels ?? (async () => initialModels);
 
   return {
     bus,
     runtime,
     model,
-    models,
+    models: initialModels,
     plugins,
     createRuntime,
-    listModels: fetchModels,
-    getModel: () => providerConfig.model ?? '',
+    listModels,
+    getModel: () => currentModel,
     setModel: (nextModel: string) => {
-      providerConfig.model = nextModel;
+      currentModel = nextModel;
       config.onModelChange?.(nextModel);
     },
   };

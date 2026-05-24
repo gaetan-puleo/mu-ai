@@ -16,19 +16,6 @@ export interface ToolCall {
   args: string;
 }
 
-export interface LLMResponseContextSlot {
-  id: number;
-  n_ctx: number;
-  is_processing: boolean;
-}
-
-export interface LLMResponseContextProps {
-  n_ctx: number;
-  total_slots: number;
-  model_path: string;
-  model_alias: string;
-}
-
 export interface LLMResponseContext {
   usage?: {
     promptTokens: number;
@@ -36,9 +23,6 @@ export interface LLMResponseContext {
     totalTokens: number;
   };
   timings?: Record<string, unknown>;
-  props?: LLMResponseContextProps;
-  slots?: LLMResponseContextSlot[];
-  currentSlot?: LLMResponseContextSlot;
   raw?: Record<string, unknown>;
 }
 

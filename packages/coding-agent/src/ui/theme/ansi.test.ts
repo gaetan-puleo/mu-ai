@@ -1,6 +1,6 @@
 import { expect } from '@std/expect';
 import { describe, it } from '@std/testing/bdd';
-import { bgToAnsi, fgToAnsi, styleToAnsi, wrapWithStyle } from './ansi';
+import { bgToAnsi, fgToAnsi, styleToAnsi, wrapWithStyle } from './theme';
 
 describe('fgToAnsi', () => {
   it('encodes a 6-digit hex as truecolor SGR', () => {

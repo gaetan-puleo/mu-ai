@@ -13,8 +13,8 @@ export function createBus<Event>(): EventBus<Event> {
       for (const listener of listeners) {
         try {
           listener(event);
-        } catch {
-          // Isolate listener errors so one bad handler cannot block delivery to others
+        } catch (err) {
+          console.error('[mu-core] bus listener threw:', err);
         }
       }
     },

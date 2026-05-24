@@ -17,11 +17,12 @@ export function sanitizePath(raw: string, cwd?: string, restrictToCwd = false): 
   if ((p.startsWith('"') && p.endsWith('"')) || (p.startsWith("'") && p.endsWith("'"))) {
     p = p.slice(1, -1).trim();
   }
-  if (cwd && !isAbsolute(p)) {
-    p = resolve(cwd, p);
+  if (!isAbsolute(p)) {
+    p = resolve(cwd ?? process.cwd(), p);
   }
   if (restrictToCwd && cwd) {
-    if (!p.startsWith(`${cwd}/`) && p !== cwd) {
+    const normalizedCwd = resolve(cwd);
+    if (p !== normalizedCwd && !p.startsWith(`${normalizedCwd}/`)) {
       return null;
     }
   }

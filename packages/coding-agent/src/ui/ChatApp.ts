@@ -2,41 +2,25 @@ import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { CoreEvent, LLMResponseContext, Message, Runtime, Unsubscribe } from 'mu-core';
-import type { LocalModel } from 'mu-local-provider';
+import type { Model } from '../runtime';
 import { type Component, type InputEvent, ProcessTerminal, TUI } from 'mu-tui';
 import { Box, Input, Modal, ScrollView, SelectList, Text } from 'mu-tui/components';
 import { AssistantMessage } from './components/AssistantMessage';
-import { CommandLine } from './components/CommandLine';
 import { CommandPalette, type CommandPaletteItem } from './components/CommandPalette';
-import { CommandResultLine } from './components/CommandResultLine';
 import { ContextMap } from './components/ContextMap';
-import { ErrorLine } from './components/ErrorLine';
-import { ErrorToast } from './components/ErrorToast';
-import { HiddenThinkingLine } from './components/HiddenThinkingLine';
+import { CommandLine, CommandResultLine, ErrorLine, ErrorToast, HiddenThinkingLine } from './components/SimpleLines';
 import { OutputBlock } from './components/OutputBlock';
 import { ReasoningBlock } from './components/ReasoningBlock';
-import { formatToolCallArgs, ToolLine } from './components/ToolLine';
+import { ToolLine } from './components/ToolLine';
 import { UserMessage } from './components/UserMessage';
 import { StatusLine } from './statusLine';
 import { STATUS_SLOTS, type StatusSlotContext } from './statusSlots';
 import { darkTheme, getTheme, lightTheme, styleToAnsi, type Theme, ThemeProvider } from './theme';
+import { Transcript } from './Transcript';
 
-type ChatLine =
-  | { role: 'user'; content: string; label?: 'queued steering' | 'follow-up' }
-  | { role: 'assistant' | 'error'; content: string }
-  | { role: 'command'; content: string }
-  | { role: 'command_result'; content: string }
-  | { role: 'output_block'; component: OutputBlock }
-  | { role: 'context'; context?: unknown }
-  | { role: 'reasoning'; content: string; closed?: boolean }
-  | { role: 'tool'; callId: string; name: string; argsPreview: string };
-
-type UserChatLine = Extract<ChatLine, { role: 'user' }>;
-
-interface VisibleQueuedLine {
-  message: Message;
-  queue: 'steering' | 'follow_up';
-  line: UserChatLine;
+function formatTokenCount(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  return String(n);
 }
 
 interface ChatBus {
@@ -50,7 +34,7 @@ interface ChatCommand extends CommandPaletteItem {
 
 interface ModelController {
   createRuntime: () => Runtime;
-  listModels: () => Promise<LocalModel[]>;
+  listModels: () => Promise<Model[]>;
   getModel: () => string;
   setModel: (model: string) => void;
 }
@@ -62,8 +46,6 @@ interface ChatAppOptions {
 
 type ModalMode = 'model';
 
-type ChatEvent = CoreEvent | { type: 'context_update'; context: LLMResponseContext };
-
 const SPINNER_INTERVAL_MS = 100;
 
 export class ChatApp {
@@ -71,18 +53,21 @@ export class ChatApp {
   private terminal: ProcessTerminal;
   private runtime: Runtime;
   private bus: ChatBus;
-  private transcript: ChatLine[] = [];
+  private transcript: Transcript;
   private scrollView: ScrollView;
   private transcriptBox: Box;
   private root: Box;
   private input: Input;
+  private inputRow: Box;
   private inputBox: Box;
   private bottomDock: Box;
   private statusText: StatusLine;
   private statusBox: Box;
   private toastZone: Box;
+  private defaultPrompt: Text;
   private bashPrompt: Text;
   private bashMode = false;
+  private modelLabel: Text;
   private inputTopWidgetZone: Box;
   private inputBottomWidgetZone: Box;
   private commandPalette: CommandPalette | undefined;
@@ -91,16 +76,13 @@ export class ChatApp {
   private dismissedPaletteFor = '';
   private modal: Modal | undefined;
   private modalMode: ModalMode | undefined;
-  private models: LocalModel[] = [];
+  private models: Model[] = [];
   private modelCursor = 0;
   private unsubscribe: Unsubscribe | undefined;
   private stopped = false;
   private status = 'ready';
   private contextText = '';
   private latestContext: LLMResponseContext | undefined;
-  private thinkingVisible = true;
-  private queuedUserLines: UserChatLine[] = [];
-  private visibleQueuedLines: VisibleQueuedLine[] = [];
   private themeProvider: ThemeProvider;
   private unsubscribeTheme: (() => void) | undefined;
   private unsubscribeStatusSlots: (() => void) | undefined;
@@ -108,9 +90,6 @@ export class ChatApp {
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   private spinnerTimer: ReturnType<typeof setInterval> | undefined;
   private spinnerTick = 0;
-
-  private pendingAssistantIndex: number | undefined;
-  private pendingReasoningIndex: number | undefined;
 
   constructor(
     runtime: Runtime,
@@ -122,7 +101,7 @@ export class ChatApp {
     this.runtime = runtime;
     this.bus = bus;
     this.models = [];
-    this.thinkingVisible = options.thinkingVisible ?? true;
+    this.transcript = new Transcript(options.thinkingVisible ?? true);
 
     this.themeProvider = new ThemeProvider(darkTheme);
     const theme = this.themeProvider.current();
@@ -130,61 +109,50 @@ export class ChatApp {
     this.terminal = new ProcessTerminal({ keyboard: true, mouse: { drag: true, motion: true } });
     this.tui = new TUI(this.terminal, { userContext: this.themeProvider });
 
-    this.scrollView = new ScrollView({
-      layout: { width: 'fill', height: 'fill' },
-      focusable: false,
-    });
-
+    this.scrollView = new ScrollView({ layout: { width: 'fill', height: 'fill' }, focusable: false });
     this.transcriptBox = new Box({
       layout: { width: 'fill', height: 'fill', overflow: 'hidden' },
       children: [this.scrollView],
     });
 
     this.statusText = new StatusLine();
-    this.statusBox = new Box({
-      layout: { width: 'fill', height: 1, zIndex: 10 },
-      children: [this.statusText],
-    });
-
-    this.toastZone = new Box({
-      layout: { width: 'fill', height: 0, zIndex: 20 },
-      children: [],
-    });
+    this.statusBox = new Box({ layout: { width: 'fill', height: 1, zIndex: 10 }, children: [this.statusText] });
+    this.toastZone = new Box({ layout: { width: 'fill', height: 0, zIndex: 20 }, children: [] });
 
     this.input = this.createInput(theme);
+    this.defaultPrompt = this.createDefaultPrompt(theme);
     this.bashPrompt = this.createBashPrompt(theme);
-
-    this.inputTopWidgetZone = new Box({
-      layout: { width: 'fill', height: 0, zIndex: 10 },
-      children: [],
+    this.inputTopWidgetZone = new Box({ layout: { width: 'fill', height: 0, zIndex: 10 }, children: [] });
+    this.inputBottomWidgetZone = new Box({ layout: { width: 'fill', height: 0, zIndex: 10 }, children: [] });
+    this.modelLabel = new Text({
+      text: '',
+      wrap: false,
+      layout: { width: 'fill', height: 1, margin: { top: 1 } },
     });
+    this.updateModelLabel();
 
-    this.inputBottomWidgetZone = new Box({
-      layout: { width: 'fill', height: 0, zIndex: 10 },
-      children: [],
+    this.inputRow = new Box({
+      layout: { width: 'fill', height: 1, direction: 'row' },
+      children: [this.defaultPrompt, this.input],
     });
 
     this.inputBox = new Box({
       layout: {
         width: 'fill',
-        height: 3,
-        direction: 'row',
-        padding: { top: 1, right: 1, bottom: 1, left: 1 },
+        height: 4,
+        direction: 'column',
+        padding: { top: 1, right: 1, left: 1 },
         backgroundColor: theme.colors.surface,
         zIndex: 10,
       },
-      children: [this.input],
+      children: [this.inputRow, this.modelLabel],
     });
 
+    // bottomDock height = inputBox + statusBox(1)
+    // inputBox height = padding-top(1) + inputLines(1) + modelLabel margin-top(1) + modelLabel(1) = 4
     this.bottomDock = new Box({
-      layout: {
-        width: 'fill',
-        height: 'auto',
-        direction: 'column',
-        margin: { top: 1 },
-        zIndex: 10,
-      },
-      children: [this.toastZone, this.inputBox, this.inputBottomWidgetZone, this.statusBox],
+      layout: { width: 'fill', height: 5, direction: 'column', margin: { top: 1 }, zIndex: 10 },
+      children: [this.toastZone, this.inputTopWidgetZone, this.inputBox, this.inputBottomWidgetZone, this.statusBox],
     });
 
     this.commandItems = this.createCommands();
@@ -197,85 +165,22 @@ export class ChatApp {
         padding: { left: 1, right: 1 },
         backgroundColor: theme.colors.background,
       },
-      children: [this.transcriptBox, this.inputTopWidgetZone, this.bottomDock],
+      children: [this.transcriptBox, this.bottomDock],
     });
 
     this.tui.addChild(this.root);
     this.tui.setFocus(this.input);
     this.tui.addInputInterceptor((event) => this.interceptInput(event));
-    this.registerGlobalKeybindings();
 
-    this.finishInitialization();
-  }
+    this.tui.addGlobalKeybinding({ chord: { key: 'c', ctrl: true }, handler: () => this.handleCtrlC() });
+    this.tui.addGlobalKeybinding({ chord: { key: 't', ctrl: true }, handler: () => this.toggleTheme() });
 
-  private finishInitialization(): void {
     this.unsubscribeTheme = this.themeProvider.subscribe((next) => this.applyTheme(next));
     this.registerStatusSlots();
     this.updateStatusLine();
   }
 
-  private createInput(theme: Theme): Input {
-    return new Input({
-      placeholder: 'type a message...',
-      placeholderStyle: styleToAnsi(theme.styles.muted),
-      textStyle: styleToAnsi(theme.styles.body),
-      hiddenPrefix: '!',
-      onChange: (value: string) => this.updateInputHeight(value),
-      onSubmit: (value: string) => this.handleSubmit(value),
-      layout: { width: 'fill', height: 1, zIndex: 10 },
-    });
-  }
-
-  private createBashPrompt(theme: Theme): Text {
-    return new Text({
-      text: `${styleToAnsi(theme.styles.body)}$ \x1b[0m`,
-      wrap: false,
-      layout: { width: 2, height: 1, zIndex: 10 },
-    });
-  }
-
-  private registerStatusSlots(): void {
-    this.unregisterStatusSlotContributors.push(
-      STATUS_SLOTS.register('status.left', ({ model }) => model),
-      STATUS_SLOTS.register('status.right', ({ contextText }) => contextText),
-    );
-    this.unsubscribeStatusSlots = STATUS_SLOTS.subscribe(() => {
-      this.updateStatusLine();
-      this.tui.requestRender();
-    });
-  }
-
-  private registerGlobalKeybindings(): void {
-    this.tui.addGlobalKeybinding({
-      chord: { key: 'c', ctrl: true },
-      handler: () => this.handleCtrlC(),
-    });
-    this.tui.addGlobalKeybinding({
-      chord: { key: 't', ctrl: true },
-      handler: () => this.toggleTheme(),
-    });
-  }
-
-  /**
-   * Apply a theme: rebuild theme-derived layout styles (background colors,
-   * input SGR strings) and trigger a full redraw via `setUserContext`. The
-   * transcript is also re-rendered so per-message components capture the new
-   * surface color into their `LayoutStyle.backgroundColor`.
-   */
-  private applyTheme(theme: Theme): void {
-    if (this.root.layout) this.root.layout.backgroundColor = theme.colors.background;
-    if (this.inputBox.layout) this.inputBox.layout.backgroundColor = theme.colors.surface;
-    this.input.placeholderStyle = styleToAnsi(theme.styles.muted);
-    this.input.textStyle = styleToAnsi(theme.styles.body);
-    this.bashPrompt.setText(`${styleToAnsi(theme.styles.body)}$ \x1b[0m`);
-    this.renderTranscript();
-    this.tui.setUserContext(this.themeProvider);
-  }
-
-  private toggleTheme(): void {
-    const next = this.themeProvider.current().name === 'dark' ? lightTheme : darkTheme;
-    this.themeProvider.setTheme(next);
-  }
+  // --- Lifecycle ---
 
   async start(): Promise<void> {
     this.unsubscribe = this.bus.subscribe((event) => this.handleEvent(event));
@@ -300,13 +205,159 @@ export class ChatApp {
     this.tui.stop();
   }
 
+  // --- Theme ---
+
+  private createInput(theme: Theme): Input {
+    return new Input({
+      placeholder: 'type a message...',
+      placeholderStyle: styleToAnsi(theme.styles.muted),
+      textStyle: styleToAnsi(theme.styles.body),
+      hiddenPrefix: '!',
+      onChange: (value: string) => this.updateInputHeight(value),
+      onSubmit: (value: string) => this.handleSubmit(value),
+      layout: { width: 'fill', height: 1, zIndex: 10 },
+    });
+  }
+
+  private createDefaultPrompt(theme: Theme): Text {
+    return new Text({
+      text: `${styleToAnsi(theme.styles.muted)}❯\x1b[0m`,
+      wrap: false,
+      layout: { width: 2, height: 1, zIndex: 10 },
+    });
+  }
+
+  private createBashPrompt(theme: Theme): Text {
+    return new Text({
+      text: `${styleToAnsi(theme.styles.body)}$ \x1b[0m`,
+      wrap: false,
+      layout: { width: 2, height: 1, zIndex: 10 },
+    });
+  }
+
+  private applyTheme(theme: Theme): void {
+    if (this.root.layout) this.root.layout.backgroundColor = theme.colors.background;
+    if (this.inputBox.layout) this.inputBox.layout.backgroundColor = theme.colors.surface;
+    this.input.placeholderStyle = styleToAnsi(theme.styles.muted);
+    this.input.textStyle = styleToAnsi(theme.styles.body);
+    this.defaultPrompt.setText(`${styleToAnsi(theme.styles.muted)}❯\x1b[0m`);
+    this.bashPrompt.setText(`${styleToAnsi(theme.styles.body)}$ \x1b[0m`);
+    this.renderTranscript();
+    this.tui.setUserContext(this.themeProvider);
+  }
+
+  private toggleTheme(): void {
+    const next = this.themeProvider.current().name === 'dark' ? lightTheme : darkTheme;
+    this.themeProvider.setTheme(next);
+  }
+
+  // --- Status ---
+
+  private registerStatusSlots(): void {
+    this.unregisterStatusSlotContributors.push(
+      STATUS_SLOTS.register('status.left', () => undefined),
+      STATUS_SLOTS.register('status.right', ({ contextText }) => contextText),
+    );
+    this.unsubscribeStatusSlots = STATUS_SLOTS.subscribe(() => {
+      this.updateStatusLine();
+      this.tui.requestRender();
+    });
+  }
+
+  private setStatus(status: string): void {
+    this.status = status;
+    const busy = this.isBusyStatus(status);
+    this.statusText.setBusy(busy);
+    if (busy) this.startSpinner();
+    else this.stopSpinner();
+    this.updateStatusLine();
+  }
+
+  private isBusyStatus(status: string): boolean {
+    return (
+      status === 'thinking...' ||
+      status === 'streaming...' ||
+      status === 'reasoning...' ||
+      status === 'queued follow-up' ||
+      status.startsWith('tool: ')
+    );
+  }
+
+  private startSpinner(): void {
+    if (this.spinnerTimer) return;
+    this.statusText.setSpinnerTick(this.spinnerTick);
+    this.spinnerTimer = setInterval(() => {
+      this.spinnerTick++;
+      this.statusText.setSpinnerTick(this.spinnerTick);
+      this.tui.requestRender();
+    }, SPINNER_INTERVAL_MS);
+  }
+
+  private stopSpinner(): void {
+    if (this.spinnerTimer) {
+      clearInterval(this.spinnerTimer);
+      this.spinnerTimer = undefined;
+    }
+    this.statusText.setBusy(false);
+  }
+
+  private setContext(context: LLMResponseContext): void {
+    this.latestContext = context;
+    const ext = context as Record<string, unknown>;
+    const used = context.usage?.promptTokens;
+    const props = ext.props as Record<string, unknown> | undefined;
+    const currentSlot = ext.currentSlot as Record<string, unknown> | undefined;
+    const total = (props?.n_ctx ?? currentSlot?.n_ctx) as number | undefined;
+    this.contextText = used !== undefined && total !== undefined
+      ? `${formatTokenCount(used)}/${formatTokenCount(total)} (${Math.round((used / total) * 100)}%)`
+      : '';
+    this.updateStatusLine();
+  }
+
+  private updateModelLabel(): void {
+    const model = this.modelController?.getModel() ?? '';
+    const theme = this.themeProvider.current();
+    const prefix = styleToAnsi(theme.styles.muted);
+    this.modelLabel.setText(model ? `${prefix}${model}\x1b[0m` : '');
+  }
+
+  private updateStatusLine(): void {
+    this.updateModelLabel();
+    const ctx: StatusSlotContext = {
+      busy: this.isBusyStatus(this.status),
+      model: this.modelController?.getModel(),
+      contextText: this.contextText,
+    };
+    this.statusText.setContent(STATUS_SLOTS.render('status.left', ctx), STATUS_SLOTS.render('status.right', ctx));
+  }
+
+  // --- Toast ---
+
+  private showErrorToast(message: string): void {
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.toastZone.children = [new ErrorToast(message)];
+    if (this.toastZone.layout) this.toastZone.layout.height = 2;
+    this.toastTimer = setTimeout(() => this.clearToast(), 6000);
+  }
+
+  private clearToast(): boolean {
+    const hadToast = this.toastZone.children.length > 0;
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.toastTimer = undefined;
+    this.toastZone.children = [];
+    if (this.toastZone.layout) this.toastZone.layout.height = 0;
+    if (hadToast) this.tui.requestRender();
+    return hadToast;
+  }
+
+  // --- Input ---
+
   private handleCtrlC(): void {
     if (this.input.value.length > 0) {
       this.input.setValue('');
       this.tui.requestRender();
       return;
     }
-
     void this.stop().then(() => this.onExit?.(130));
   }
 
@@ -326,32 +377,61 @@ export class ChatApp {
     this.updateCommandPalette('');
     const isSteering = this.runtime.state() !== 'idle';
     if (!isSteering) {
-      this.transcript.push({ role: 'user', content: text });
+      this.transcript.appendUser(text);
     }
     this.setStatus('thinking...');
 
     const message: Message = { role: 'user', content: text };
     if (isSteering) {
-      this.appendVisibleQueuedMessage(message, 'steering');
+      this.transcript.appendVisibleQueuedMessage(message, 'steering');
     }
     this.renderTranscript();
     this.bus.publish({ type: isSteering ? 'steer' : 'user_message', message });
   }
 
+  private handleFollowUpSubmit(): boolean {
+    const text = this.input.value.trim();
+    if (!text || this.runtime.state() === 'idle') return false;
+
+    this.input.setValue('');
+    this.clearToast();
+    this.updateCommandPalette('');
+    this.setStatus('queued follow-up');
+    const message: Message = { role: 'user', content: text };
+    this.transcript.appendVisibleQueuedMessage(message, 'follow_up');
+    this.renderTranscript();
+    this.bus.publish({ type: 'follow_up', message });
+    this.tui.requestRender();
+    return true;
+  }
+
   private updateInputHeight(value: string): void {
-    const lines = Math.min(7, Math.max(1, value.split('\n').length));
-    this.input.layout.height = lines;
+    const inputLines = Math.min(7, Math.max(1, value.split('\n').length));
+    this.input.layout.height = inputLines;
+    if (this.inputRow.layout) this.inputRow.layout.height = inputLines;
+    // inputBox = padding-top(1) + inputLines + model-margin(1) + model(1)
+    const inputBoxHeight = 1 + inputLines + 1 + 1;
+    if (this.inputBox.layout) this.inputBox.layout.height = inputBoxHeight;
     this.updateBashMode(value);
-    if (this.inputBox.layout) this.inputBox.layout.height = lines + 2;
     this.updateCommandPalette(value);
+    this.updateDockHeight();
+  }
+
+  private updateDockHeight(): void {
+    const inputBoxHeight = (this.inputBox.layout?.height as number) ?? 4;
+    const paletteHeight = (this.inputTopWidgetZone.layout?.height as number) ?? 0;
+    if (this.bottomDock.layout) this.bottomDock.layout.height = paletteHeight + inputBoxHeight + 1;
   }
 
   private updateBashMode(value: string): void {
     const bashMode = value.startsWith('!');
     if (bashMode === this.bashMode) return;
-
     this.bashMode = bashMode;
-    this.inputBox.children = bashMode ? [this.bashPrompt, this.input] : [this.input];
+    this.inputRow.children = bashMode ? [this.bashPrompt, this.input] : [this.defaultPrompt, this.input];
+    if (this.inputBox.layout) {
+      const theme = this.themeProvider.current();
+      this.inputBox.layout.backgroundColor = bashMode ? '#2e1a0a' : theme.colors.surface;
+    }
     this.tui.requestRender();
   }
 
@@ -400,150 +480,23 @@ export class ChatApp {
     return false;
   }
 
-  private interceptModalInput(event: Extract<InputEvent, { type: 'key' }>): boolean {
-    if (this.modalMode === 'model') {
-      return this.interceptModelModal(event);
-    }
-
-    if (event.key === 'escape' || event.key === 'esc' || event.key === 'enter') {
-      this.closeModal();
-      return true;
-    }
-
-    return false;
-  }
-
-  private handleFollowUpSubmit(): boolean {
-    const text = this.input.value.trim();
-    if (!text || this.runtime.state() === 'idle') {
-      return false;
-    }
-
-    this.input.setValue('');
-    this.clearToast();
-    this.updateCommandPalette('');
-    this.setStatus('queued follow-up');
-    const message: Message = { role: 'user', content: text };
-    this.appendVisibleQueuedMessage(message, 'follow_up');
-    this.renderTranscript();
-    this.bus.publish({ type: 'follow_up', message });
-    this.tui.requestRender();
-    return true;
-  }
+  // --- Commands ---
 
   private createCommands(): ChatCommand[] {
     return [
-      {
-        name: 'new',
-        description: 'start a new session',
-        run: () => this.startNewSession(),
-      },
-      {
-        name: 'model',
-        description: 'switch the active model',
-        run: () => this.openModelModal(),
-      },
-      {
-        name: 'context',
-        description: 'show context map',
-        run: () => this.showContextMap(),
-      },
-      {
-        name: 'context-export',
-        description: 'export context map to a file',
-        run: (args) => void this.exportContext(args),
-      },
-      {
-        name: 'thinking',
-        description: 'toggle thinking blocks',
-        run: () => this.toggleThinking(),
-      },
-      {
-        name: 'quit',
-        description: 'exit the agent',
-        run: () => {
-          void this.stop().then(() => this.onExit?.(0));
-        },
-      },
+      { name: 'new', description: 'start a new session', run: () => this.startNewSession() },
+      { name: 'model', description: 'switch the active model', run: () => this.openModelModal() },
+      { name: 'context', description: 'show context map', run: () => this.showContextMap() },
+      { name: 'context-export', description: 'export context map to a file', run: (args) => void this.exportContext(args) },
+      { name: 'thinking', description: 'toggle thinking blocks', run: () => this.handleToggleThinking() },
+      { name: 'quit', description: 'exit the agent', run: () => void this.stop().then(() => this.onExit?.(0)) },
     ];
-  }
-
-  private async startNewSession(): Promise<void> {
-    if (!this.modelController) {
-      this.showErrorToast('No runtime controller is configured.');
-      return;
-    }
-
-    if (this.runtime.state() !== 'idle') {
-      this.showErrorToast('Cannot start a new session while a response is running.');
-      return;
-    }
-
-    await this.runtime.stop();
-    this.runtime = this.modelController.createRuntime();
-    await this.runtime.start();
-    this.transcript = [];
-    this.queuedUserLines = [];
-    this.visibleQueuedLines = [];
-    this.pendingAssistantIndex = undefined;
-    this.pendingReasoningIndex = undefined;
-    this.contextText = '';
-    this.latestContext = undefined;
-    this.setStatus('new session');
-    this.renderTranscript();
-  }
-
-  private showContextMap(): void {
-    this.transcript.push({ role: 'command', content: '/context' });
-    this.transcript.push({ role: 'context', context: this.latestContext });
-    this.renderTranscript();
-  }
-
-  private async exportContext(args: string): Promise<void> {
-    if (!this.latestContext) {
-      this.showErrorToast('No context available to export.');
-      return;
-    }
-
-    const outputPath = args.trim() || '.mu/context.json';
-    const resolvedPath = resolve(outputPath);
-    const payload = {
-      exportedAt: new Date().toISOString(),
-      model: this.modelController?.getModel(),
-      context: this.latestContext,
-    };
-
-    try {
-      await mkdir(dirname(resolvedPath), { recursive: true });
-      await writeFile(resolvedPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-      this.transcript.push({ role: 'command', content: `/context-export ${outputPath}` });
-      this.transcript.push({ role: 'command_result', content: `saved context to ${outputPath}` });
-      this.renderTranscript();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.showErrorToast(`Failed to export context: ${message}`);
-    }
   }
 
   private filteredCommands(value: string): ChatCommand[] {
     if (!value.startsWith('/') || value.includes(' ') || value === this.dismissedPaletteFor) return [];
     const query = value.slice(1).toLowerCase();
     return this.commandItems.filter((command) => command.name.toLowerCase().startsWith(query));
-  }
-
-  private toggleThinking(): void {
-    this.thinkingVisible = !this.thinkingVisible;
-    for (const entry of this.transcript) {
-      if (entry.role === 'reasoning') entry.closed = !this.thinkingVisible;
-    }
-    this.options.onThinkingVisibleChange?.(this.thinkingVisible);
-    this.renderTranscript();
-  }
-
-  private openThinkingLine(line: Extract<ChatLine, { role: 'reasoning' }>): void {
-    if (!line.closed) return;
-    line.closed = false;
-    this.renderTranscript();
   }
 
   private updateCommandPalette(value: string): void {
@@ -555,6 +508,8 @@ export class ChatApp {
       this.commandPalette = undefined;
       this.inputTopWidgetZone.children = [];
       if (this.inputTopWidgetZone.layout) this.inputTopWidgetZone.layout.height = 0;
+      this.updatePromptForPalette(false);
+      this.updateDockHeight();
       return;
     }
 
@@ -575,6 +530,16 @@ export class ChatApp {
     });
     this.inputTopWidgetZone.children = [this.commandPalette];
     if (this.inputTopWidgetZone.layout) this.inputTopWidgetZone.layout.height = visibleItems.length;
+    this.updatePromptForPalette(true);
+    this.updateDockHeight();
+  }
+
+  private updatePromptForPalette(open: boolean): void {
+    if (this.bashMode) return;
+    const theme = this.themeProvider.current();
+    const prefix = styleToAnsi(theme.styles.muted);
+    this.defaultPrompt.setText(open ? `${prefix}/\x1b[0m` : `${prefix}❯\x1b[0m`);
+    this.input.hiddenPrefix = open ? '/' : '!';
   }
 
   private completeSelectedCommand(): void {
@@ -596,15 +561,14 @@ export class ChatApp {
 
   private runCommand(value: string): boolean {
     if (value.startsWith('!')) {
-      this.runShellCommand(value.slice(1));
+      this.runShellCommand(value.slice(1).trim());
       return true;
     }
-
     if (!value.startsWith('/')) return false;
     const [rawName, ...rest] = value.slice(1).split(/\s+/);
     const command = this.commandItems.find((item) => item.name === rawName);
     if (!command) {
-      this.transcript.push({ role: 'error', content: `Unknown command: /${rawName}` });
+      this.transcript.lines.push({ role: 'error', content: `Unknown command: /${rawName}` });
       this.renderTranscript();
       return true;
     }
@@ -614,20 +578,13 @@ export class ChatApp {
 
   private runShellCommand(cmd: string): void {
     const theme = this.themeProvider.current();
-    const outputBlock = new OutputBlock({
-      command: cmd,
-      output: '',
-      theme,
-    });
-
-    this.transcript.push({ role: 'output_block', component: outputBlock });
+    const entry = { role: 'output_block' as const, component: new OutputBlock({ command: cmd, output: '', theme }) };
+    this.transcript.lines.push(entry);
     this.renderTranscript();
 
     let stdout = '';
     let stderr = '';
-    const proc = spawn('bash', ['-c', cmd], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const proc = spawn('bash', ['-c', cmd], { stdio: ['pipe', 'pipe', 'pipe'] });
 
     proc.stdout?.on('data', (data: Buffer) => {
       stdout += data.toString('utf-8');
@@ -635,18 +592,78 @@ export class ChatApp {
     proc.stderr?.on('data', (data: Buffer) => {
       stderr += data.toString('utf-8');
     });
-
     proc.on('close', (code) => {
       const output = code !== 0 || stderr ? [stdout, stderr].filter(Boolean).join('\n') : stdout;
-      outputBlock.props.output = output.trim() || '(no output)';
+      entry.component = new OutputBlock({ command: cmd, output: output.trim() || '(no output)', theme });
       this.renderTranscript();
     });
-
     proc.on('error', (err) => {
-      outputBlock.props.output = err.message;
+      entry.component = new OutputBlock({ command: cmd, output: err.message, variant: 'error', theme });
       this.renderTranscript();
     });
   }
+
+  // --- Session commands ---
+
+  private async startNewSession(): Promise<void> {
+    if (!this.modelController) {
+      this.showErrorToast('No runtime controller is configured.');
+      return;
+    }
+    if (this.runtime.state() !== 'idle') {
+      this.showErrorToast('Cannot start a new session while a response is running.');
+      return;
+    }
+
+    await this.runtime.stop();
+    this.runtime = this.modelController.createRuntime();
+    await this.runtime.start();
+    this.transcript.reset();
+    this.contextText = '';
+    this.latestContext = undefined;
+    this.setStatus('new session');
+    this.renderTranscript();
+  }
+
+  private showContextMap(): void {
+    this.transcript.lines.push({ role: 'command', content: '/context' });
+    this.transcript.lines.push({ role: 'context', context: this.latestContext });
+    this.renderTranscript();
+  }
+
+  private async exportContext(args: string): Promise<void> {
+    if (!this.latestContext) {
+      this.showErrorToast('No context available to export.');
+      return;
+    }
+
+    const outputPath = args.trim() || '.mu/context.json';
+    const resolvedPath = resolve(outputPath);
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      model: this.modelController?.getModel(),
+      context: this.latestContext,
+    };
+
+    try {
+      await mkdir(dirname(resolvedPath), { recursive: true });
+      await writeFile(resolvedPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+      this.transcript.lines.push({ role: 'command', content: `/context-export ${outputPath}` });
+      this.transcript.lines.push({ role: 'command_result', content: `saved context to ${outputPath}` });
+      this.renderTranscript();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.showErrorToast(`Failed to export context: ${message}`);
+    }
+  }
+
+  private handleToggleThinking(): void {
+    this.transcript.toggleThinking();
+    this.options.onThinkingVisibleChange?.(this.transcript.thinkingVisible);
+    this.renderTranscript();
+  }
+
+  // --- Model picker modal ---
 
   private openModelModal(): void {
     if (!this.modelController) {
@@ -684,10 +701,7 @@ export class ChatApp {
     try {
       this.models = await this.modelController.listModels();
       const current = this.modelController.getModel();
-      this.modelCursor = Math.max(
-        0,
-        this.models.findIndex((model) => model.id === current),
-      );
+      this.modelCursor = Math.max(0, this.models.findIndex((model) => model.id === current));
       this.mountModelSelectList();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -722,7 +736,7 @@ export class ChatApp {
       return { label: `${active} ${model.id}${desc}`, value: model };
     });
 
-    const selectList = new SelectList<LocalModel>({
+    const selectList = new SelectList<Model>({
       items,
       selectedIndex: this.modelCursor,
       onChange: (_item, index) => {
@@ -732,9 +746,6 @@ export class ChatApp {
         if (item.value) this.selectModelById(item.value.id);
       },
       layout: { width: 'fill', height: 'fill' },
-      // Pull explicit fg+bg pairs from the active theme so the picker stays
-      // readable under both dark and light themes (and matches the command
-      // palette styling).
       resolveStyles: (ctx) => {
         const theme = getTheme(ctx);
         return {
@@ -745,8 +756,6 @@ export class ChatApp {
       },
     });
 
-    // Compact panel sized to fit the visible items (cap at 10) plus 2 rows
-    // for title + footer.
     const visibleRows = Math.min(items.length, 10);
     this.modal.setSize(undefined, visibleRows + 2);
 
@@ -759,12 +768,20 @@ export class ChatApp {
     this.tui.requestRender(true);
   }
 
-  private interceptModelModal(event: Extract<InputEvent, { type: 'key' }>): boolean {
-    if (event.key === 'escape' || event.key === 'esc') {
+  private interceptModalInput(event: Extract<InputEvent, { type: 'key' }>): boolean {
+    if (this.modalMode === 'model') {
+      if (event.key === 'escape' || event.key === 'esc') {
+        this.closeModal();
+        return true;
+      }
+      return false;
+    }
+
+    if (event.key === 'escape' || event.key === 'esc' || event.key === 'enter') {
       this.closeModal();
       return true;
     }
-    // Let SelectList (focused) handle up/down/enter natively.
+
     return false;
   }
 
@@ -796,35 +813,37 @@ export class ChatApp {
     this.tui.requestRender(true);
   }
 
-  private handleEvent(event: ChatEvent): void {
+  // --- Event handling ---
+
+  private handleEvent(event: CoreEvent): void {
     switch (event.type) {
       case 'assistant_start':
-        this.activateNextQueuedUserMessage();
+        this.transcript.activateNextQueuedUserMessage();
         this.setStatus('streaming...');
         break;
       case 'assistant_delta':
-        this.activateNextQueuedUserMessage();
-        this.appendAssistantDelta(event.content);
+        this.transcript.activateNextQueuedUserMessage();
+        this.transcript.appendAssistantDelta(event.content);
         this.setStatus('streaming...');
         break;
       case 'assistant_message':
-        this.activateNextQueuedUserMessage();
-        this.appendAssistantMessage(event.message);
+        this.transcript.activateNextQueuedUserMessage();
+        this.transcript.appendAssistantMessage(event.message);
         this.setStatus('ready');
         break;
       case 'reasoning_delta':
-        this.activateNextQueuedUserMessage();
-        this.appendReasoningDelta(event.content);
+        this.transcript.activateNextQueuedUserMessage();
+        this.transcript.appendReasoningDelta(event.content);
         this.setStatus('reasoning...');
         break;
       case 'reasoning_message':
-        this.activateNextQueuedUserMessage();
-        this.appendReasoningMessage(event.message);
+        this.transcript.activateNextQueuedUserMessage();
+        this.transcript.appendReasoningMessage(event.message);
         this.setStatus('reasoning...');
         break;
       case 'tool_call':
-        this.activateNextQueuedUserMessage();
-        this.appendToolCall(event.call);
+        this.transcript.activateNextQueuedUserMessage();
+        this.transcript.appendToolCall(event.call);
         this.setStatus(`tool: ${event.call.tool}`);
         break;
       case 'tool_result':
@@ -834,221 +853,55 @@ export class ChatApp {
         this.setContext(event.context);
         break;
       case 'queued_message':
-        this.appendQueuedMessage(event.message, event.queue);
+        this.transcript.appendQueuedMessage(event.message, event.queue);
         break;
       case 'queue_update':
         break;
-      case 'error':
-        this.appendError(event.error);
+      case 'error': {
+        const msg = event.error instanceof Error ? event.error.message : String(event.error);
+        this.transcript.appendError(msg);
+        this.showErrorToast(msg);
+        this.setStatus('error');
         break;
+      }
     }
     this.renderTranscript();
   }
 
-  private appendAssistantDelta(content: string): void {
-    if (this.pendingAssistantIndex === undefined) {
-      this.transcript.push({ role: 'assistant', content: '' });
-      this.pendingAssistantIndex = this.transcript.length - 1;
-    }
-    const pending = this.transcript[this.pendingAssistantIndex];
-    if (pending?.role === 'assistant') pending.content += content;
-  }
-
-  private appendQueuedMessage(message: Message, queue: 'steering' | 'follow_up'): void {
-    const visibleIndex = this.visibleQueuedLines.findIndex((entry) => entry.message === message);
-    const line = visibleIndex === -1
-      ? this.createQueuedUserLine(message, queue)
-      : this.visibleQueuedLines.splice(visibleIndex, 1)[0].line;
-
-    this.transcript.push(line);
-    this.queuedUserLines.push(line);
-  }
-
-  private appendVisibleQueuedMessage(message: Message, queue: 'steering' | 'follow_up'): void {
-    if (this.visibleQueuedLines.some((entry) => entry.message === message)) return;
-    this.visibleQueuedLines.push({ message, queue, line: this.createQueuedUserLine(message, queue) });
-  }
-
-  private createQueuedUserLine(message: Message, queue: 'steering' | 'follow_up'): UserChatLine {
-    return {
-      role: 'user',
-      content: message.content,
-      label: queue === 'steering' ? 'queued steering' : 'follow-up',
-    };
-  }
-
-  private activateNextQueuedUserMessage(): void {
-    const line = this.queuedUserLines.shift();
-    if (line) delete line.label;
-  }
-
-  private appendAssistantMessage(message: Message): void {
-    if (this.pendingAssistantIndex !== undefined) {
-      const pending = this.transcript[this.pendingAssistantIndex];
-      if (pending?.role === 'assistant') pending.content = message.content;
-      this.pendingAssistantIndex = undefined;
-      return;
-    }
-    this.transcript.push({ role: 'assistant', content: message.content });
-  }
-
-  private appendToolCall(call: Extract<CoreEvent, { type: 'tool_call' }>['call']): void {
-    this.transcript.push({
-      role: 'tool',
-      callId: call.id,
-      name: call.tool,
-      argsPreview: formatToolCallArgs(call.tool, call.args),
-    });
-  }
-
-  private appendError(error: unknown): void {
-    const msg = error instanceof Error ? error.message : String(error);
-    this.pendingAssistantIndex = undefined;
-    this.pendingReasoningIndex = undefined;
-    this.transcript.push({ role: 'error', content: msg });
-    this.showErrorToast(msg);
-    this.setStatus('error');
-  }
-
-  private showErrorToast(message: string): void {
-    if (this.toastTimer) clearTimeout(this.toastTimer);
-    this.toastZone.children = [new ErrorToast(message)];
-    if (this.toastZone.layout) this.toastZone.layout.height = 2;
-    this.toastTimer = setTimeout(() => {
-      this.clearToast();
-    }, 6000);
-  }
-
-  private clearToast(): boolean {
-    const hadToast = this.toastZone.children.length > 0;
-    if (this.toastTimer) clearTimeout(this.toastTimer);
-    this.toastTimer = undefined;
-    this.toastZone.children = [];
-    if (this.toastZone.layout) this.toastZone.layout.height = 0;
-    if (hadToast) this.tui.requestRender();
-    return hadToast;
-  }
-
-  private appendReasoningDelta(content: string): void {
-    if (this.pendingReasoningIndex === undefined) {
-      const insertAt = this.pendingAssistantIndex ?? this.transcript.length;
-      this.transcript.splice(insertAt, 0, {
-        role: 'reasoning',
-        content: '',
-        closed: !this.thinkingVisible,
-      });
-      this.pendingReasoningIndex = insertAt;
-      if (this.pendingAssistantIndex !== undefined) this.pendingAssistantIndex++;
-    }
-    const pending = this.transcript[this.pendingReasoningIndex];
-    if (pending?.role === 'reasoning') pending.content += content;
-  }
-
-  private appendReasoningMessage(message: Message): void {
-    if (this.pendingReasoningIndex !== undefined) {
-      const pending = this.transcript[this.pendingReasoningIndex];
-      if (pending?.role === 'reasoning') pending.content = message.content;
-      this.pendingReasoningIndex = undefined;
-      return;
-    }
-    const insertAt = this.pendingAssistantIndex ?? this.transcript.length;
-    this.transcript.splice(insertAt, 0, {
-      role: 'reasoning',
-      content: message.content,
-      closed: !this.thinkingVisible,
-    });
-    if (this.pendingAssistantIndex !== undefined) this.pendingAssistantIndex++;
-  }
-
-  private setStatus(status: string): void {
-    this.status = status;
-    this.updateSpinnerState();
-    this.updateStatusLine();
-  }
-
-  private updateSpinnerState(): void {
-    const busy = this.isBusyStatus(this.status);
-    this.statusText.setBusy(busy);
-    if (busy) this.startSpinner();
-    else this.stopSpinner();
-  }
-
-  private isBusyStatus(status: string): boolean {
-    return (
-      status === 'thinking...' ||
-      status === 'streaming...' ||
-      status === 'reasoning...' ||
-      status === 'queued follow-up' ||
-      status.startsWith('tool: ')
-    );
-  }
-
-  private startSpinner(): void {
-    if (this.spinnerTimer) return;
-    this.statusText.setSpinnerTick(this.spinnerTick);
-    this.spinnerTimer = setInterval(() => {
-      this.spinnerTick++;
-      this.statusText.setSpinnerTick(this.spinnerTick);
-      this.tui.requestRender();
-    }, SPINNER_INTERVAL_MS);
-  }
-
-  private stopSpinner(): void {
-    if (this.spinnerTimer) {
-      clearInterval(this.spinnerTimer);
-      this.spinnerTimer = undefined;
-    }
-    this.statusText.setBusy(false);
-  }
-
-  private setContext(context: LLMResponseContext): void {
-    this.latestContext = context;
-    const used = context.usage?.promptTokens;
-    const total = context.props?.n_ctx ?? context.currentSlot?.n_ctx;
-    this.contextText = used !== undefined && total !== undefined
-      ? `${used} (${Math.round((used / total) * 100)}%)`
-      : '';
-    this.updateStatusLine();
-  }
-
-  private updateStatusLine(): void {
-    const ctx: StatusSlotContext = {
-      busy: this.isBusyStatus(this.status),
-      model: this.modelController?.getModel(),
-      contextText: this.contextText,
-    };
-    this.statusText.setContent(STATUS_SLOTS.render('status.left', ctx), STATUS_SLOTS.render('status.right', ctx));
-  }
+  // --- Rendering ---
 
   private renderTranscript(): void {
     const shouldStickToBottom = this.scrollView.isAtBottom();
     const theme = this.themeProvider.current();
-    const lines: Component[] = [];
-    for (const entry of this.transcript) {
+    const components: Component[] = [];
+    for (const entry of this.transcript.lines) {
       switch (entry.role) {
         case 'user':
-          lines.push(new UserMessage({ content: entry.content, label: entry.label, theme }));
+          components.push(new UserMessage({ content: entry.content, label: entry.label, theme }));
           break;
         case 'assistant':
-          lines.push(new AssistantMessage({ content: entry.content }));
+          components.push(new AssistantMessage({ content: entry.content }));
           break;
         case 'command':
-          lines.push(new CommandLine(entry.content));
+          components.push(new CommandLine(entry.content));
           break;
         case 'command_result':
-          lines.push(new CommandResultLine(entry.content));
+          components.push(new CommandResultLine(entry.content));
           break;
         case 'output_block':
-          lines.push(entry.component);
+          components.push(entry.component);
           break;
         case 'context':
-          lines.push(new ContextMap({ context: entry.context, model: this.modelController?.getModel() }));
+          components.push(new ContextMap({ context: entry.context, model: this.modelController?.getModel() }));
           break;
         case 'reasoning':
           if (entry.closed) {
-            lines.push(new HiddenThinkingLine(() => this.openThinkingLine(entry)));
+            components.push(new HiddenThinkingLine(() => {
+              this.transcript.openThinkingLine(entry);
+              this.renderTranscript();
+            }));
           } else {
-            lines.push(
+            components.push(
               new ReasoningBlock({
                 content: entry.content,
                 layout: { width: 'fill', height: 'auto', padding: { left: 1, right: 1 } },
@@ -1057,17 +910,17 @@ export class ChatApp {
           }
           break;
         case 'tool':
-          lines.push(new ToolLine(entry.name, entry.argsPreview));
+          components.push(new ToolLine(entry.name, entry.argsPreview));
           break;
         case 'error':
-          lines.push(new ErrorLine(entry.content));
+          components.push(new ErrorLine(entry.content));
           break;
       }
     }
-    for (const entry of this.visibleQueuedLines) {
-      lines.push(new UserMessage({ content: entry.line.content, label: entry.line.label, theme }));
+    for (const entry of this.transcript.visibleQueuedLines) {
+      components.push(new UserMessage({ content: entry.line.content, label: entry.line.label, theme }));
     }
-    this.scrollView.setChildren(lines, { stickToBottom: shouldStickToBottom });
+    this.scrollView.setChildren(components, { stickToBottom: shouldStickToBottom });
     this.tui.requestRender();
   }
 }

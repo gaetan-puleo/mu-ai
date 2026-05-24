@@ -1,6 +1,6 @@
 import type { Color, Component, Constraints, LayoutStyle, RenderContext, Size } from 'mu-tui';
 import { truncateToWidth, visibleWidth } from 'mu-tui';
-import { getTheme, styleToAnsi } from '../theme';
+import { getTheme, palette, styleToAnsi } from '../theme';
 
 const RESET = '\x1b[0m';
 const GRID_SIZE = 10;
@@ -121,7 +121,7 @@ function renderGridLines(cells: LocalContextPartKind[], theme: ReturnType<typeof
     const start = row * GRID_SIZE;
     const rowCells = cells
       .slice(start, start + GRID_SIZE)
-      .map((kind) => renderCell(kind, theme.palette, theme.colors.textMuted));
+      .map((kind) => renderCell(kind, theme.colors.textMuted));
     lines.push(
       `${styleText('│', colorStyle(theme.colors.border))} ${rowCells.join(' ')} ${
         styleText('│', colorStyle(theme.colors.border))
@@ -135,7 +135,7 @@ function renderGridLines(cells: LocalContextPartKind[], theme: ReturnType<typeof
 function renderLegendLines(parts: RenderPart[], theme: ReturnType<typeof getTheme>): string[] {
   const lines: string[] = [];
   for (const part of parts.filter((item) => item.tokens > 0 || item.kind === 'empty')) {
-    const square = renderCell(part.kind, theme.palette, theme.colors.textMuted);
+    const square = renderCell(part.kind, theme.colors.textMuted);
     const label = part.label.padEnd(12, ' ');
     lines.push(`${square} ${label} ${formatTokens(part.tokens)}`);
   }
@@ -188,15 +188,13 @@ function allocateCells(parts: RenderPart[], totalCells: number): RenderPart[] {
   return allocated;
 }
 
-function renderCell(kind: LocalContextPartKind, palette: LocalContextMapPalette, muted: Color): string {
-  const color = colorForKind(kind, palette, muted);
+function renderCell(kind: LocalContextPartKind, muted: Color): string {
+  const color = colorForKind(kind, muted);
   const glyph = kind === 'empty' ? '□' : '■';
   return styleText(glyph, colorStyle(color, kind === 'empty'));
 }
 
-type LocalContextMapPalette = ReturnType<typeof getTheme>['palette'];
-
-function colorForKind(kind: LocalContextPartKind, palette: LocalContextMapPalette, muted: Color): Color {
+function colorForKind(kind: LocalContextPartKind, muted: Color): Color {
   switch (kind) {
     case 'system':
       return palette.blue[400];

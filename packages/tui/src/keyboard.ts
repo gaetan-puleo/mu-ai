@@ -106,25 +106,25 @@ export function parseInput(raw: string): InputEvent | null {
   if (raw.length === 0) return null;
 
   if (raw === '\r' || raw === '\n') {
-    return key(raw, 'enter', { raw, source: 'legacy' });
+    return key('enter', { raw, source: 'legacy' });
   }
 
   if (raw === '\x1b') {
-    return key(raw, 'escape', { raw, source: 'legacy' });
+    return key('escape', { raw, source: 'legacy' });
   }
 
   if (raw === '\t') {
-    return key(raw, 'tab', { raw, source: 'legacy' });
+    return key('tab', { raw, source: 'legacy' });
   }
 
   if (raw === '\x7f' || raw === '\b') {
-    return key(raw, 'backspace', { raw, source: 'legacy' });
+    return key('backspace', { raw, source: 'legacy' });
   }
 
   if (CTRL_RE.test(raw)) {
     const code = raw.charCodeAt(0);
     if (code === 9 || code === 10 || code === 13) return null;
-    return key(raw, String.fromCharCode(code + 96), { raw, source: 'legacy', ctrl: true });
+    return key(String.fromCharCode(code + 96), { raw, source: 'legacy', ctrl: true });
   }
 
   const mouseMatch = raw.match(SGR_MOUSE_RE);
@@ -146,7 +146,7 @@ export function parseInput(raw: string): InputEvent | null {
     const encodedModifiers = csiUMatch[2] ? Number.parseInt(csiUMatch[2], 10) : 1;
     const modifiers = decodeEncodedModifiers(encodedModifiers);
     const eventType = decodeKittyEventType(csiUMatch[2]);
-    return key(raw, codepointToKey(code), {
+    return key(codepointToKey(code), {
       ...modifiers,
       kind: eventType,
       raw,
@@ -159,7 +159,7 @@ export function parseInput(raw: string): InputEvent | null {
   if (legacyKittyMatch) {
     const code = Number.parseInt(legacyKittyMatch[1], 10);
     const modifiers = decodeEncodedModifiers(Number.parseInt(legacyKittyMatch[2], 10));
-    return key(raw, codepointToKey(code), { ...modifiers, raw, source: 'kitty', text: codepointToText(code) });
+    return key(codepointToKey(code), { ...modifiers, raw, source: 'kitty', text: codepointToText(code) });
   }
 
   const xtermMatch = raw.match(XTERM_MODIFIED_RE);
@@ -169,7 +169,7 @@ export function parseInput(raw: string): InputEvent | null {
     const modifierParam = first <= 8 && second > 8 ? first : second;
     const code = first <= 8 && second > 8 ? second : first;
     const modifiers = decodeEncodedModifiers(modifierParam);
-    return key(raw, codepointToKey(code), { ...modifiers, raw, source: 'xterm', text: codepointToText(code) });
+    return key(codepointToKey(code), { ...modifiers, raw, source: 'xterm', text: codepointToText(code) });
   }
 
   const csiTildeMatch = raw.match(CSI_TILDE_RE);
@@ -177,7 +177,7 @@ export function parseInput(raw: string): InputEvent | null {
     const params = splitParams(csiTildeMatch[1]);
     const keyName = params.length > 0 ? (CSI_NUM_KEY_MAP[params[0]] ?? CSI_KEY_MAP[params[0]]) : undefined;
     if (keyName) {
-      return key(raw, keyName, { ...decodeOptionalModifier(params[1]), raw, source: 'xterm' });
+      return key(keyName, { ...decodeOptionalModifier(params[1]), raw, source: 'xterm' });
     }
   }
 
@@ -187,13 +187,13 @@ export function parseInput(raw: string): InputEvent | null {
     const final = csiMatch[2];
     const keyName = CSI_KEY_MAP[final] ?? (params.length > 0 ? CSI_KEY_MAP[params[0]] : undefined);
     if (keyName) {
-      return key(raw, keyName, { ...decodeOptionalModifier(params[1]), raw, source: 'xterm' });
+      return key(keyName, { ...decodeOptionalModifier(params[1]), raw, source: 'xterm' });
     }
   }
 
   const ss3Match = raw.match(SS3_RE);
   if (ss3Match) {
-    return key(raw, SS3_KEY_MAP[ss3Match[1]] ?? ss3Match[1], { raw, source: 'legacy' });
+    return key(SS3_KEY_MAP[ss3Match[1]] ?? ss3Match[1], { raw, source: 'legacy' });
   }
 
   if (isControlSequence(raw)) {
@@ -207,13 +207,13 @@ export function parseInput(raw: string): InputEvent | null {
       return { ...inner, alt: true, meta: true, raw };
     }
     if (inner?.type === 'text') {
-      return key(raw, inner.text, { raw, source: 'legacy', alt: true, meta: true, text: inner.text });
+      return key(inner.text, { raw, source: 'legacy', alt: true, meta: true, text: inner.text });
     }
   }
 
   const chars = Array.from(raw);
   if (chars.length === 1) {
-    return key(raw, chars[0], { raw, source: 'legacy', text: chars[0] });
+    return key(chars[0], { raw, source: 'legacy', text: chars[0] });
   }
 
   if (!raw.includes('\x1b')) {
@@ -230,7 +230,7 @@ interface KeyOptions extends Partial<Modifiers> {
   text?: string;
 }
 
-function key(_raw: string, name: string, opts: KeyOptions): KeyInputEvent {
+function key(name: string, opts: KeyOptions): KeyInputEvent {
   return {
     type: 'key',
     key: name,

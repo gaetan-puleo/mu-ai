@@ -217,13 +217,6 @@ describe('TerminalInputParser', () => {
     expect(parser.feed('A')).toMatchObject([{ type: 'key', key: 'up' }]);
   });
 
-  it('flushes a pending escape after caller timeout', () => {
-    const parser = new TerminalInputParser();
-    expect(parser.feed('\x1b')).toEqual([]);
-    expect(parser.hasPendingEscape()).toBe(true);
-    expect(parser.flushPendingEscape()).toMatchObject([{ type: 'key', key: 'escape' }]);
-  });
-
   it('flushes incomplete control sequences after caller timeout', () => {
     const parser = new TerminalInputParser();
     expect(parser.feed('\x1b[')).toEqual([]);
@@ -319,7 +312,7 @@ describe('text utilities', () => {
   it('strips ANSI and measures visible width', () => {
     expect(stripAnsi('\x1b[31mRed\x1b[0m')).toBe('Red');
     expect(visibleWidth('\x1b[31m你好\x1b[0m')).toBe(4);
-    expect(visibleWidth('😀')).toBe(1);
+    expect(visibleWidth('😀')).toBe(2);
   });
 
   it('truncates and wraps text', () => {

@@ -7,6 +7,7 @@ export interface BeforeToolData {
 
 export interface AfterToolData {
   tool: Tool;
+  args: string;
   result: string;
 }
 

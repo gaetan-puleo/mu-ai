@@ -11,7 +11,7 @@ export async function callTool(
 ): Promise<string> {
   const beforeResult = await hooks?.beforeTool?.({ tool, args });
   if (beforeResult && 'block' in beforeResult) {
-    throw new Error(beforeResult.reason);
+    return `Blocked: ${beforeResult.reason}`;
   }
 
   let result: string;
@@ -21,7 +21,7 @@ export async function callTool(
     result = tool.onError(error);
   }
 
-  const afterResult = await hooks?.afterTool?.({ tool, result });
+  const afterResult = await hooks?.afterTool?.({ tool, args, result });
   if (afterResult && 'result' in afterResult) {
     return afterResult.result;
   }
