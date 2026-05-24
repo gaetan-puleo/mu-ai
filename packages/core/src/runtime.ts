@@ -1,5 +1,6 @@
 import { appendFileSync } from 'node:fs';
 import type { EventBus, Unsubscribe } from './bus';
+import type { Plugin } from './plugin';
 import type { LLMProvider, LLMProviderResult } from './provider';
 import { callTool } from './tools/callTool';
 import type { ToolHooks } from './types/Hook';
@@ -25,24 +26,25 @@ export type CoreEvent =
   | { type: 'context_update'; context: LLMResponseContext }
   | { type: 'error'; error: unknown };
 
-export type Runtime = {
-  start(): void;
-  stop(): void;
-  state(): RuntimeState;
-  steer(message: Message): void;
-  followUp(message: Message): void;
-  queueState(): { steering: Message[]; followUp: Message[] };
-};
+export interface Runtime {
+  start: () => void;
+  stop: () => void;
+  state: () => RuntimeState;
+  steer: (message: Message) => void;
+  followUp: (message: Message) => void;
+  queueState: () => { steering: Message[]; followUp: Message[] };
+}
 
-export type RuntimeConfig = {
+export interface RuntimeConfig {
   provider: LLMProvider;
-  tools: Tools;
+  tools?: Tools;
+  plugins?: Plugin[];
   bus: EventBus<CoreEvent>;
   systemPrompt?: string | (() => string | undefined | Promise<string | undefined>);
   hooks?: ToolHooks;
   steeringMode?: QueueMode;
   followUpMode?: QueueMode;
-};
+}
 
 function isAsyncIterable(value: LLMProviderResult): value is AsyncIterable<LLMStreamEvent> {
   return !!value && typeof value === 'object' && Symbol.asyncIterator in value;
@@ -64,8 +66,26 @@ function truncateForLog(value: string, max = 500): string {
   return value.length > max ? `${value.slice(0, max)}...` : value;
 }
 
+function mergePluginTools(baseTools: Tools, plugins: Plugin[]): Tools {
+  const tools = { ...baseTools };
+
+  for (const plugin of plugins) {
+    for (const [name, tool] of Object.entries(plugin.tools ?? {})) {
+      if (tools[name]) {
+        throw new Error(`Tool "${name}" from plugin "${plugin.name}" is already registered`);
+      }
+      tools[name] = tool;
+    }
+  }
+
+  return tools;
+}
+
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: Runtime state is intentionally kept in one closure for now.
 export function createRuntime(config: RuntimeConfig): Runtime {
-  const { provider, tools, bus, hooks } = config;
+  const { provider, bus, hooks } = config;
+  const plugins = config.plugins ?? [];
+  const tools = mergePluginTools(config.tools ?? {}, plugins);
 
   const messages: Message[] = [];
   const queue: Message[] = [];
@@ -77,6 +97,40 @@ export function createRuntime(config: RuntimeConfig): Runtime {
   let currentState: RuntimeState = 'idle';
   let unsubscribe: Unsubscribe | undefined;
   let processing = false;
+
+  async function callOnStart(): Promise<void> {
+    for (const plugin of plugins) {
+      await plugin.hooks?.onStart?.();
+    }
+  }
+
+  async function callOnStop(): Promise<void> {
+    for (let i = plugins.length - 1; i >= 0; i--) {
+      await plugins[i]?.hooks?.onStop?.();
+    }
+  }
+
+  function callOnError(error: unknown): void {
+    for (const plugin of plugins) {
+      try {
+        plugin.hooks?.onError?.(error);
+      } catch (hookError) {
+        debugLog({
+          stage: 'runtime.plugin.onError.error',
+          plugin: plugin.name,
+          error: hookError instanceof Error ? hookError.message : String(hookError),
+        });
+      }
+    }
+  }
+
+  function callLifecycleHook(hook: () => Promise<void>, stage: string): void {
+    void hook().catch((error) => {
+      debugLog({ stage, error: error instanceof Error ? error.message : String(error) });
+      bus.publish({ type: 'error', error });
+      callOnError(error);
+    });
+  }
 
   function drainQueue(source: Message[], mode: QueueMode): Message[] {
     if (mode === 'all') {
@@ -197,6 +251,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     return publishedAssistant;
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Stream events are normalized in one ordered pass.
   async function processStream(stream: AsyncIterable<LLMStreamEvent>): Promise<ToolCall[]> {
     let content = '';
     let reasoning = '';
@@ -219,7 +274,12 @@ export function createRuntime(config: RuntimeConfig): Runtime {
         bus.publish({ type: 'reasoning_delta', content: event.content });
       } else if (event.type === 'tool_call') {
         streamedCalls.push(event.call);
-        debugLog({ stage: 'runtime.stream.tool_call', tool: event.call.tool, id: event.call.id, argsLen: event.call.args.length });
+        debugLog({
+          stage: 'runtime.stream.tool_call',
+          tool: event.call.tool,
+          id: event.call.id,
+          argsLen: event.call.args.length,
+        });
         bus.publish({ type: 'tool_call', call: event.call });
       } else if (event.type === 'done') {
         doneCalls = event.response?.tool_calls;
@@ -293,6 +353,8 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     debugLog({ stage: 'runtime.assistant_tool_calls.append', toolCalls: calls.length, messages: messages.length });
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The queue loop coordinates provider, tool, and follow-up turns.
+  // biome-ignore lint/complexity/noExcessiveLinesPerFunction: Splitting this loop would obscure the turn-order invariants.
   async function processQueue(): Promise<void> {
     if (processing || currentState === 'stopped') {
       return;
@@ -320,7 +382,12 @@ export function createRuntime(config: RuntimeConfig): Runtime {
 
         providerCalls++;
         const providerMessages = await buildProviderMessages();
-        debugLog({ stage: 'runtime.provider.call.start', providerCalls, messages: providerMessages.length, tools: Object.keys(tools) });
+        debugLog({
+          stage: 'runtime.provider.call.start',
+          providerCalls,
+          messages: providerMessages.length,
+          tools: Object.keys(tools),
+        });
         const result = await provider(providerMessages, tools);
 
         if (isAsyncIterable(result)) {
@@ -356,7 +423,12 @@ export function createRuntime(config: RuntimeConfig): Runtime {
           appendAssistantToolCalls(streamedToolCalls);
           await executeToolCalls(streamedToolCalls);
           drainSteeringIntoTranscript();
-          debugLog({ stage: 'runtime.loop.continue_after_tools', providerCalls, toolCalls: streamedToolCalls.length, messages: messages.length });
+          debugLog({
+            stage: 'runtime.loop.continue_after_tools',
+            providerCalls,
+            toolCalls: streamedToolCalls.length,
+            messages: messages.length,
+          });
           continue;
         }
 
@@ -409,7 +481,12 @@ export function createRuntime(config: RuntimeConfig): Runtime {
         appendAssistantToolCalls(result.tool_calls);
         await executeToolCalls(result.tool_calls);
         drainSteeringIntoTranscript();
-        debugLog({ stage: 'runtime.loop.continue_after_tools', providerCalls, toolCalls: result.tool_calls.length, messages: messages.length });
+        debugLog({
+          stage: 'runtime.loop.continue_after_tools',
+          providerCalls,
+          toolCalls: result.tool_calls.length,
+          messages: messages.length,
+        });
       }
     } catch (error) {
       debugLog({
@@ -418,6 +495,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
         stack: error instanceof Error ? error.stack : undefined,
       });
       bus.publish({ type: 'error', error });
+      callOnError(error);
     } finally {
       processing = false;
       void processQueue();
@@ -431,6 +509,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       }
 
       currentState = 'idle';
+      callLifecycleHook(callOnStart, 'runtime.plugin.onStart.error');
 
       unsubscribe = bus.subscribe((event) => {
         if (event.type === 'steer') {
@@ -458,6 +537,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       steeringQueue.length = 0;
       followUpQueue.length = 0;
       emitQueueUpdate();
+      callLifecycleHook(callOnStop, 'runtime.plugin.onStop.error');
     },
 
     state() {

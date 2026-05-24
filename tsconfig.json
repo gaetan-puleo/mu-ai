@@ -11,22 +11,15 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "declaration": true,
-    "composite": true
+    "composite": true,
+    "types": ["node", "vitest/globals"]
   },
   "files": [],
   "references": [
-    { "path": "packages/mu-core-old" },
-    { "path": "packages/mu-core" },
-    { "path": "packages/mu-openai-provider" },
-    { "path": "packages/mu-local-provider" },
-    { "path": "packages/mu-agents" },
-    { "path": "packages/mu-repomap" },
-    { "path": "packages/mu-coding-agents" },
-    { "path": "packages/mu-skill-runner" },
-    { "path": "packages/mu-tools" },
-    { "path": "packages/mu-scheduler" },
-    { "path": "packages/mu-webfetch" },
-    { "path": "packages/mu-coding-old" },
+    { "path": "packages/core" },
+    { "path": "packages/local-provider" },
+    { "path": "packages/tools" },
+    { "path": "packages/webfetch" },
     { "path": "packages/coding-agent" },
     { "path": "packages/tui" }
   ]

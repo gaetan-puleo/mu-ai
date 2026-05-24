@@ -31,7 +31,14 @@ export function createCanvas(width: number, height: number): Canvas {
  * - Horizontally: clip each line to the intersection of its target span with `clip`.
  * - Pad with spaces if the line is shorter than its allotted width.
  */
-export function drawLines(canvas: Canvas, x: number, y: number, lines: string[], clip: Rect, backgroundColor?: Color): void {
+export function drawLines(
+  canvas: Canvas,
+  x: number,
+  y: number,
+  lines: string[],
+  clip: Rect,
+  backgroundColor?: Color,
+): void {
   if (canvas.width === 0 || canvas.height === 0) return;
   const canvasRect: Rect = { x: 0, y: 0, width: canvas.width, height: canvas.height };
   const safeClip = intersectRect(clip, canvasRect);
@@ -102,7 +109,9 @@ function withBackground(text: string, color: Color | undefined): string {
   if (!color) return text;
   const prefix = backgroundColorToAnsi(color);
   if (!prefix) return text;
-  return `${prefix}${text.replace(/\x1b\[0m/g, `\x1b[0m${prefix}`)}\x1b[0m`;
+  // biome-ignore lint/complexity/useRegexLiterals: Avoids a raw control character in a regex literal.
+  const resetPattern = new RegExp('\\x1b\\[0m', 'g');
+  return `${prefix}${text.replace(resetPattern, `\x1b[0m${prefix}`)}\x1b[0m`;
 }
 
 function hexBackgroundToAnsi(color: string): string | undefined {

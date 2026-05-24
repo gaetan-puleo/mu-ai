@@ -61,7 +61,11 @@ importers:
         specifier: ^6.38.0
         version: 6.38.0(zod@4.4.3)
 
-  packages/tools: {}
+  packages/tools:
+    dependencies:
+      mu-core:
+        specifier: workspace:*
+        version: link:../core
 
   packages/tui:
     devDependencies:

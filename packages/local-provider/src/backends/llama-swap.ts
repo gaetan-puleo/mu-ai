@@ -32,7 +32,7 @@ export async function listLlamaSwapModels(config: { baseUrl: string; apiKey?: st
   }));
 }
 
-export type LlamaSwapSlotInfo = {
+export interface LlamaSwapSlotInfo {
   id: number;
   n_ctx: number;
   speculative?: boolean;
@@ -45,16 +45,16 @@ export type LlamaSwapSlotInfo = {
     n_decoded: number;
   }>;
   params?: Record<string, unknown>;
-};
+}
 
-export type LlamaSwapProps = {
+export interface LlamaSwapProps {
   default_generation_settings: {
     n_ctx: number;
   };
   total_slots: number;
   model_path: string;
   model_alias: string;
-};
+}
 
 export async function getLlamaSwapProps(config: {
   baseUrl: string;
@@ -111,10 +111,10 @@ export function selectAvailableSlot(slots: LlamaSwapSlotInfo[]): LlamaSwapSlotIn
   return slots[0];
 }
 
-export type LlamaSwapChatRequestExtras = {
+export interface LlamaSwapChatRequestExtras {
   id_slot: number;
   cache_prompt: boolean;
-};
+}
 
 export async function prepareLlamaSwapChatRequest(config: {
   baseUrl: string;
@@ -157,7 +157,7 @@ export async function collectLlamaSwapContext(config: {
     getLlamaSwapProps(config).catch(() => undefined),
   ]);
 
-  if (!slots && !props) {
+  if (!(slots || props)) {
     return undefined;
   }
 

@@ -5,7 +5,7 @@ describe('EventBus', () => {
     const bus = createBus<{ type: string; value: number }>();
     const received: { type: string; value: number }[] = [];
 
-    bus.subscribe(event => received.push(event));
+    bus.subscribe((event) => received.push(event));
 
     bus.publish({ type: 'test', value: 42 });
 
@@ -17,8 +17,8 @@ describe('EventBus', () => {
     const received1: { type: string }[] = [];
     const received2: { type: string }[] = [];
 
-    bus.subscribe(event => received1.push(event));
-    bus.subscribe(event => received2.push(event));
+    bus.subscribe((event) => received1.push(event));
+    bus.subscribe((event) => received2.push(event));
 
     bus.publish({ type: 'hello' });
 
@@ -30,7 +30,7 @@ describe('EventBus', () => {
     const bus = createBus<{ type: string }>();
     const received: { type: string }[] = [];
 
-    const unsubscribe = bus.subscribe(event => received.push(event));
+    const unsubscribe = bus.subscribe((event) => received.push(event));
 
     bus.publish({ type: 'first' });
     unsubscribe();

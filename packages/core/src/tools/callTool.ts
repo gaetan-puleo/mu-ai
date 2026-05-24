@@ -1,10 +1,13 @@
+import type { AfterToolData, AfterToolResult, BeforeToolData, BeforeToolResult } from '../types/Hook';
 import type { Tool } from '../types/Tool';
-import type { BeforeToolData, AfterToolData, BeforeToolResult, AfterToolResult } from '../types/Hook';
 
 export async function callTool(
   tool: Tool,
   args: string,
-  hooks?: { beforeTool?: (data: BeforeToolData) => Promise<BeforeToolResult>; afterTool?: (data: AfterToolData) => Promise<AfterToolResult> },
+  hooks?: {
+    beforeTool?: (data: BeforeToolData) => Promise<BeforeToolResult>;
+    afterTool?: (data: AfterToolData) => Promise<AfterToolResult>;
+  },
 ): Promise<string> {
   const beforeResult = await hooks?.beforeTool?.({ tool, args });
   if (beforeResult && 'block' in beforeResult) {

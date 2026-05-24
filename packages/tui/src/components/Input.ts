@@ -15,6 +15,8 @@ export interface InputProps {
   textStyle?: string;
   /** Style applied to the cursor cell when focused. Default reverse video. */
   cursorStyle?: string;
+  /** Prefix kept in `value` but hidden when rendering. */
+  hiddenPrefix?: string;
 }
 
 const DEFAULT_PLACEHOLDER_STYLE = '\x1b[2m';
@@ -38,6 +40,7 @@ export class Input implements Focusable {
   placeholderStyle: string;
   textStyle: string;
   cursorStyle: string;
+  hiddenPrefix: string;
   private scrollOffset = 0;
 
   constructor(props: InputProps = {}) {
@@ -49,6 +52,7 @@ export class Input implements Focusable {
     this.placeholderStyle = props.placeholderStyle ?? DEFAULT_PLACEHOLDER_STYLE;
     this.textStyle = props.textStyle ?? '';
     this.cursorStyle = props.cursorStyle ?? DEFAULT_CURSOR_STYLE;
+    this.hiddenPrefix = props.hiddenPrefix ?? '';
     this.layout = { height: 1, focusable: true, ...props.layout };
   }
 
@@ -74,22 +78,25 @@ export class Input implements Focusable {
     const width = ctx.contentRect.width;
     if (width <= 0) return [];
 
-    if (this._value.includes('\n')) return this.renderMultiline(ctx);
+    const hiddenPrefixLength = this.hiddenPrefixLength();
+    if (this._value.includes('\n')) return this.renderMultiline(ctx, hiddenPrefixLength);
 
     if (this._value.length === 0 && !ctx.focused && this.placeholder.length > 0) {
       const ph = this.placeholder.slice(0, width);
       return [`${this.placeholderStyle}${ph}\x1b[0m`];
     }
 
-    this.adjustScrollOffset(width);
-    const visible = this._value.slice(this.scrollOffset);
+    const renderValue = this._value.slice(hiddenPrefixLength);
+    const renderCursor = Math.max(0, this._cursor - hiddenPrefixLength);
+    this.adjustScrollOffset(width, renderCursor);
+    const visible = renderValue.slice(this.scrollOffset);
     const truncated = sliceByColumn(visible, 0, width, true);
     const truncatedWidth = visibleWidth(truncated);
     const padded = truncatedWidth < width ? truncated + ' '.repeat(width - truncatedWidth) : truncated;
 
     if (!ctx.focused) return [this.styleText(padded)];
 
-    const cursorCol = this._cursor - this.scrollOffset;
+    const cursorCol = renderCursor - this.scrollOffset;
     if (cursorCol < 0 || cursorCol >= width) return [this.styleText(padded)];
 
     const before = sliceByColumn(padded, 0, cursorCol, true);
@@ -190,20 +197,22 @@ export class Input implements Focusable {
     this._cursor = Math.min(targetStart + currentColumn, targetEnd);
   }
 
-  private adjustScrollOffset(width: number): void {
-    if (this._cursor < this.scrollOffset) {
-      this.scrollOffset = this._cursor;
-    } else if (this._cursor >= this.scrollOffset + width) {
-      this.scrollOffset = Math.max(0, this._cursor - width + 1);
+  private adjustScrollOffset(width: number, cursor: number): void {
+    if (cursor < this.scrollOffset) {
+      this.scrollOffset = cursor;
+    } else if (cursor >= this.scrollOffset + width) {
+      this.scrollOffset = Math.max(0, cursor - width + 1);
     }
   }
 
-  private renderMultiline(ctx: RenderContext): string[] {
+  private renderMultiline(ctx: RenderContext, hiddenPrefixLength: number): string[] {
     const width = ctx.contentRect.width;
     const height = Math.max(1, ctx.contentRect.height);
-    const rawLines = this._value.split('\n');
-    const cursorLine = this._value.slice(0, this._cursor).split('\n').length - 1;
-    const cursorCol = this._cursor - this._value.lastIndexOf('\n', this._cursor - 1) - 1;
+    const renderValue = this._value.slice(hiddenPrefixLength);
+    const renderCursor = Math.max(0, this._cursor - hiddenPrefixLength);
+    const rawLines = renderValue.split('\n');
+    const cursorLine = renderValue.slice(0, renderCursor).split('\n').length - 1;
+    const cursorCol = renderCursor - renderValue.lastIndexOf('\n', renderCursor - 1) - 1;
     const firstLine = Math.max(0, cursorLine - height + 1);
     const lines = rawLines.slice(firstLine, firstLine + height).map((line, index) => {
       const truncated = sliceByColumn(line, 0, width, true);
@@ -228,6 +237,10 @@ export class Input implements Focusable {
 
   private styleText(text: string): string {
     return this.textStyle ? `${this.textStyle}${text}\x1b[0m` : text;
+  }
+
+  private hiddenPrefixLength(): number {
+    return this.hiddenPrefix && this._value.startsWith(this.hiddenPrefix) ? this.hiddenPrefix.length : 0;
   }
 
   private lineStarts(): number[] {

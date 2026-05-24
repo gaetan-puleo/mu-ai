@@ -1,4 +1,5 @@
 import { createBus } from './bus';
+import { definePlugin } from './plugin';
 import type { LLMProvider } from './provider';
 import type { CoreEvent } from './runtime';
 import { createRuntime } from './runtime';
@@ -17,6 +18,7 @@ function eventIndex(events: CoreEvent[], type: CoreEvent['type']): number {
   return events.findIndex((event) => event.type === type);
 }
 
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: Runtime integration tests share setup helpers and cover one public API.
 describe('createRuntime', () => {
   it('reacts to a user message and publishes assistant response', async () => {
     const provider: LLMProvider = async () => ({ content: 'Hello!' });
@@ -490,7 +492,10 @@ describe('createRuntime', () => {
     expect(providerMessages[0]).toEqual(['user:Start']);
     expect(providerMessages[1]).toContain('assistant:First done');
     expect(providerMessages[1]).toContain('user:After that');
-    expect(events).toContainEqual({ type: 'assistant_message', message: { role: 'assistant', content: 'Follow-up done' } });
+    expect(events).toContainEqual({
+      type: 'assistant_message',
+      message: { role: 'assistant', content: 'Follow-up done' },
+    });
   });
 
   it('emits queue updates when steering is queued and drained', async () => {
@@ -679,5 +684,157 @@ describe('createRuntime', () => {
 
     resolveProvider?.();
     await waitForAsync();
+  });
+
+  it('uses plugin tools in array order', async () => {
+    const providerMessages: string[][] = [];
+    let callCount = 0;
+    const provider: LLMProvider = async (messages, tools) => {
+      callCount++;
+      providerMessages.push(messages.map((message) => `${message.role}:${message.content}`));
+      if (callCount === 1) {
+        expect(Object.keys(tools)).toEqual(['base', 'plugin']);
+        return { tool_calls: [{ type: 'tool_call', id: '1', tool: 'plugin', args: '{}' }] };
+      }
+      return { content: messages.at(-1)?.content ?? '' };
+    };
+    const bus = createBus<CoreEvent>();
+    const events = collectEvents(bus);
+    const plugin = definePlugin(() => ({
+      name: 'plugin',
+      tools: {
+        plugin: {
+          name: 'plugin',
+          description: 'Plugin tool',
+          parameters: {},
+          execute: () => 'plugin result',
+          onError: () => 'failed',
+        },
+      },
+    }))();
+
+    const runtime = createRuntime({
+      provider,
+      tools: {
+        base: {
+          name: 'base',
+          description: 'Base tool',
+          parameters: {},
+          execute: () => 'base',
+          onError: () => 'failed',
+        },
+      },
+      plugins: [plugin],
+      bus,
+    });
+
+    runtime.start();
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'Use plugin' } });
+
+    await waitForAsync();
+    await waitForAsync();
+
+    expect(providerMessages[1]).toContain('tool:plugin result');
+    expect(events).toContainEqual({
+      type: 'tool_result',
+      message: { role: 'tool', content: 'plugin result', tool_id: '1' },
+    });
+  });
+
+  it('throws when plugin tools collide with base tools', () => {
+    const bus = createBus<CoreEvent>();
+    const provider: LLMProvider = async () => ({ content: 'ok' });
+    const plugin = definePlugin(() => ({
+      name: 'plugin',
+      tools: {
+        same: {
+          name: 'same',
+          description: 'Plugin tool',
+          parameters: {},
+          execute: () => 'plugin',
+          onError: () => 'failed',
+        },
+      },
+    }))();
+
+    expect(() =>
+      createRuntime({
+        provider,
+        tools: {
+          same: {
+            name: 'same',
+            description: 'Base tool',
+            parameters: {},
+            execute: () => 'base',
+            onError: () => 'failed',
+          },
+        },
+        plugins: [plugin],
+        bus,
+      }),
+    ).toThrow('Tool "same" from plugin "plugin" is already registered');
+  });
+
+  it('runs plugin lifecycle hooks in deterministic order', async () => {
+    const order: string[] = [];
+    const provider: LLMProvider = async () => ({ content: 'ok' });
+    const bus = createBus<CoreEvent>();
+    const runtime = createRuntime({
+      provider,
+      tools: {},
+      plugins: [
+        {
+          name: 'first',
+          hooks: {
+            onStart: () => {
+              order.push('start:first');
+            },
+            onStop: () => {
+              order.push('stop:first');
+            },
+          },
+        },
+        {
+          name: 'second',
+          hooks: {
+            onStart: () => {
+              order.push('start:second');
+            },
+            onStop: () => {
+              order.push('stop:second');
+            },
+          },
+        },
+      ],
+      bus,
+    });
+
+    runtime.start();
+    await waitForAsync();
+    runtime.stop();
+    await waitForAsync();
+
+    expect(order).toEqual(['start:first', 'start:second', 'stop:second', 'stop:first']);
+  });
+
+  it('calls plugin onError hooks when runtime processing fails', async () => {
+    const errors: unknown[] = [];
+    const provider: LLMProvider = async () => ({
+      tool_calls: [{ type: 'tool_call', id: '1', tool: 'missing', args: '{}' }],
+    });
+    const bus = createBus<CoreEvent>();
+    const runtime = createRuntime({
+      provider,
+      tools: {},
+      plugins: [{ name: 'errors', hooks: { onError: (error) => errors.push(error) } }],
+      bus,
+    });
+
+    runtime.start();
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'Use missing tool' } });
+    await waitForAsync();
+
+    expect(errors).toHaveLength(1);
+    expect((errors[0] as Error).message).toBe('Unknown tool: missing');
   });
 });

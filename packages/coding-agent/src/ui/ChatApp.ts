@@ -1,19 +1,19 @@
-import { mkdir, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { CoreEvent, LLMResponseContext, Message, Runtime, Unsubscribe } from 'mu-core';
 import type { LocalModel } from 'mu-local-provider';
 import { type Component, type InputEvent, ProcessTerminal, TUI } from 'mu-tui';
-import { Box, Input, Modal, ScrollView, SelectList } from 'mu-tui/components';
+import { Box, Input, Modal, ScrollView, SelectList, Text } from 'mu-tui/components';
 import { AssistantMessage } from './components/AssistantMessage';
 import { CommandLine } from './components/CommandLine';
 import { CommandPalette, type CommandPaletteItem } from './components/CommandPalette';
 import { CommandResultLine } from './components/CommandResultLine';
-import { OutputBlock } from './components/OutputBlock';
 import { ContextMap } from './components/ContextMap';
 import { ErrorLine } from './components/ErrorLine';
 import { ErrorToast } from './components/ErrorToast';
 import { HiddenThinkingLine } from './components/HiddenThinkingLine';
+import { OutputBlock } from './components/OutputBlock';
 import { ReasoningBlock } from './components/ReasoningBlock';
 import { formatToolCallArgs, ToolLine } from './components/ToolLine';
 import { UserMessage } from './components/UserMessage';
@@ -81,6 +81,8 @@ export class ChatApp {
   private statusText: StatusLine;
   private statusBox: Box;
   private toastZone: Box;
+  private bashPrompt: Text;
+  private bashMode = false;
   private inputTopWidgetZone: Box;
   private inputBottomWidgetZone: Box;
   private commandPalette: CommandPalette | undefined;
@@ -149,14 +151,8 @@ export class ChatApp {
       children: [],
     });
 
-    this.input = new Input({
-      placeholder: 'type a message...',
-      placeholderStyle: styleToAnsi(theme.styles.muted),
-      textStyle: styleToAnsi(theme.styles.body),
-      onChange: (value: string) => this.updateInputHeight(value),
-      onSubmit: (value: string) => this.handleSubmit(value),
-      layout: { width: 'fill', height: 1, zIndex: 10 },
-    });
+    this.input = this.createInput(theme);
+    this.bashPrompt = this.createBashPrompt(theme);
 
     this.inputTopWidgetZone = new Box({
       layout: { width: 'fill', height: 0, zIndex: 10 },
@@ -218,6 +214,26 @@ export class ChatApp {
     this.updateStatusLine();
   }
 
+  private createInput(theme: Theme): Input {
+    return new Input({
+      placeholder: 'type a message...',
+      placeholderStyle: styleToAnsi(theme.styles.muted),
+      textStyle: styleToAnsi(theme.styles.body),
+      hiddenPrefix: '!',
+      onChange: (value: string) => this.updateInputHeight(value),
+      onSubmit: (value: string) => this.handleSubmit(value),
+      layout: { width: 'fill', height: 1, zIndex: 10 },
+    });
+  }
+
+  private createBashPrompt(theme: Theme): Text {
+    return new Text({
+      text: `${styleToAnsi(theme.styles.body)}$ \x1b[0m`,
+      wrap: false,
+      layout: { width: 2, height: 1, zIndex: 10 },
+    });
+  }
+
   private registerStatusSlots(): void {
     this.unregisterStatusSlotContributors.push(
       STATUS_SLOTS.register('status.left', ({ model }) => model),
@@ -251,6 +267,7 @@ export class ChatApp {
     if (this.inputBox.layout) this.inputBox.layout.backgroundColor = theme.colors.surface;
     this.input.placeholderStyle = styleToAnsi(theme.styles.muted);
     this.input.textStyle = styleToAnsi(theme.styles.body);
+    this.bashPrompt.setText(`${styleToAnsi(theme.styles.body)}$ \x1b[0m`);
     this.renderTranscript();
     this.tui.setUserContext(this.themeProvider);
   }
@@ -325,8 +342,18 @@ export class ChatApp {
   private updateInputHeight(value: string): void {
     const lines = Math.min(7, Math.max(1, value.split('\n').length));
     this.input.layout.height = lines;
+    this.updateBashMode(value);
     if (this.inputBox.layout) this.inputBox.layout.height = lines + 2;
     this.updateCommandPalette(value);
+  }
+
+  private updateBashMode(value: string): void {
+    const bashMode = value.startsWith('!');
+    if (bashMode === this.bashMode) return;
+
+    this.bashMode = bashMode;
+    this.inputBox.children = bashMode ? [this.bashPrompt, this.input] : [this.input];
+    this.tui.requestRender();
   }
 
   private interceptInput(event: InputEvent): boolean {
@@ -604,8 +631,12 @@ export class ChatApp {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    proc.stdout?.on('data', (data: Buffer) => { stdout += data.toString('utf-8'); });
-    proc.stderr?.on('data', (data: Buffer) => { stderr += data.toString('utf-8'); });
+    proc.stdout?.on('data', (data: Buffer) => {
+      stdout += data.toString('utf-8');
+    });
+    proc.stderr?.on('data', (data: Buffer) => {
+      stderr += data.toString('utf-8');
+    });
 
     proc.on('close', (code) => {
       const output = code !== 0 || stderr ? [stdout, stderr].filter(Boolean).join('\n') : stdout;

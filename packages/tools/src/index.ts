@@ -22,7 +22,7 @@ export interface MuToolsOptions {
   /** Enforce that path-accepting tools stay inside the cwd. Default `false`. */
   restrictToCwd?: boolean;
   /** Subset of tools to include. Default: all five. */
-  tools?: ReadonlyArray<MuToolName>;
+  tools?: readonly MuToolName[];
 }
 
 const DEFAULT_TOOLS: readonly MuToolName[] = ['read', 'write', 'edit', 'bash', 'list_dir'];
@@ -51,5 +51,5 @@ export { createBashTool } from './bash';
 export { createEditFileTool } from './edit-file';
 export { createListDirTool } from './list-dir';
 export { createReadFileTool } from './read-file';
-export { createWriteFileTool } from './write-file';
 export { sanitizePath } from './utils';
+export { createWriteFileTool } from './write-file';

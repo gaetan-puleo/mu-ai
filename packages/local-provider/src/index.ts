@@ -1,6 +1,4 @@
 import { appendFileSync } from 'node:fs';
-import OpenAI from 'openai';
-import { defineProvider } from 'mu-core';
 import type {
   LLMProvider,
   LLMProviderResult,
@@ -10,23 +8,26 @@ import type {
   Tool,
   ToolCall,
 } from 'mu-core';
+import { defineProvider } from 'mu-core';
+import OpenAI from 'openai';
 import type {
   ChatCompletionMessage,
   ChatCompletionMessageParam,
   ChatCompletionTool,
 } from 'openai/resources/chat/completions';
 import {
-  LLAMA_SWAP_KIND,
+  collectLlamaSwapContext,
   detectLlamaSwap,
   getLlamaSwapOpenAIBaseUrl,
+  LLAMA_SWAP_KIND,
   prepareLlamaSwapChatRequest,
-  collectLlamaSwapContext,
 } from './backends/llama-swap';
 import type { LocalBackendInfo, LocalContextMap, LocalContextPartKind, LocalModel, LocalProviderConfig } from './types';
+
 export type {
-  LocalBackendKind,
   LocalBackendIdentity,
   LocalBackendInfo,
+  LocalBackendKind,
   LocalContextMap,
   LocalContextPart,
   LocalContextPartKind,
@@ -132,7 +133,7 @@ function convertTools(tools: Record<string, Tool>): ChatCompletionTool[] {
   }));
 }
 
-function convertToolCalls(toolCalls: NonNullable<ChatCompletionMessage['tool_calls']>): ToolCall[] {
+function _convertToolCalls(toolCalls: NonNullable<ChatCompletionMessage['tool_calls']>): ToolCall[] {
   return toolCalls
     .filter((toolCall) => toolCall.type === 'function')
     .map((toolCall) => ({
@@ -237,16 +238,19 @@ function labelContextPart(kind: LocalContextPartKind): string {
   }
 }
 
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: Provider closure owns cached backend/client state.
 export const createLocalProvider = defineProvider<LocalProviderConfig>((config): LLMProvider => {
   let backendPromise: Promise<LocalBackendInfo> | undefined;
   let client: OpenAI | undefined;
 
+  // biome-ignore lint/complexity/noExcessiveLinesPerFunction: Request construction and stream creation share provider-local state.
   return async (messages, tools): Promise<LLMProviderResult> => {
-    const backend = await (backendPromise ??= detectLocalBackend({
+    backendPromise ??= detectLocalBackend({
       kind: config.kind,
       baseUrl: config.baseUrl ?? DEFAULT_BASE_URL,
       apiKey: config.apiKey,
-    }));
+    });
+    const backend = await backendPromise;
 
     if (!config.model) {
       throw new Error(
@@ -282,14 +286,18 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
       }
     }
 
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Streaming OpenAI-compatible chunks requires ordered buffering and finalization.
+    // biome-ignore lint/complexity/noExcessiveLinesPerFunction: Keeping stream chunk state together avoids splitting the buffering protocol.
     async function* streamCompletion(): AsyncIterable<LLMStreamEvent> {
       let content = '';
       let usage: LLMResponseContext['usage'] | undefined;
       const toolCallBuffers = new Map<number, { id: string; name: string; args: string; emitted: boolean }>();
 
       debugLog({ stage: 'provider.stream.start', model, messages: messages.length, tools: Object.keys(tools) });
-      const stream = await client!.chat.completions.create(requestOptions as any);
+      // biome-ignore lint/suspicious/noExplicitAny: OpenAI's streaming overload does not accept the normalized request object type directly.
+      const stream = await client?.chat.completions.create(requestOptions as any);
 
+      // biome-ignore lint/suspicious/noExplicitAny: OpenAI-compatible backends may add provider-specific streaming fields.
       for await (const chunk of stream as any) {
         if (chunk.usage) {
           usage = {

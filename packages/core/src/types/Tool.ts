@@ -1,42 +1,42 @@
-export type Tool = {
+export interface Tool {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
   systemPrompt?: string | (() => string | undefined | Promise<string | undefined>);
   execute: (args: string) => string | Promise<string>;
   onError: (error: unknown) => string;
-};
+}
 
 export type Tools = Record<string, Tool>;
 
-export type ToolCall = {
+export interface ToolCall {
   type: 'tool_call';
   id: string;
   tool: string;
   args: string;
-};
+}
 
-export type Response = {
+export interface Response {
   type: 'response';
   content: string;
-};
+}
 
 export type Action = ToolCall | Response;
 
-export type LLMResponseContextSlot = {
+export interface LLMResponseContextSlot {
   id: number;
   n_ctx: number;
   is_processing: boolean;
-};
+}
 
-export type LLMResponseContextProps = {
+export interface LLMResponseContextProps {
   n_ctx: number;
   total_slots: number;
   model_path: string;
   model_alias: string;
-};
+}
 
-export type LLMResponseContext = {
+export interface LLMResponseContext {
   usage?: {
     promptTokens: number;
     completionTokens: number;
@@ -47,14 +47,14 @@ export type LLMResponseContext = {
   slots?: LLMResponseContextSlot[];
   currentSlot?: LLMResponseContextSlot;
   raw?: Record<string, unknown>;
-};
+}
 
-export type LLMResponse = {
+export interface LLMResponse {
   content?: string;
   tool_calls?: ToolCall[];
   reasoning?: string;
   context?: LLMResponseContext;
-};
+}
 
 export type LLMStreamEvent =
   | { type: 'delta'; content: string }

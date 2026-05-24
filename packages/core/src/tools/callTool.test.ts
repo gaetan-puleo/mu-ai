@@ -20,8 +20,10 @@ describe('callTool', () => {
       name: 'sum',
       description: 'Add two numbers',
       parameters: {},
-      execute: () => { throw new Error('calculation failed'); },
-      onError: (error) => `Tool error: ${error}`,
+      execute: () => {
+        throw new Error('calculation failed');
+      },
+      onError: (error: unknown) => `Tool error: ${error}`,
     };
 
     const result = await callTool(tool, '1 2');
@@ -34,8 +36,10 @@ describe('callTool', () => {
       name: 'fetch',
       description: 'Fetch URL',
       parameters: {},
-      execute: async () => { throw new Error('network error'); },
-      onError: (error) => `Async error: ${error}`,
+      execute: async () => {
+        throw new Error('network error');
+      },
+      onError: (error: unknown) => `Async error: ${error}`,
     };
 
     const result = await callTool(tool, 'http://example.com');

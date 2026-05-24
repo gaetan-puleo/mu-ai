@@ -1,9 +1,9 @@
 export type Unsubscribe = () => void;
 
-export type EventBus<Event> = {
-  publish(event: Event): void;
-  subscribe(listener: (event: Event) => void): Unsubscribe;
-};
+export interface EventBus<Event> {
+  publish: (event: Event) => void;
+  subscribe: (listener: (event: Event) => void) => Unsubscribe;
+}
 
 export function createBus<Event>(): EventBus<Event> {
   const listeners = new Set<(event: Event) => void>();

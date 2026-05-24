@@ -25,13 +25,27 @@ class TestTerminal implements Terminal {
   readonly columns = 20;
   readonly rows = 6;
 
-  write(): void {}
-  hideCursor(): void {}
-  showCursor(): void {}
-  clearScreen(): void {}
-  clearLine(): void {}
-  clearFromCursor(): void {}
-  moveBy(): void {}
+  write(): void {
+    // Test terminal no-op.
+  }
+  hideCursor(): void {
+    // Test terminal no-op.
+  }
+  showCursor(): void {
+    // Test terminal no-op.
+  }
+  clearScreen(): void {
+    // Test terminal no-op.
+  }
+  clearLine(): void {
+    // Test terminal no-op.
+  }
+  clearFromCursor(): void {
+    // Test terminal no-op.
+  }
+  moveBy(): void {
+    // Test terminal no-op.
+  }
 }
 
 function ctx(width: number, height: number, focused = false): RenderContext {
@@ -88,7 +102,10 @@ describe('Box', () => {
 
   it('draws background before border and children', () => {
     const child = new Text({ text: 'Hi', layout: { width: 2, height: 1 } });
-    const box = new Box({ layout: { width: 6, height: 3, border: true, backgroundColor: '#123456' }, children: [child] });
+    const box = new Box({
+      layout: { width: 6, height: 3, border: true, backgroundColor: '#123456' },
+      children: [child],
+    });
     const entries = layoutTree([box], { x: 0, y: 0, width: 6, height: 3 }, null, caps);
     const canvas = createCanvas(6, 3);
 
@@ -259,6 +276,7 @@ describe('Modal', () => {
   });
 });
 
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: Input interaction cases share focused component setup.
 describe('Input', () => {
   it('inserts text and tracks cursor', () => {
     const input = new Input({ value: '' });
@@ -294,6 +312,32 @@ describe('Input', () => {
     const input = new Input({ placeholder: 'enter…' });
     const lines = input.render(ctx(10, 1, false));
     expect(lines[0]).toContain('enter…');
+  });
+
+  it('hides a configured prefix while keeping it editable', () => {
+    const input = new Input({ value: '!ls', hiddenPrefix: '!' });
+    input.focused = true;
+
+    expect(stripAnsi(input.render(ctx(10, 1, true))[0] ?? '')).toBe('ls        ');
+    expect(input.value).toBe('!ls');
+
+    input.setValue('!');
+    input.handleEvent(
+      {
+        type: 'key',
+        key: 'backspace',
+        kind: 'press',
+        source: 'legacy',
+        raw: '',
+        shift: false,
+        ctrl: false,
+        alt: false,
+        meta: false,
+      },
+      { rect: { x: 0, y: 0, width: 1, height: 1 }, contentRect: { x: 0, y: 0, width: 1, height: 1 }, focused: true },
+    );
+
+    expect(input.value).toBe('');
   });
 
   it('inserts a newline on Shift+Enter', () => {
@@ -432,6 +476,7 @@ describe('SelectList', () => {
   });
 });
 
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: ScrollView integration cases share layout assertions.
 describe('ScrollView', () => {
   it('exposes a single inner container as its only child', () => {
     const child: Component = { render: () => ['child'] };
@@ -458,7 +503,10 @@ describe('ScrollView', () => {
     const status = new Text({ text: 'ready', layout: { width: 'fill', height: 1 } });
     const input = new Input({ layout: { width: 'fill', height: 1 } });
     const inputBox = new Box({ layout: { width: 'fill', height: 2 }, children: [input] });
-    const root = new Box({ layout: { width: 'fill', height: 'fill', direction: 'column' }, children: [transcriptBox, status, inputBox] });
+    const root = new Box({
+      layout: { width: 'fill', height: 'fill', direction: 'column' },
+      children: [transcriptBox, status, inputBox],
+    });
 
     const entries = layoutTree([root], { x: 0, y: 0, width: 20, height: 10 }, input, caps);
     const scrollEntry = entries.find((entry) => entry.component === scrollView);
@@ -477,7 +525,10 @@ describe('ScrollView', () => {
       children: [new Text({ text: 'line\n'.repeat(20), layout: { width: 'fill', height: 20 } })],
     });
     const input = new Input({ layout: { width: 'fill', height: 1 } });
-    const root = new Box({ layout: { width: 'fill', height: 'fill', direction: 'column' }, children: [scrollView, input] });
+    const root = new Box({
+      layout: { width: 'fill', height: 'fill', direction: 'column' },
+      children: [scrollView, input],
+    });
     const tui = new TUI(new TestTerminal(), { synchronizedOutput: false });
     tui.addChild(root);
     tui.setFocus(input);
@@ -590,7 +641,10 @@ describe('ScrollView', () => {
     });
     scrollView.scrollTo(10);
     const footer = new Text({ text: 'footer', layout: { width: 'fill', height: 1 } });
-    const root = new Box({ layout: { width: 'fill', height: 'fill', direction: 'column' }, children: [scrollView, footer] });
+    const root = new Box({
+      layout: { width: 'fill', height: 'fill', direction: 'column' },
+      children: [scrollView, footer],
+    });
     const entries = layoutTree([root], { x: 0, y: 0, width: 10, height: 4 }, null, caps);
     const canvas = createCanvas(10, 4);
 
@@ -611,10 +665,19 @@ describe('ScrollView', () => {
     const input = new Input({ placeholder: 'type a message...', layout: { width: 'fill', height: 1, zIndex: 10 } });
     const prompt = new Text({ text: '> ', layout: { width: 2, height: 1, zIndex: 10 } });
     const inputBox = new Box({
-      layout: { width: 'fill', height: 2, direction: 'row', border: { top: true, right: false, bottom: false, left: false }, zIndex: 10 },
+      layout: {
+        width: 'fill',
+        height: 2,
+        direction: 'row',
+        border: { top: true, right: false, bottom: false, left: false },
+        zIndex: 10,
+      },
       children: [prompt, input],
     });
-    const root = new Box({ layout: { width: 'fill', height: 'fill', direction: 'column' }, children: [transcriptBox, status, inputBox] });
+    const root = new Box({
+      layout: { width: 'fill', height: 'fill', direction: 'column' },
+      children: [transcriptBox, status, inputBox],
+    });
     const entries = layoutTree([root], { x: 0, y: 0, width: 20, height: 8 }, input, caps);
     const canvas = createCanvas(20, 8);
 

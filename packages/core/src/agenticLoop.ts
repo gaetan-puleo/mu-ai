@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto';
-
-import type { Message } from './types/Message';
-import type { Tool, ToolCall, Response, Action } from './types/Tool';
-import type { ToolHooks } from './types/Hook';
 import { callTool } from './tools/callTool';
+import type { ToolHooks } from './types/Hook';
+import type { Message } from './types/Message';
+import type { Action, Tool, ToolCall } from './types/Tool';
 
 type Agent = (messages: Message[]) => Action;
 
@@ -37,4 +36,4 @@ export async function* run(agent: Agent, tools: Tools, hooks?: ToolHooks): Async
   }
 }
 
-export type { Message, Agent, Tools };
+export type { Agent, Message, Tools };

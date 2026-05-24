@@ -76,11 +76,7 @@ function entryPath(entry: LayoutEntry, lookup: Map<Component, LayoutEntry>): Lay
   return path;
 }
 
-function isAncestorOf(
-  ancestor: LayoutEntry,
-  descendant: LayoutEntry,
-  lookup: Map<Component, LayoutEntry>,
-): boolean {
+function isAncestorOf(ancestor: LayoutEntry, descendant: LayoutEntry, lookup: Map<Component, LayoutEntry>): boolean {
   let cursor: Component | undefined = descendant.parent;
   while (cursor) {
     if (cursor === ancestor.component) return true;

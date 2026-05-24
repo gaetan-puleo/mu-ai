@@ -1,5 +1,6 @@
 import { Session } from './session';
 
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: Session tests are small and kept together for readability.
 describe('Session', () => {
   it('should create a session with config', () => {
     const session = new Session('test-1', { system: 'You are helpful.' });

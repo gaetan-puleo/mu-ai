@@ -1,10 +1,11 @@
+import type { Agent, Tools } from './agenticLoop';
 import { run } from './agenticLoop';
 import type { Message } from './types/Message';
 
 describe('agentic loop', () => {
   it('should yield agent response immediately when no tools are needed', async () => {
-    const agent = () => ({ type: 'response', content: 'Hello!' });
-    const tools = {};
+    const agent: Agent = () => ({ type: 'response', content: 'Hello!' });
+    const tools: Tools = {};
 
     const stream = run(agent, tools);
     const messages: Message[] = [];
@@ -16,14 +17,14 @@ describe('agentic loop', () => {
   });
 
   it('should call tool and stream the result', async () => {
-    const agent = (messages) => {
+    const agent: Agent = (messages) => {
       if (messages.length === 0) {
-        return { type: 'tool_call', tool: 'sum', args: '2 3' };
+        return { type: 'tool_call', id: 'sum-1', tool: 'sum', args: '2 3' };
       }
       return { type: 'response', content: `Result: ${messages[messages.length - 1].content}` };
     };
 
-    const tools = {
+    const tools: Tools = {
       sum: {
         name: 'sum',
         description: 'Add two numbers',
@@ -50,17 +51,17 @@ describe('agentic loop', () => {
   });
 
   it('should handle multiple tool calls before responding', async () => {
-    const agent = (messages) => {
+    const agent: Agent = (messages) => {
       const toolResults = messages.filter((m) => m.role === 'tool');
       if (toolResults.length === 0) {
-        return { type: 'tool_call', tool: 'add', args: '1 2' };
+        return { type: 'tool_call', id: 'add-1', tool: 'add', args: '1 2' };
       } else if (toolResults.length === 1) {
-        return { type: 'tool_call', tool: 'multiply', args: '3 4' };
+        return { type: 'tool_call', id: 'multiply-1', tool: 'multiply', args: '3 4' };
       }
       return { type: 'response', content: 'Done' };
     };
 
-    const tools = {
+    const tools: Tools = {
       add: {
         name: 'add',
         description: 'Add two numbers',
@@ -99,8 +100,8 @@ describe('agentic loop', () => {
   });
 
   it('should throw error for unknown tool', async () => {
-    const agent = () => ({ type: 'tool_call', tool: 'unknown', args: '{}' });
-    const tools = {};
+    const agent: Agent = () => ({ type: 'tool_call', id: 'unknown-1', tool: 'unknown', args: '{}' });
+    const tools: Tools = {};
 
     const stream = run(agent, tools);
     await stream.next(); // yields assistant message

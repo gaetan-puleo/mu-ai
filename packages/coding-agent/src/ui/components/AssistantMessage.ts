@@ -334,6 +334,7 @@ function renderAssistantMarkdown(
   return rendered;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Markdown measurement handles code, table, quote, and plain text blocks in one pass.
 function measureAssistantMarkdown(content: string, width: number): string[] {
   const lines = content.split('\n');
   const measured: string[] = [];

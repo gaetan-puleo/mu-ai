@@ -1,14 +1,14 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { detectLocalBackend, listLocalModels, createLocalProvider } from './index';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  normalizeLlamaSwapBaseUrl,
-  getLlamaSwapOpenAIBaseUrl,
-  selectAvailableSlot,
-  prepareLlamaSwapChatRequest,
   collectLlamaSwapContext,
+  getLlamaSwapOpenAIBaseUrl,
+  normalizeLlamaSwapBaseUrl,
+  prepareLlamaSwapChatRequest,
+  selectAvailableSlot,
 } from './backends/llama-swap';
+import { createLocalProvider, detectLocalBackend, listLocalModels } from './index';
 
-let mockCreateChatCompletion = vi.fn();
+const mockCreateChatCompletion = vi.fn();
 
 vi.mock('openai', () => ({
   default: class MockOpenAI {
@@ -53,7 +53,7 @@ const MOCK_PROPS_RESPONSE = {
 
 function mockFetch(responses: Record<string, { ok: boolean; json: () => unknown }>) {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const urlString = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     for (const [path, response] of Object.entries(responses)) {
       if (urlString.includes(path)) {
@@ -273,6 +273,7 @@ describe('listLocalModels', () => {
   });
 });
 
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: Provider tests share backend/client mocks and are easier to scan together.
 describe('createLocalProvider', () => {
   let cleanup: (() => void) | undefined;
 
@@ -308,7 +309,7 @@ describe('createLocalProvider', () => {
       return (async function* () {
         yield { choices: [{ delta: { content: 'hello' } }] };
         yield { choices: [], usage: { prompt_tokens: 1234, completion_tokens: 5, total_tokens: 1239 } };
-      })() as any;
+      })();
     });
 
     const provider = createLocalProvider({
@@ -317,7 +318,7 @@ describe('createLocalProvider', () => {
       model: 'gemma-4-e2b',
     });
     const result = await provider([], {});
-    const events = [];
+    const events: unknown[] = [];
 
     for await (const event of result as AsyncIterable<unknown>) {
       events.push(event);
@@ -364,7 +365,7 @@ describe('createLocalProvider', () => {
         yield { choices: [{ delta: { reasoning: 'more ' } }] };
         yield { choices: [{ delta: { reasoningContent: 'now' } }] };
         yield { choices: [{ delta: { content: 'answer' } }] };
-      })() as any;
+      })();
     });
 
     const provider = createLocalProvider({
@@ -373,7 +374,7 @@ describe('createLocalProvider', () => {
       model: 'gemma-4-e2b',
     });
     const result = await provider([], {});
-    const events = [];
+    const events: unknown[] = [];
 
     for await (const event of result as AsyncIterable<unknown>) {
       events.push(event);

@@ -20,12 +20,24 @@ class CapturingTerminal implements Terminal {
   write(data: string): void {
     this.writes.push(data);
   }
-  hideCursor(): void {}
-  showCursor(): void {}
-  clearScreen(): void {}
-  clearLine(): void {}
-  clearFromCursor(): void {}
-  moveBy(): void {}
+  hideCursor(): void {
+    // Test terminal no-op.
+  }
+  showCursor(): void {
+    // Test terminal no-op.
+  }
+  clearScreen(): void {
+    // Test terminal no-op.
+  }
+  clearLine(): void {
+    // Test terminal no-op.
+  }
+  clearFromCursor(): void {
+    // Test terminal no-op.
+  }
+  moveBy(): void {
+    // Test terminal no-op.
+  }
 }
 
 describe('component guards', () => {

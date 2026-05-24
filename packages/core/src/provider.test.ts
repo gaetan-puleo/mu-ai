@@ -1,5 +1,12 @@
+import type { LLMProvider, LLMProviderResult, LLMResponse, Message, Tools } from './provider';
 import { defineProvider } from './provider';
-import type { LLMProvider, LLMResponse, Message, Tools } from './provider';
+
+function expectResponse(result: LLMProviderResult): LLMResponse {
+  if (result && typeof result === 'object' && Symbol.asyncIterator in result) {
+    throw new Error('Expected non-streaming response');
+  }
+  return result;
+}
 
 describe('defineProvider', () => {
   it('should return the factory unchanged', () => {
@@ -19,14 +26,14 @@ describe('defineProvider', () => {
 
     const result = await provider([], {});
 
-    expect(result.content).toBe('hello');
+    expect(expectResponse(result).content).toBe('hello');
   });
 
   it('should receive messages and tools', async () => {
     let receivedMessages: Message[] = [];
     let receivedTools: Tools = {};
 
-    const factory = defineProvider<{ model: string }>((config): LLMProvider => {
+    const factory = defineProvider<{ model: string }>((): LLMProvider => {
       return async (messages, tools) => {
         receivedMessages = messages;
         receivedTools = tools;

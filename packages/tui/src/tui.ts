@@ -560,13 +560,15 @@ export class TUI {
       }
     }
 
+    // biome-ignore lint/complexity/useRegexLiterals: Avoids a raw control character in a regex literal.
+    const sgrPattern = new RegExp('\\x1b\\[[^m]*m', 'g');
     debugLog({
       stage: 'doRender:diff',
       frame,
       firstChanged,
       lastChanged,
-      previewOld: this.previousLines.map((l) => l.replace(/\x1b\[[^m]*m/g, '').slice(0, 40)),
-      previewNew: newLines.map((l) => l.replace(/\x1b\[[^m]*m/g, '').slice(0, 40)),
+      previewOld: this.previousLines.map((l) => l.replace(sgrPattern, '').slice(0, 40)),
+      previewNew: newLines.map((l) => l.replace(sgrPattern, '').slice(0, 40)),
     });
 
     if (firstChanged === -1) {
