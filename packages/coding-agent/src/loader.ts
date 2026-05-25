@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { Plugin } from './plugin';
+import type { Plugin } from 'mu-core';
 
 export interface LoadPluginsOptions {
   localDir?: string;

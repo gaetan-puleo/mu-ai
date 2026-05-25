@@ -14,7 +14,6 @@ It owns:
 - Tool types
 - Provider interfaces
 - Event bus primitives
-- Session primitives
 - Hook primitives
 
 It does not own:
@@ -174,12 +173,6 @@ Examples:
 
 - `beforeTool`
 - `afterTool`
-
-## Session
-
-A session stores conversation state and metadata.
-
-A runtime may use a session, but sessions must remain provider-agnostic.
 
 ## Host
 

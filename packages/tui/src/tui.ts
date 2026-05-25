@@ -1,4 +1,3 @@
-import { appendFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import process from 'node:process';
 
@@ -23,17 +22,6 @@ import type { Component } from './types/component';
 import { isFocusable, isFocusableNavigation } from './types/guards';
 import type { Terminal } from './types/terminal';
 import { visibleWidth } from './utils';
-
-const DEBUG_LOG = process.env.MU_TUI_DEBUG_LOG;
-let frameCounter = 0;
-function debugLog(data: Record<string, unknown>): void {
-  if (!DEBUG_LOG) return;
-  try {
-    appendFileSync(DEBUG_LOG, `${JSON.stringify({ ts: Date.now(), ...data })}\n`);
-  } catch {
-    /* ignore */
-  }
-}
 
 interface StartableTerminal extends Terminal {
   start?: (onInput: (data: string) => void, onResize: () => void) => void;
@@ -550,28 +538,12 @@ export class TUI {
       newLines[i] += reset;
     }
 
-    const frame = ++frameCounter;
-    debugLog({
-      stage: 'doRender:start',
-      frame,
-      width,
-      height,
-      widthChanged,
-      heightChanged,
-      previousLinesLen: this.previousLines.length,
-      newLinesLen: newLines.length,
-      hardwareCursorRow: this.hardwareCursorRow,
-      cursorRow: this.cursorRow,
-    });
-
     if (this.previousLines.length === 0 && !widthChanged && !heightChanged) {
-      debugLog({ stage: 'doRender:fullRender(initial)', frame });
       this.fullRender(newLines, false);
       return;
     }
 
     if (widthChanged || heightChanged) {
-      debugLog({ stage: 'doRender:fullRender(resize)', frame });
       this.fullRender(newLines, true);
       return;
     }
@@ -588,17 +560,6 @@ export class TUI {
       }
     }
 
-    // deno-lint-ignore no-control-regex
-    const sgrPattern = new RegExp('\\x1b\\[[^m]*m', 'g');
-    debugLog({
-      stage: 'doRender:diff',
-      frame,
-      firstChanged,
-      lastChanged,
-      previewOld: this.previousLines.map((l) => l.replace(sgrPattern, '').slice(0, 40)),
-      previewNew: newLines.map((l) => l.replace(sgrPattern, '').slice(0, 40)),
-    });
-
     if (firstChanged === -1) {
       this.positionCursor(newLines.length);
       this.previousHeight = height;
@@ -606,7 +567,6 @@ export class TUI {
     }
 
     if (newLines.length > this.previousLines.length) {
-      debugLog({ stage: 'doRender:fullRender(growth)', frame });
       this.fullRender(newLines, false);
       return;
     }
@@ -645,15 +605,6 @@ export class TUI {
     this.previousLines = lines;
     this.previousWidth = this.terminal.columns;
     this.previousHeight = this.terminal.rows;
-
-    debugLog({
-      stage: 'fullRender:end',
-      frame: frameCounter,
-      clear,
-      linesLen: lines.length,
-      hardwareCursorRow: this.hardwareCursorRow,
-      cursorRow: this.cursorRow,
-    });
   }
 
   private differentialRender(
@@ -663,17 +614,6 @@ export class TUI {
     width: number,
     height: number,
   ): void {
-    debugLog({
-      stage: 'diffRender:start',
-      frame: frameCounter,
-      firstChanged,
-      lastChanged,
-      newLinesLen: newLines.length,
-      previousLinesLen: this.previousLines.length,
-      hardwareCursorRowBefore: this.hardwareCursorRow,
-      cursorRowBefore: this.cursorRow,
-    });
-
     let buffer = this.frameStart();
 
     // Restore cursor to our saved anchor (top-left of content).
@@ -718,16 +658,6 @@ export class TUI {
     this.previousLines = newLines;
     this.previousWidth = width;
     this.previousHeight = height;
-
-    debugLog({
-      stage: 'diffRender:end',
-      frame: frameCounter,
-      renderEnd,
-      hardwareCursorRowAfter: this.hardwareCursorRow,
-      cursorRowAfter: this.cursorRow,
-      maxLinesRendered: this.maxLinesRendered,
-      bufferBytes: buffer.length,
-    });
   }
 
   private positionCursor(totalLines: number): void {

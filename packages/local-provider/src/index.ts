@@ -1,4 +1,3 @@
-import { appendFileSync } from 'node:fs';
 import type {
   LLMProvider,
   LLMProviderResult,
@@ -45,20 +44,10 @@ export type {
 } from './types';
 
 const DEFAULT_BASE_URL = 'http://localhost:8080';
-const DEBUG_LOG = process.env.MU_TUI_DEBUG_LOG;
 let OpenAIClient = OpenAI;
 
 export function setOpenAIClientForTesting(client: typeof OpenAI): void {
   OpenAIClient = client;
-}
-
-function debugLog(data: Record<string, unknown>): void {
-  if (!DEBUG_LOG) return;
-  try {
-    appendFileSync(DEBUG_LOG, `${JSON.stringify({ ts: Date.now(), source: 'mu-local-provider', ...data })}\n`);
-  } catch {
-    /* ignore debug logging errors */
-  }
 }
 
 const backendDetectors = [{ kind: LLAMA_SWAP_KIND, detect: detectLlamaSwap }] as const;
@@ -327,7 +316,6 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
       let usage: LocalLLMResponseContext['usage'] | undefined;
       const toolCallBuffers = new Map<number, { id: string; name: string; args: string; emitted: boolean }>();
 
-      debugLog({ stage: 'provider.stream.start', model, messages: messages.length, tools: Object.keys(tools) });
       const stream = await client?.chat.completions.create(requestOptions as any);
 
       for await (const chunk of stream as any) {
@@ -367,19 +355,10 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
             if (tc.function?.name) buf.name = tc.function.name;
             if (tc.function?.arguments) buf.args += tc.function.arguments;
             toolCallBuffers.set(idx, buf);
-            debugLog({
-              stage: 'provider.stream.tool_call_delta',
-              index: idx,
-              id: buf.id,
-              tool: buf.name,
-              argsLen: buf.args.length,
-              deltaArgsLen: tc.function?.arguments?.length ?? 0,
-            });
           }
         }
 
         if (choice?.finish_reason === 'tool_calls') {
-          debugLog({ stage: 'provider.stream.finish_tool_calls', buffered: toolCallBuffers.size });
           for (const buf of toolCallBuffers.values()) {
             if (buf.emitted || !buf.name) continue;
             buf.emitted = true;
@@ -395,12 +374,6 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
       for (const buf of toolCallBuffers.values()) {
         if (buf.emitted || !buf.name) continue;
         buf.emitted = true;
-        debugLog({
-          stage: 'provider.stream.tool_call_fallback_emit',
-          id: buf.id,
-          tool: buf.name,
-          argsLen: buf.args.length,
-        });
         yield {
           type: 'tool_call',
           call: { type: 'tool_call', id: buf.id, tool: buf.name, args: buf.args },
@@ -451,7 +424,6 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
             : undefined,
         },
       };
-      debugLog({ stage: 'provider.stream.done', contentLen: content.length, toolCalls: collectedToolCalls.length });
     }
 
     return streamCompletion();

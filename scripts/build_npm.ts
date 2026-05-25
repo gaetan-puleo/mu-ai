@@ -28,7 +28,7 @@ const PACKAGES: PackageDef[] = [
   {
     name: 'mu-core',
     dir: 'core',
-    description: 'Agent loop orchestration core: types, plugin SDK, channels, sessions',
+    description: 'Agent loop orchestration core: types, plugin SDK, channels',
     entryPoints: ['./src/index.ts'],
   },
   {

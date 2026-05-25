@@ -162,7 +162,7 @@ export class ChatApp {
     });
 
     this.bottomDock = new Box({
-      layout: { width: 'fill', height: 6, direction: 'column', margin: { top: 1 }, zIndex: 10 },
+      layout: { width: 'fill', height: 6, direction: 'column', zIndex: 10 },
       children: [this.toastZone, this.inputTopWidgetZone, this.inputBox, this.inputBottomWidgetZone, this.statusBox],
     });
 

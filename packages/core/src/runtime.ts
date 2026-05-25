@@ -1,4 +1,3 @@
-import { appendFile } from 'node:fs/promises';
 import type { EventBus, Unsubscribe } from './bus';
 import type { Plugin } from './plugin';
 import type { LLMProvider, LLMProviderResult } from './provider';
@@ -50,18 +49,8 @@ function isAsyncIterable(value: LLMProviderResult): value is AsyncIterable<LLMSt
   return !!value && typeof value === 'object' && Symbol.asyncIterator in value;
 }
 
-const DEBUG_LOG = process.env.MU_TUI_DEBUG_LOG;
 const MAX_REPEATED_TOOL_CALLS = 5;
 const MAX_CONSECUTIVE_ERRORS = 3;
-
-function debugLog(data: Record<string, unknown>): void {
-  if (!DEBUG_LOG) return;
-  void appendFile(DEBUG_LOG, `${JSON.stringify({ ts: Date.now(), source: 'mu-core', ...data })}\n`).catch(() => {});
-}
-
-function truncateForLog(value: string, max = 500): string {
-  return value.length > max ? `${value.slice(0, max)}...` : value;
-}
 
 function mergePluginTools(baseTools: Tools, plugins: Plugin[]): Tools {
   const tools = { ...baseTools };
@@ -127,21 +116,16 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     for (const plugin of plugins) {
       try {
         plugin.hooks?.onError?.(error);
-      } catch (hookError) {
-        debugLog({
-          stage: 'runtime.plugin.onError.error',
-          plugin: plugin.name,
-          error: hookError instanceof Error ? hookError.message : String(hookError),
-        });
+      } catch {
+        // ignore plugin error-hook failures
       }
     }
   }
 
-  async function callLifecycleHook(hook: () => Promise<void>, stage: string): Promise<void> {
+  async function callLifecycleHook(hook: () => Promise<void>): Promise<void> {
     try {
       await hook();
     } catch (error) {
-      debugLog({ stage, error: error instanceof Error ? error.message : String(error) });
       bus.publish({ type: 'error', error });
       callOnError(error);
     }
@@ -162,20 +146,6 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     bus.publish({ type: 'queue_update', steering: [...steeringQueue], followUp: [...followUpQueue] });
   }
 
-  function appendUserMessages(nextMessages: Message[], queueType?: 'steering' | 'follow_up'): boolean {
-    if (!nextMessages.length) {
-      return false;
-    }
-
-    for (const message of nextMessages) {
-      messages.push(message);
-      if (queueType) {
-        bus.publish({ type: 'queued_message', queue: queueType, message });
-      }
-    }
-    return true;
-  }
-
   function drainIntoTranscript(source: Message[], mode: QueueMode, queueType: 'steering' | 'follow_up'): boolean {
     const drained = drainQueue(source, mode);
     if (!drained.length) {
@@ -183,35 +153,26 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     }
 
     emitQueueUpdate();
-    return appendUserMessages(drained, queueType);
+    for (const message of drained) {
+      messages.push(message);
+      bus.publish({ type: 'queued_message', queue: queueType, message });
+    }
+    return true;
   }
 
-  function enqueueSteering(message: Message): void {
+  function startTurn(message: Message): void {
+    queue.push(message);
+    void processQueue();
+  }
+
+  function enqueueSide(sideQueue: Message[], message: Message): void {
     if (currentState === 'idle' && !processing) {
-      queue.push(message);
-      void processQueue();
+      startTurn(message);
       return;
     }
 
-    steeringQueue.push(message);
+    sideQueue.push(message);
     emitQueueUpdate();
-  }
-
-  function enqueueFollowUp(message: Message): void {
-    if (currentState === 'idle' && !processing) {
-      queue.push(message);
-      void processQueue();
-      return;
-    }
-
-    followUpQueue.push(message);
-    emitQueueUpdate();
-  }
-
-  function publishContext(response: LLMResponse | undefined): void {
-    if (response?.context) {
-      bus.publish({ type: 'context_update', context: response.context });
-    }
   }
 
   async function resolveSystemPrompt(
@@ -236,24 +197,23 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     return [{ role: 'system', content: prompts.join('\n\n') }, ...messages];
   }
 
-  function publishResponse(response: LLMResponse): boolean {
-    const reasoning = response.reasoning?.trim();
+  function finalizeResponse(response: LLMResponse | undefined): void {
+    const reasoning = response?.reasoning?.trim();
     if (reasoning) {
       const message: Message = { role: 'reasoning', content: reasoning };
       messages.push(message);
       bus.publish({ type: 'reasoning_message', message });
     }
 
-    let publishedAssistant = false;
-    if (response.content) {
+    if (response?.content) {
       const message: Message = { role: 'assistant', content: response.content };
       messages.push(message);
       bus.publish({ type: 'assistant_message', message });
-      publishedAssistant = true;
     }
 
-    publishContext(response);
-    return publishedAssistant;
+    if (response?.context) {
+      bus.publish({ type: 'context_update', context: response.context });
+    }
   }
 
   async function processStream(stream: AsyncIterable<LLMStreamEvent>): Promise<ToolCall[]> {
@@ -278,44 +238,20 @@ export function createRuntime(config: RuntimeConfig): Runtime {
         bus.publish({ type: 'reasoning_delta', content: event.content });
       } else if (event.type === 'tool_call') {
         streamedCalls.push(event.call);
-        debugLog({
-          stage: 'runtime.stream.tool_call',
-          tool: event.call.tool,
-          id: event.call.id,
-          argsLen: event.call.args.length,
-        });
         bus.publish({ type: 'tool_call', call: event.call });
       } else if (event.type === 'done') {
         doneCalls = event.response?.tool_calls;
-        debugLog({
-          stage: 'runtime.stream.done',
-          contentLen: (event.response?.content ?? content).length,
-          streamedToolCalls: streamedCalls.length,
-          doneToolCalls: doneCalls?.length ?? 0,
+        finalizeResponse({
+          reasoning: event.response?.reasoning ?? reasoning,
+          content: event.response?.content ?? content,
+          context: event.response?.context,
         });
-
-        const finalReasoning = (event.response?.reasoning ?? reasoning).trim();
-        if (finalReasoning) {
-          const message: Message = { role: 'reasoning', content: finalReasoning };
-          messages.push(message);
-          bus.publish({ type: 'reasoning_message', message });
-        }
-
-        const finalContent = event.response?.content ?? content;
-        if (finalContent) {
-          const message: Message = { role: 'assistant', content: finalContent };
-          messages.push(message);
-          bus.publish({ type: 'assistant_message', message });
-        }
-        publishContext(event.response);
         finalized = true;
       }
     }
 
     if (!finalized && content) {
-      const message: Message = { role: 'assistant', content };
-      messages.push(message);
-      bus.publish({ type: 'assistant_message', message });
+      finalizeResponse({ content });
     }
 
     // Prefer the authoritative list from `done.response.tool_calls`; otherwise
@@ -323,31 +259,32 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     return doneCalls ?? streamedCalls;
   }
 
+  async function consumeResult(result: LLMProviderResult): Promise<ToolCall[]> {
+    if (isAsyncIterable(result)) {
+      return await processStream(result);
+    }
+
+    finalizeResponse(result);
+    const calls = result.tool_calls ?? [];
+    for (const call of calls) {
+      bus.publish({ type: 'tool_call', call });
+    }
+    return calls;
+  }
+
   async function executeToolCalls(calls: ToolCall[]): Promise<void> {
-    const executeSingle = async (call: ToolCall): Promise<{ call: ToolCall; message: Message }> => {
-      debugLog({ stage: 'runtime.tool.execute.start', tool: call.tool, id: call.id, args: truncateForLog(call.args) });
+    const executeSingle = async (call: ToolCall): Promise<Message> => {
       const tool = tools[call.tool];
       if (!tool) {
-        debugLog({ stage: 'runtime.tool.execute.unknown', tool: call.tool, id: call.id });
         throw new Error(`Unknown tool: ${call.tool}`);
       }
 
       const toolResult = await callTool(tool, call.args, hooks);
-      debugLog({
-        stage: 'runtime.tool.execute.done',
-        tool: call.tool,
-        id: call.id,
-        resultLen: toolResult.length,
-        isErrorResult: toolResult.startsWith('Error:'),
-      });
-      return {
-        call,
-        message: { role: 'tool', content: toolResult, tool_id: call.id },
-      };
+      return { role: 'tool', content: toolResult, tool_id: call.id };
     };
 
-    const results = await Promise.all(calls.map(executeSingle));
-    for (const { message } of results) {
+    const toolMessages = await Promise.all(calls.map(executeSingle));
+    for (const message of toolMessages) {
       messages.push(message);
       bus.publish({ type: 'tool_result', message });
     }
@@ -356,28 +293,13 @@ export function createRuntime(config: RuntimeConfig): Runtime {
   function appendAssistantToolCalls(calls: ToolCall[]): void {
     const message: Message = { role: 'assistant', content: '', tool_calls: calls };
     messages.push(message);
-    debugLog({ stage: 'runtime.assistant_tool_calls.append', toolCalls: calls.length, messages: messages.length });
   }
 
-  function checkRepeatedToolCalls(
-    repeatedToolCalls: Map<string, number>,
-    calls: ToolCall[],
-    providerCalls: number,
-  ): void {
+  function checkRepeatedToolCalls(repeatedToolCalls: Map<string, number>, calls: ToolCall[]): void {
     for (const call of calls) {
       const key = `${call.tool}:${call.args.slice(0, 500)}`;
       const count = (repeatedToolCalls.get(key) ?? 0) + 1;
       repeatedToolCalls.set(key, count);
-      if (count > 1) {
-        debugLog({
-          stage: 'runtime.tool.loop.suspected',
-          providerCalls,
-          tool: call.tool,
-          id: call.id,
-          repeatCount: count,
-          args: truncateForLog(call.args),
-        });
-      }
       if (count > MAX_REPEATED_TOOL_CALLS) {
         throw new Error(`Tool call loop detected: ${call.tool} repeated ${count} times with the same arguments`);
       }
@@ -396,104 +318,37 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     }
 
     processing = true;
-    let wasStopped = false;
     currentState = 'running';
     messages.push(next);
-    let providerCalls = 0;
     const repeatedToolCalls = new Map<string, number>();
 
     try {
-      while (!wasStopped) {
-        if ((currentState as RuntimeState) === 'stopped') {
-          wasStopped = true;
-          break;
-        }
-
-        providerCalls++;
+      while ((currentState as RuntimeState) !== 'stopped') {
         const providerMessages = await buildProviderMessages();
-        debugLog({
-          stage: 'runtime.provider.call.start',
-          providerCalls,
-          messages: providerMessages.length,
-          tools: Object.keys(tools),
-        });
         const result = await provider(providerMessages, tools);
-
         consecutiveErrors = 0;
 
-        if (isAsyncIterable(result)) {
-          const streamedToolCalls = await processStream(result);
-          debugLog({ stage: 'runtime.provider.call.stream.done', providerCalls, toolCalls: streamedToolCalls.length });
-          if (!streamedToolCalls.length) {
-            if (drainIntoTranscript(steeringQueue, steeringMode, 'steering')) {
-              continue;
-            }
-            if (drainIntoTranscript(followUpQueue, followUpMode, 'follow_up')) {
-              continue;
-            }
-            break;
-          }
-          checkRepeatedToolCalls(repeatedToolCalls, streamedToolCalls, providerCalls);
-          appendAssistantToolCalls(streamedToolCalls);
-          await executeToolCalls(streamedToolCalls);
+        const calls = await consumeResult(result);
+
+        if (calls.length) {
+          checkRepeatedToolCalls(repeatedToolCalls, calls);
+          appendAssistantToolCalls(calls);
+          await executeToolCalls(calls);
           drainIntoTranscript(steeringQueue, steeringMode, 'steering');
-          debugLog({
-            stage: 'runtime.loop.continue_after_tools',
-            providerCalls,
-            toolCalls: streamedToolCalls.length,
-            messages: messages.length,
-          });
           continue;
         }
 
-        debugLog({
-          stage: 'runtime.provider.call.nonstream.done',
-          providerCalls,
-          hasContent: !!result.content,
-          toolCalls: result.tool_calls?.length ?? 0,
-        });
-
-        publishResponse(result);
-
-        if (result.tool_calls?.length) {
-          checkRepeatedToolCalls(repeatedToolCalls, result.tool_calls, providerCalls);
-          for (const call of result.tool_calls) {
-            bus.publish({ type: 'tool_call', call });
-          }
-          appendAssistantToolCalls(result.tool_calls);
-          await executeToolCalls(result.tool_calls);
-          drainIntoTranscript(steeringQueue, steeringMode, 'steering');
-          debugLog({
-            stage: 'runtime.loop.continue_after_tools',
-            providerCalls,
-            toolCalls: result.tool_calls.length,
-            messages: messages.length,
-          });
-          continue;
-        }
-
-        if (drainIntoTranscript(steeringQueue, steeringMode, 'steering')) {
-          continue;
-        }
-        if (drainIntoTranscript(followUpQueue, followUpMode, 'follow_up')) {
-          continue;
-        }
+        if (drainIntoTranscript(steeringQueue, steeringMode, 'steering')) continue;
+        if (drainIntoTranscript(followUpQueue, followUpMode, 'follow_up')) continue;
         break;
       }
     } catch (error) {
       consecutiveErrors++;
-      debugLog({
-        stage: 'runtime.error',
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        consecutiveErrors,
-      });
       bus.publish({ type: 'error', error });
       callOnError(error);
     } finally {
       processing = false;
       if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-        debugLog({ stage: 'runtime.circuit_breaker', consecutiveErrors });
         queue.length = 0;
         steeringQueue.length = 0;
         followUpQueue.length = 0;
@@ -515,22 +370,21 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       }
 
       currentState = 'idle';
-      await callLifecycleHook(callOnStart, 'runtime.plugin.onStart.error');
+      await callLifecycleHook(callOnStart);
 
       unsubscribe = bus.subscribe((event) => {
         if (event.type === 'steer') {
-          enqueueSteering(event.message);
+          enqueueSide(steeringQueue, event.message);
           return;
         }
 
         if (event.type === 'follow_up') {
-          enqueueFollowUp(event.message);
+          enqueueSide(followUpQueue, event.message);
           return;
         }
 
         if (event.type === 'user_message') {
-          queue.push(event.message);
-          void processQueue();
+          startTurn(event.message);
         }
       });
     },
@@ -543,7 +397,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       steeringQueue.length = 0;
       followUpQueue.length = 0;
       emitQueueUpdate();
-      await callLifecycleHook(callOnStop, 'runtime.plugin.onStop.error');
+      await callLifecycleHook(callOnStop);
     },
 
     state() {
@@ -551,11 +405,11 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     },
 
     steer(message) {
-      enqueueSteering(message);
+      enqueueSide(steeringQueue, message);
     },
 
     followUp(message) {
-      enqueueFollowUp(message);
+      enqueueSide(followUpQueue, message);
     },
 
     queueState() {

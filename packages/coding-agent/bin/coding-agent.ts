@@ -1,10 +1,10 @@
 #!/usr/bin/env -S deno run -A
-import { loadPlugins } from 'mu-core';
 import type { LocalBackendKind } from 'mu-local-provider';
 import { createLocalProvider, listLocalModels } from 'mu-local-provider';
 import { createMuTools } from 'mu-tools';
 import { getConfigPath, getPluginsDir, loadConfig, loadState, saveState } from '../src/config';
 import { install, uninstall } from '../src/install';
+import { loadPlugins } from '../src/loader';
 import { main } from '../src/main';
 import { createAgentRuntime } from '../src/runtime';
 
