@@ -31,7 +31,7 @@ describe('tool hooks', () => {
     const events = collectEvents(bus);
 
     const runtime = createRuntime({
-      provider,
+      plugins: [{ name: 'test-provider', provider }],
       tools: {
         sum: {
           name: 'sum',
@@ -71,7 +71,7 @@ describe('tool hooks', () => {
     };
 
     const runtime = createRuntime({
-      provider,
+      plugins: [{ name: 'test-provider', provider }],
       tools: {
         sum: {
           name: 'sum',
@@ -119,7 +119,7 @@ describe('tool hooks', () => {
     };
 
     const runtime = createRuntime({
-      provider,
+      plugins: [{ name: 'test-provider', provider }],
       tools: {
         sum: {
           name: 'sum',
@@ -171,7 +171,7 @@ describe('tool hooks', () => {
     };
 
     const runtime = createRuntime({
-      provider,
+      plugins: [{ name: 'test-provider', provider }],
       tools: {
         sum: {
           name: 'sum',

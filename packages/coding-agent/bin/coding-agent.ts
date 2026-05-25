@@ -60,14 +60,15 @@ async function run(): Promise<void> {
   const model = useLocal ? (savedModel ?? models[0].id) : (state.model ?? '');
 
   const providerConfig = { kind: config.kind as LocalBackendKind, baseUrl: config.baseUrl, model };
-  const provider = useLocal ? createLocalProvider(providerConfig) : undefined;
+  const runtimePlugins = useLocal
+    ? [...plugins, { name: 'mu-local-provider', provider: createLocalProvider(providerConfig) }]
+    : plugins;
 
   const tools = createMuTools();
 
   const agent = createAgentRuntime({
-    provider,
     tools,
-    plugins,
+    plugins: runtimePlugins,
     model,
     models,
     listModels: fetchModels,

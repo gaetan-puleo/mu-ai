@@ -2,7 +2,6 @@ import {
   type CoreEvent,
   createBus,
   createRuntime as createCoreRuntime,
-  type LLMProvider,
   type Plugin,
   type Tools,
 } from 'mu-core';
@@ -27,7 +26,6 @@ export interface AgentRuntime {
 }
 
 export interface AgentRuntimeConfig {
-  provider?: LLMProvider;
   tools?: Tools;
   plugins?: Plugin[];
   model?: string;
@@ -44,7 +42,7 @@ export function createAgentRuntime(config: AgentRuntimeConfig): AgentRuntime {
   const bus = createBus<CoreEvent>();
 
   const createRuntime = (): ReturnType<typeof createCoreRuntime> =>
-    createCoreRuntime({ provider: config.provider, tools: config.tools, plugins, bus });
+    createCoreRuntime({ tools: config.tools, plugins, bus });
   const runtime = createRuntime();
 
   const listModels = config.listModels ?? (async () => initialModels);

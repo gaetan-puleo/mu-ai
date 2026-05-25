@@ -37,7 +37,7 @@ type LLMProvider = (
 ) => Promise<LLMResponse>;
 ```
 
-Providers live outside `mu-core`.
+Providers live outside `mu-core` and are passed to the runtime exclusively through a `Plugin`. `RuntimeConfig` has no top-level `provider` field — the host must wrap the provider in a plugin (`{ name, provider }`). Exactly one plugin in `plugins` may carry a `provider`; zero or more than one is an error.
 
 Examples:
 

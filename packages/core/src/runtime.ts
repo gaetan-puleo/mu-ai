@@ -35,7 +35,6 @@ export interface Runtime {
 }
 
 export interface RuntimeConfig {
-  provider?: LLMProvider;
   tools?: Tools;
   plugins?: Plugin[];
   bus: EventBus<CoreEvent>;
@@ -67,16 +66,15 @@ function mergePluginTools(baseTools: Tools, plugins: Plugin[]): Tools {
   return tools;
 }
 
-function resolveProvider(config: RuntimeConfig): LLMProvider {
-  if (config.provider) return config.provider;
-  const pluginProviders = (config.plugins ?? []).filter((p) => p.provider);
+function resolveProvider(plugins: Plugin[]): LLMProvider {
+  const pluginProviders = plugins.filter((p) => p.provider);
   if (pluginProviders.length === 0) {
-    throw new Error('No provider configured: pass a provider in RuntimeConfig or supply a plugin with a provider');
+    throw new Error('No provider configured: supply a plugin with a provider');
   }
   if (pluginProviders.length > 1) {
     throw new Error(
       `Multiple plugins provide a provider: ${pluginProviders.map((p) => p.name).join(', ')}. ` +
-        'Pass an explicit provider in RuntimeConfig or use only one provider plugin.',
+        'Use only one provider plugin.',
     );
   }
   return pluginProviders[0].provider!;
@@ -84,8 +82,8 @@ function resolveProvider(config: RuntimeConfig): LLMProvider {
 
 export function createRuntime(config: RuntimeConfig): Runtime {
   const { bus, hooks } = config;
-  const provider = resolveProvider(config);
   const plugins = config.plugins ?? [];
+  const provider = resolveProvider(plugins);
   const tools = mergePluginTools(config.tools ?? {}, plugins);
 
   const messages: Message[] = [];

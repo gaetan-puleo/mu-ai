@@ -1,7 +1,7 @@
 import { expect } from '@std/expect';
 import { describe, it } from '@std/testing/bdd';
 import { createBus } from './bus';
-import { definePlugin } from './plugin';
+import { definePlugin, type Plugin } from './plugin';
 import type { LLMProvider } from './provider';
 import type { CoreEvent } from './runtime';
 import { createRuntime } from './runtime';
@@ -20,6 +20,10 @@ function eventIndex(events: CoreEvent[], type: CoreEvent['type']): number {
   return events.findIndex((event) => event.type === type);
 }
 
+function providerPlugin(provider: LLMProvider): Plugin {
+  return { name: 'test-provider', provider };
+}
+
 describe('createRuntime', () => {
   it('reacts to a user message and publishes assistant response', async () => {
     const provider: LLMProvider = async () => ({ content: 'Hello!' });
@@ -27,7 +31,7 @@ describe('createRuntime', () => {
     const events = collectEvents(bus);
 
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {},
       bus,
     });
@@ -68,7 +72,7 @@ describe('createRuntime', () => {
     const events = collectEvents(bus);
 
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {
         sum: {
           name: 'sum',
@@ -116,7 +120,7 @@ describe('createRuntime', () => {
     const events = collectEvents(bus);
 
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {},
       bus,
     });
@@ -148,7 +152,7 @@ describe('createRuntime', () => {
     const events = collectEvents(bus);
 
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {},
       bus,
     });
@@ -185,7 +189,7 @@ describe('createRuntime', () => {
     const events = collectEvents(bus);
 
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {},
       bus,
     });
@@ -217,7 +221,7 @@ describe('createRuntime', () => {
     const events = collectEvents(bus);
 
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {},
       bus,
     });
@@ -253,7 +257,7 @@ describe('createRuntime', () => {
     const events = collectEvents(bus);
 
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {},
       bus,
     });
@@ -286,7 +290,7 @@ describe('createRuntime', () => {
     const events = collectEvents(bus);
 
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {},
       bus,
     });
@@ -314,7 +318,7 @@ describe('createRuntime', () => {
     const events = collectEvents(bus);
 
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {
         webfetch: {
           name: 'webfetch',
@@ -353,7 +357,7 @@ describe('createRuntime', () => {
     };
     const bus = createBus<CoreEvent>();
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {
         dynamic: {
           name: 'dynamic',
@@ -383,7 +387,7 @@ describe('createRuntime', () => {
     const events = collectEvents(bus);
 
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {},
       bus,
     });
@@ -428,7 +432,7 @@ describe('createRuntime', () => {
 
     const bus = createBus<CoreEvent>();
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {
         slow: {
           name: 'slow',
@@ -479,7 +483,7 @@ describe('createRuntime', () => {
 
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
-    const runtime = createRuntime({ provider, tools: {}, bus });
+    const runtime = createRuntime({ plugins: [providerPlugin(provider)], tools: {}, bus });
 
     await runtime.start();
     bus.publish({ type: 'user_message', message: { role: 'user', content: 'Start' } });
@@ -513,7 +517,7 @@ describe('createRuntime', () => {
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {
         slow: {
           name: 'slow',
@@ -563,7 +567,7 @@ describe('createRuntime', () => {
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {
         slow: {
           name: 'slow',
@@ -611,7 +615,7 @@ describe('createRuntime', () => {
     const events = collectEvents(bus);
 
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {},
       bus,
     });
@@ -643,7 +647,7 @@ describe('createRuntime', () => {
     const bus = createBus<CoreEvent>();
 
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {},
       bus,
     });
@@ -667,7 +671,7 @@ describe('createRuntime', () => {
 
     const bus = createBus<CoreEvent>();
     const runtime = createRuntime({
-      provider,
+      plugins: [providerPlugin(provider)],
       tools: {},
       bus,
     });
@@ -715,7 +719,6 @@ describe('createRuntime', () => {
     }))();
 
     const runtime = createRuntime({
-      provider,
       tools: {
         base: {
           name: 'base',
@@ -725,7 +728,7 @@ describe('createRuntime', () => {
           onError: () => 'failed',
         },
       },
-      plugins: [plugin],
+      plugins: [providerPlugin(provider), plugin],
       bus,
     });
 
@@ -760,7 +763,6 @@ describe('createRuntime', () => {
 
     expect(() =>
       createRuntime({
-        provider,
         tools: {
           same: {
             name: 'same',
@@ -770,7 +772,7 @@ describe('createRuntime', () => {
             onError: () => 'failed',
           },
         },
-        plugins: [plugin],
+        plugins: [providerPlugin(provider), plugin],
         bus,
       })
     ).toThrow('Tool "same" from plugin "plugin" is already registered');
@@ -781,9 +783,9 @@ describe('createRuntime', () => {
     const provider: LLMProvider = async () => ({ content: 'ok' });
     const bus = createBus<CoreEvent>();
     const runtime = createRuntime({
-      provider,
       tools: {},
       plugins: [
+        providerPlugin(provider),
         {
           name: 'first',
           hooks: {
@@ -825,9 +827,8 @@ describe('createRuntime', () => {
     });
     const bus = createBus<CoreEvent>();
     const runtime = createRuntime({
-      provider,
       tools: {},
-      plugins: [{ name: 'errors', hooks: { onError: (error) => errors.push(error) } }],
+      plugins: [providerPlugin(provider), { name: 'errors', hooks: { onError: (error) => errors.push(error) } }],
       bus,
     });
 
@@ -842,7 +843,7 @@ describe('createRuntime', () => {
   it('throws when start() is called after stop()', async () => {
     const provider: LLMProvider = async () => ({ content: 'ok' });
     const bus = createBus<CoreEvent>();
-    const runtime = createRuntime({ provider, tools: {}, bus });
+    const runtime = createRuntime({ plugins: [providerPlugin(provider)], tools: {}, bus });
 
     await runtime.start();
     await runtime.stop();
@@ -850,7 +851,7 @@ describe('createRuntime', () => {
     await expect(runtime.start()).rejects.toThrow('Cannot start a stopped runtime');
   });
 
-  it('resolves provider from a plugin when config.provider is omitted', async () => {
+  it('resolves provider from a plugin', async () => {
     let called = false;
     const pluginProvider: LLMProvider = async () => {
       called = true;
@@ -873,7 +874,7 @@ describe('createRuntime', () => {
     expect(events.some((e) => e.type === 'assistant_message')).toBe(true);
   });
 
-  it('throws when no provider is configured and no plugin provides one', () => {
+  it('throws when no plugin provides a provider', () => {
     const bus = createBus<CoreEvent>();
     expect(() => createRuntime({ tools: {}, bus })).toThrow('No provider configured');
   });
