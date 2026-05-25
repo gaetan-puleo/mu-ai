@@ -190,6 +190,34 @@ export async function collectLlamaSwapContext(config: {
   return context;
 }
 
+export async function tokenizeLlamaSwap(config: {
+  baseUrl: string;
+  apiKey?: string;
+  model: string;
+  content: string;
+}): Promise<number | undefined> {
+  if (!config.content) return 0;
+  const baseUrl = normalizeLlamaSwapBaseUrl(config.baseUrl);
+
+  try {
+    const response = await fetch(`${baseUrl}/upstream/${config.model}/tokenize`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+      },
+      body: JSON.stringify({ content: config.content, add_special: false }),
+    });
+
+    if (!response.ok) return undefined;
+
+    const data = await response.json();
+    return Array.isArray(data?.tokens) ? data.tokens.length : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function detectLlamaSwap(config: {
   baseUrl: string;
   apiKey?: string;

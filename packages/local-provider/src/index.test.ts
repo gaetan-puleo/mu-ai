@@ -6,6 +6,7 @@ import {
   normalizeLlamaSwapBaseUrl,
   prepareLlamaSwapChatRequest,
   selectAvailableSlot,
+  tokenizeLlamaSwap,
 } from './backends/llama-swap';
 import { createLocalProvider, detectLocalBackend, listLocalModels, setOpenAIClientForTesting } from './index';
 
@@ -345,7 +346,7 @@ describe('createLocalProvider', () => {
             model: 'gemma-4-e2b',
             usedTokens: 1234,
             windowTokens: 32000,
-            estimated: true,
+            estimated: false,
             parts: [],
           },
         },
@@ -386,5 +387,128 @@ describe('createLocalProvider', () => {
       { type: 'reasoning_delta', content: 'now' },
       { type: 'delta', content: 'answer' },
     ]);
+  });
+
+  it('populates parts with real token counts from /tokenize', async () => {
+    cleanup = mockFetch({
+      '/v1/models': { ok: true, json: () => MOCK_MODELS_RESPONSE },
+      '/slots': { ok: true, json: () => MOCK_SLOTS_RESPONSE },
+      '/props': { ok: true, json: () => MOCK_PROPS_RESPONSE },
+      '/tokenize': { ok: true, json: () => ({ tokens: [1, 2, 3, 4, 5, 6, 7] }) },
+    });
+
+    currentChatImpl = () =>
+      (async function* () {
+        yield { choices: [{ delta: { content: 'hi' } }] };
+        yield { choices: [], usage: { prompt_tokens: 21, completion_tokens: 1, total_tokens: 22 } };
+      })();
+
+    const provider = createLocalProvider({
+      kind: 'llama-swap',
+      baseUrl: 'http://localhost:8080',
+      model: 'gemma-4-e2b',
+    });
+    const result = await provider(
+      [
+        { role: 'system', content: 'you are helpful' },
+        { role: 'user', content: 'hello' },
+        { role: 'tool', content: '{"ok":true}', tool_id: 't1' },
+      ],
+      {},
+    );
+
+    const events: unknown[] = [];
+    for await (const event of result as AsyncIterable<unknown>) events.push(event);
+
+    const done = events.at(-1) as { response: { context: { localContext: unknown } } };
+    const localContext = done.response.context.localContext as {
+      estimated: boolean;
+      parts: Array<{ kind: string; tokens: number; estimated: boolean }>;
+    };
+
+    expect(localContext.estimated).toBe(false);
+    expect(localContext.parts.every((p) => p.estimated === false)).toBe(true);
+    expect(localContext.parts.every((p) => p.tokens === 7)).toBe(true);
+    expect(localContext.parts.map((p) => p.kind).sort()).toEqual(['messages', 'system', 'tool_results']);
+  });
+
+  it('falls back to estimate when /tokenize returns 404', async () => {
+    cleanup = mockFetch({
+      '/v1/models': { ok: true, json: () => MOCK_MODELS_RESPONSE },
+      '/slots': { ok: true, json: () => MOCK_SLOTS_RESPONSE },
+      '/props': { ok: true, json: () => MOCK_PROPS_RESPONSE },
+      '/tokenize': { ok: false, json: () => ({}) },
+    });
+
+    currentChatImpl = () =>
+      (async function* () {
+        yield { choices: [{ delta: { content: 'hi' } }] };
+        yield { choices: [], usage: { prompt_tokens: 21, completion_tokens: 1, total_tokens: 22 } };
+      })();
+
+    const provider = createLocalProvider({
+      kind: 'llama-swap',
+      baseUrl: 'http://localhost:8080',
+      model: 'gemma-4-e2b',
+    });
+    const result = await provider([{ role: 'system', content: 'you are helpful' }], {});
+
+    const events: unknown[] = [];
+    for await (const event of result as AsyncIterable<unknown>) events.push(event);
+
+    const done = events.at(-1) as { response: { context: { localContext: unknown } } };
+    const localContext = done.response.context.localContext as {
+      estimated: boolean;
+      parts: Array<{ kind: string; estimated: boolean }>;
+    };
+
+    expect(localContext.estimated).toBe(true);
+    expect(localContext.parts[0].estimated).toBe(true);
+  });
+});
+
+describe('tokenizeLlamaSwap', () => {
+  let cleanup: (() => void) | undefined;
+
+  afterEach(() => {
+    cleanup?.();
+  });
+
+  it('returns token count from /upstream/{model}/tokenize', async () => {
+    cleanup = mockFetch({
+      '/tokenize': { ok: true, json: () => ({ tokens: [10, 20, 30] }) },
+    });
+
+    const count = await tokenizeLlamaSwap({
+      baseUrl: 'http://localhost:8080',
+      model: 'gemma-4-e2b',
+      content: 'hello world',
+    });
+
+    expect(count).toBe(3);
+  });
+
+  it('returns 0 for empty content without hitting the network', async () => {
+    cleanup = mockFetch({});
+    const count = await tokenizeLlamaSwap({
+      baseUrl: 'http://localhost:8080',
+      model: 'gemma-4-e2b',
+      content: '',
+    });
+    expect(count).toBe(0);
+  });
+
+  it('returns undefined on non-OK response', async () => {
+    cleanup = mockFetch({
+      '/tokenize': { ok: false, json: () => ({}) },
+    });
+
+    const count = await tokenizeLlamaSwap({
+      baseUrl: 'http://localhost:8080',
+      model: 'gemma-4-e2b',
+      content: 'hello',
+    });
+
+    expect(count).toBeUndefined();
   });
 });

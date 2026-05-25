@@ -1,6 +1,8 @@
 import type { Color, Component, Constraints, LayoutStyle, RenderContext, Size } from 'mu-tui';
 import { truncateToWidth, visibleWidth } from 'mu-tui';
 import { getTheme, palette, styleToAnsi } from '../theme';
+import { formatTokens } from '../formatTokens';
+import type { Roundtrip, RoundtripPart, RoundtripPartKind } from '../../runtime/RoundtripStore';
 
 const RESET = '\x1b[0m';
 const GRID_SIZE = 10;
@@ -9,33 +11,16 @@ const GRID_WIDTH = GRID_SIZE * 2 - 1;
 const GRID_LINE_WIDTH = GRID_WIDTH + 4;
 const SIDE_BY_SIDE_MIN_WIDTH = 52;
 
-type LocalContextPartKind = 'system' | 'tools' | 'messages' | 'tool_results' | 'skills' | 'mcp' | 'other' | 'empty';
-
-interface LocalContextPart {
-  kind: LocalContextPartKind;
-  label: string;
-  tokens: number;
-  estimated: boolean;
-}
-
-interface LocalContextMap {
-  provider: 'mu-local-provider';
-  backend: string;
-  model: string;
-  usedTokens?: number;
-  windowTokens?: number;
-  estimated: boolean;
-  parts: LocalContextPart[];
-}
+type CellKind = RoundtripPartKind | 'empty';
 
 interface RenderPart {
-  kind: LocalContextPartKind;
+  kind: CellKind;
   label: string;
   tokens: number;
   cells: number;
 }
 
-const PART_ORDER: LocalContextPartKind[] = [
+const PART_ORDER: RoundtripPartKind[] = [
   'system',
   'tools',
   'skills',
@@ -43,11 +28,10 @@ const PART_ORDER: LocalContextPartKind[] = [
   'messages',
   'tool_results',
   'other',
-  'empty',
 ];
 
 export interface ContextMapProps {
-  context?: unknown;
+  roundtrip?: Roundtrip;
   model?: string;
 }
 
@@ -60,8 +44,7 @@ export class ContextMap implements Component {
     const { width, height } = ctx.contentRect;
     if (width <= 0 || height <= 0) return [];
 
-    const map = readLocalContextMap(this.props.context);
-    const lines = map ? this.renderMap(ctx, map) : this.renderEmpty(ctx);
+    const lines = this.props.roundtrip ? this.renderRoundtrip(ctx, this.props.roundtrip) : this.renderEmpty(ctx);
     return lines.slice(0, height).map((line) => fitLine(line, width));
   }
 
@@ -70,21 +53,21 @@ export class ContextMap implements Component {
     return { width, height: width >= SIDE_BY_SIDE_MIN_WIDTH ? 13 : 18 };
   }
 
-  private renderMap(ctx: RenderContext, map: LocalContextMap): string[] {
+  private renderRoundtrip(ctx: RenderContext, roundtrip: Roundtrip): string[] {
     const { width } = ctx.contentRect;
     const theme = getTheme(ctx);
-    const parts = allocateParts(map);
-    const used = map.usedTokens ?? sumTokens(parts.filter((part) => part.kind !== 'empty'));
-    const title = `Context ${formatTokens(used)}${map.windowTokens ? ` / ${formatTokens(map.windowTokens)}` : ''}${
-      map.estimated ? ' estimated' : ''
-    }`;
+    const parts = allocateParts(roundtrip);
+    const used = roundtrip.usedTokens ?? sumTokens(parts.filter((part) => part.kind !== 'empty'));
+    const windowLabel = roundtrip.windowTokens ? ` / ${formatTokens(roundtrip.windowTokens)}` : ' / window unknown';
+    const estimatedLabel = roundtrip.estimated ? ' estimated' : '';
+    const title = `Context ${formatTokens(used)}${windowLabel}${estimatedLabel}`;
     const cells = parts.flatMap((part) => Array.from({ length: part.cells }, () => part.kind)).slice(0, CELL_COUNT);
     while (cells.length < CELL_COUNT) cells.push('empty');
 
     const lines = [styleText(title, styleToAnsi(theme.styles.title))];
     const gridLines = renderGridLines(cells, theme);
     const legendLines = renderLegendLines(parts, theme);
-    const model = map.model || this.props.model;
+    const model = roundtrip.model || this.props.model;
     if (model) legendLines.push(styleText(`model ${model}`, styleToAnsi(theme.styles.muted)));
 
     if (width >= SIDE_BY_SIDE_MIN_WIDTH) {
@@ -115,7 +98,7 @@ export class ContextMap implements Component {
   }
 }
 
-function renderGridLines(cells: LocalContextPartKind[], theme: ReturnType<typeof getTheme>): string[] {
+function renderGridLines(cells: CellKind[], theme: ReturnType<typeof getTheme>): string[] {
   const lines = [borderTop(theme.colors.border)];
   for (let row = 0; row < GRID_SIZE; row++) {
     const start = row * GRID_SIZE;
@@ -142,26 +125,16 @@ function renderLegendLines(parts: RenderPart[], theme: ReturnType<typeof getThem
   return lines;
 }
 
-function readLocalContextMap(context: unknown): LocalContextMap | undefined {
-  if (!context || typeof context !== 'object') return undefined;
-  const localContext = (context as { localContext?: unknown }).localContext;
-  if (!localContext || typeof localContext !== 'object') return undefined;
-  const record = localContext as Partial<LocalContextMap>;
-  if (record.provider !== 'mu-local-provider' || !Array.isArray(record.parts)) return undefined;
-  return record as LocalContextMap;
-}
-
-function allocateParts(map: LocalContextMap): RenderPart[] {
+function allocateParts(roundtrip: Roundtrip): RenderPart[] {
   const rawParts = PART_ORDER.flatMap((kind) => {
-    const matching = map.parts.filter((part) => part.kind === kind);
+    const matching = roundtrip.parts.filter((part) => part.kind === kind);
     const tokens = sumTokens(matching);
     return tokens > 0 ? [{ kind, label: matching[0]?.label ?? labelContextPart(kind), tokens, cells: 0 }] : [];
   });
-  const nonEmpty = rawParts.filter((part) => part.kind !== 'empty');
-  const estimatedUsed = sumTokens(nonEmpty);
-  const used = map.usedTokens ?? estimatedUsed;
-  const window = Math.max(used, map.windowTokens ?? used);
-  const scaled = scalePartsToTotal(nonEmpty, used, estimatedUsed);
+  const estimatedUsed = sumTokens(rawParts);
+  const used = roundtrip.usedTokens ?? estimatedUsed;
+  const window = Math.max(used, roundtrip.windowTokens ?? used);
+  const scaled = scalePartsToTotal(rawParts, used, estimatedUsed);
   const usedCells = window > 0 ? Math.min(CELL_COUNT, Math.max(0, Math.round((used / window) * CELL_COUNT))) : 0;
   const allocated = allocateCells(scaled, usedCells);
   const emptyTokens = Math.max(0, window - used);
@@ -205,13 +178,13 @@ function allocateCells(parts: RenderPart[], totalCells: number): RenderPart[] {
   return allocated;
 }
 
-function renderCell(kind: LocalContextPartKind, muted: Color): string {
+function renderCell(kind: CellKind, muted: Color): string {
   const color = colorForKind(kind, muted);
   const glyph = kind === 'empty' ? '□' : '■';
   return styleText(glyph, colorStyle(color, kind === 'empty'));
 }
 
-function colorForKind(kind: LocalContextPartKind, muted: Color): Color {
+function colorForKind(kind: CellKind, muted: Color): Color {
   switch (kind) {
     case 'system':
       return palette.blue[400];
@@ -230,7 +203,6 @@ function colorForKind(kind: LocalContextPartKind, muted: Color): Color {
     case 'empty':
       return muted;
   }
-  return muted;
 }
 
 function borderTop(color: Color): string {
@@ -266,14 +238,7 @@ function sumCells(parts: Array<{ cells: number }>): number {
   return parts.reduce((sum, part) => sum + part.cells, 0);
 }
 
-function formatTokens(value: number): string {
-  if (value < 1000) return String(Math.round(value));
-  const k = value / 1000;
-  const formatted = k >= 100 ? k.toFixed(0) : k.toFixed(1).replace(/\.0$/, '');
-  return `${formatted}k`;
-}
-
-function labelContextPart(kind: LocalContextPartKind): string {
+function labelContextPart(kind: RoundtripPartKind): string {
   switch (kind) {
     case 'system':
       return 'system';
@@ -289,8 +254,5 @@ function labelContextPart(kind: LocalContextPartKind): string {
       return 'mcp';
     case 'other':
       return 'other';
-    case 'empty':
-      return 'empty';
   }
-  return 'other';
 }

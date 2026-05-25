@@ -26,6 +26,13 @@ export interface ModalProps {
   titleStyle?: string;
   bodyStyle?: string;
   footerStyle?: string;
+  /**
+   * Horizontal inset (in cells) applied to the `content` child inside the
+   * panel. Title, body text and footer keep their built-in 2-cell margin.
+   * Default 2. Set to 0 to let the content span the full panel width — useful
+   * for lists that want their selection background to reach the panel edges.
+   */
+  contentPaddingX?: number;
 }
 
 const RESET = '\x1b[0m';
@@ -65,6 +72,7 @@ export class Modal implements Focusable {
   private titleStyle: string;
   private bodyStyle: string;
   private footerStyle: string;
+  private contentPaddingX: number;
 
   /** Internal slot that hosts the content child inside the panel body rect. */
   private contentSlot: Box;
@@ -83,6 +91,7 @@ export class Modal implements Focusable {
     this.titleStyle = props.titleStyle ?? DEFAULT_TITLE_STYLE;
     this.bodyStyle = props.bodyStyle ?? DEFAULT_BODY_STYLE;
     this.footerStyle = props.footerStyle ?? DEFAULT_FOOTER_STYLE;
+    this.contentPaddingX = Math.max(0, props.contentPaddingX ?? 2);
     this.layout = {
       position: 'overlay',
       x: 0,
@@ -134,9 +143,9 @@ export class Modal implements Focusable {
       this.contentSlot.layout = { position: 'overlay', x: 0, y: 0, width: 0, height: 0 };
       return;
     }
-    const innerX = panelRect.x - parentRect.x + 2;
+    const innerX = panelRect.x - parentRect.x + this.contentPaddingX;
     const innerY = panelRect.y - parentRect.y + 2;
-    const innerWidth = Math.max(0, panelRect.width - 4);
+    const innerWidth = Math.max(0, panelRect.width - 2 * this.contentPaddingX);
     const innerHeight = Math.max(0, panelRect.height - 4);
     this.contentSlot.layout = {
       position: 'overlay',

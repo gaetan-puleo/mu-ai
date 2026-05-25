@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import type { CoreEvent, LLMResponseContext, Message, Runtime, Unsubscribe } from 'mu-core';
 import { appendHistory, loadHistory } from '../config';
 import type { Model } from '../runtime';
+import { RoundtripStore } from '../runtime/RoundtripStore';
 import { type Component, type InputEvent, ProcessTerminal, TUI } from 'mu-tui';
 import { Box, Input, type InputHighlight, Modal, ScrollView, SelectList, Text } from 'mu-tui/components';
 import { AssistantMessage } from './components/AssistantMessage';
@@ -15,15 +16,12 @@ import { OutputBlock } from './components/OutputBlock';
 import { ReasoningBlock } from './components/ReasoningBlock';
 import { ToolLine } from './components/ToolLine';
 import { UserMessage } from './components/UserMessage';
+import { WaitingList, type WaitingItem } from './components/WaitingList';
 import { StatusLine } from './statusLine';
 import { STATUS_SLOTS, type StatusSlotContext } from './statusSlots';
 import { darkTheme, getTheme, lightTheme, styleToAnsi, type Theme, ThemeProvider } from './theme';
 import { Transcript } from './Transcript';
-
-function formatTokenCount(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
-  return String(n);
-}
+import { formatTokens } from './formatTokens';
 
 interface ChatBus {
   publish: (event: CoreEvent) => void;
@@ -32,6 +30,7 @@ interface ChatBus {
 
 interface ChatCommand extends CommandPaletteItem {
   run: (args: string) => void;
+  deferWhenBusy?: boolean;
 }
 
 interface ModelController {
@@ -84,7 +83,7 @@ export class ChatApp {
   private stopped = false;
   private status = 'ready';
   private contextText = '';
-  private latestContext: LLMResponseContext | undefined;
+  private roundtrips = new RoundtripStore();
   private themeProvider: ThemeProvider;
   private unsubscribeTheme: (() => void) | undefined;
   private unsubscribeStatusSlots: (() => void) | undefined;
@@ -100,6 +99,9 @@ export class ChatApp {
   private historyCursor = -1;
   private historyDraft = '';
   private historyNavigating = false;
+  private deferredCommandQueue: Array<{ label: string; run: () => void }> = [];
+  private deferredDrainTimer: ReturnType<typeof setTimeout> | undefined;
+  private waitingList: WaitingList | undefined;
 
   constructor(
     runtime: Runtime,
@@ -117,7 +119,7 @@ export class ChatApp {
     this.themeProvider = new ThemeProvider(darkTheme);
     const theme = this.themeProvider.current();
 
-    this.terminal = new ProcessTerminal({ alternateScreen: true, keyboard: true, mouse: { drag: true, motion: true } });
+    this.terminal = new ProcessTerminal({ alternateScreen: true, keyboard: true, mouse: { drag: true, motion: true }, focusEvents: true });
     this.tui = new TUI(this.terminal, { userContext: this.themeProvider });
 
     this.scrollView = new ScrollView({ layout: { width: 'fill', height: 'fill' }, focusable: false });
@@ -220,7 +222,11 @@ export class ChatApp {
     for (const unregister of this.unregisterStatusSlotContributors.splice(0)) unregister();
     if (this.toastTimer) clearTimeout(this.toastTimer);
     this.toastTimer = undefined;
+    if (this.deferredDrainTimer) clearTimeout(this.deferredDrainTimer);
+    this.deferredDrainTimer = undefined;
+    this.deferredCommandQueue.length = 0;
     this.stopSpinner();
+    this.input.stop();
     await this.runtime.stop();
     this.tui.stop();
   }
@@ -235,6 +241,7 @@ export class ChatApp {
       hiddenPrefix: '!',
       onChange: (value: string) => this.updateInputHeight(value),
       onSubmit: (value: string) => this.handleSubmit(value),
+      requestRedraw: () => this.tui.requestRender(),
       layout: { width: 'fill', height: 1, zIndex: 10 },
     });
   }
@@ -322,14 +329,11 @@ export class ChatApp {
   }
 
   private setContext(context: LLMResponseContext): void {
-    this.latestContext = context;
-    const ext = context as Record<string, unknown>;
-    const used = context.usage?.promptTokens;
-    const props = ext.props as Record<string, unknown> | undefined;
-    const currentSlot = ext.currentSlot as Record<string, unknown> | undefined;
-    const total = (props?.n_ctx ?? currentSlot?.n_ctx) as number | undefined;
+    const roundtrip = this.roundtrips.record(context, this.modelController?.getModel());
+    const used = roundtrip.usedTokens;
+    const total = roundtrip.windowTokens;
     this.contextText = used !== undefined && total !== undefined
-      ? `${formatTokenCount(used)}/${formatTokenCount(total)} (${Math.round((used / total) * 100)}%)`
+      ? `${formatTokens(used)}/${formatTokens(total)} (${Math.round((used / total) * 100)}%)`
       : '';
     this.updateStatusLine();
   }
@@ -361,6 +365,7 @@ export class ChatApp {
     if (this.toastTimer) clearTimeout(this.toastTimer);
     this.toastZone.children = [new ErrorToast(message)];
     if (this.toastZone.layout) this.toastZone.layout.height = 2;
+    this.updateDockHeight();
     this.toastTimer = setTimeout(() => this.clearToast(), 6000);
   }
 
@@ -370,7 +375,10 @@ export class ChatApp {
     this.toastTimer = undefined;
     this.toastZone.children = [];
     if (this.toastZone.layout) this.toastZone.layout.height = 0;
-    if (hadToast) this.tui.requestRender();
+    if (hadToast) {
+      this.updateDockHeight();
+      this.tui.requestRender();
+    }
     return hadToast;
   }
 
@@ -410,6 +418,7 @@ export class ChatApp {
     const message: Message = { role: 'user', content: text };
     if (isSteering) {
       this.transcript.appendVisibleQueuedMessage(message, 'steering');
+      this.updateWaitingList();
     }
     this.renderTranscript();
     this.bus.publish({ type: isSteering ? 'steer' : 'user_message', message });
@@ -425,6 +434,7 @@ export class ChatApp {
     this.setStatus('queued follow-up');
     const message: Message = { role: 'user', content: text };
     this.transcript.appendVisibleQueuedMessage(message, 'follow_up');
+    this.updateWaitingList();
     this.renderTranscript();
     this.bus.publish({ type: 'follow_up', message });
     this.tui.requestRender();
@@ -492,8 +502,13 @@ export class ChatApp {
 
   private updateDockHeight(): void {
     const inputBoxHeight = (this.inputBox.layout?.height as number) ?? 4;
-    const paletteHeight = (this.inputTopWidgetZone.layout?.height as number) ?? 0;
-    if (this.bottomDock.layout) this.bottomDock.layout.height = paletteHeight + inputBoxHeight + 1;
+    const topZoneHeight = (this.inputTopWidgetZone.layout?.height as number) ?? 0;
+    const bottomZoneHeight = (this.inputBottomWidgetZone.layout?.height as number) ?? 0;
+    const toastHeight = (this.toastZone.layout?.height as number) ?? 0;
+    const statusHeight = 1;
+    if (this.bottomDock.layout) {
+      this.bottomDock.layout.height = toastHeight + topZoneHeight + inputBoxHeight + bottomZoneHeight + statusHeight;
+    }
   }
 
   private updateBashMode(value: string): void {
@@ -588,12 +603,72 @@ export class ChatApp {
     return [
       { name: 'new', description: 'start a new session', run: () => this.startNewSession() },
       { name: 'model', description: 'switch the active model', run: () => this.openModelModal() },
-      { name: 'context', description: 'show context map', run: () => this.showContextMap() },
-      { name: 'context-export', description: 'export context map to a file', run: (args) => void this.exportContext(args) },
-      { name: 'thinking', description: 'toggle thinking blocks', run: () => this.handleToggleThinking() },
-      { name: 'expand', description: 'toggle output block expansion', run: () => this.toggleOutputBlocks() },
+      // { name: 'context', description: 'show context map', deferWhenBusy: true, run: () => this.showContextMap() },
+      { name: 'context-export', description: 'export context map to a file', deferWhenBusy: true, run: (args) => void this.exportContext(args) },
+      { name: 'thinking', description: 'toggle thinking blocks', deferWhenBusy: true, run: () => this.handleToggleThinking() },
+      { name: 'expand', description: 'toggle output block expansion', deferWhenBusy: true, run: () => this.toggleOutputBlocks() },
       { name: 'quit', description: 'exit the agent', run: () => void this.stop().then(() => this.onExit?.(0)) },
     ];
+  }
+
+  private executeCommand(command: ChatCommand, args: string): void {
+    if (command.deferWhenBusy && this.runtime.state() !== 'idle') {
+      const label = args ? `/${command.name} ${args}` : `/${command.name}`;
+      this.deferredCommandQueue.push({ label, run: () => command.run(args) });
+      this.updateWaitingList();
+      return;
+    }
+    command.run(args);
+  }
+
+  private drainDeferredCommands(): void {
+    this.deferredDrainTimer = undefined;
+    if (this.runtime.state() !== 'idle') return;
+    if (this.deferredCommandQueue.length === 0) return;
+    const queue = this.deferredCommandQueue.splice(0);
+    this.updateWaitingList();
+    for (const entry of queue) {
+      try { entry.run(); } catch { /* ignore */ }
+    }
+  }
+
+  private scheduleDeferredDrain(): void {
+    if (this.deferredDrainTimer) return;
+    if (this.deferredCommandQueue.length === 0) return;
+    this.deferredDrainTimer = setTimeout(() => this.drainDeferredCommands(), 0);
+  }
+
+  private collectWaitingItems(): WaitingItem[] {
+    const items: WaitingItem[] = [];
+    for (const entry of this.transcript.visibleQueuedLines) {
+      items.push({ kind: entry.queue, text: entry.line.content });
+    }
+    for (const entry of this.deferredCommandQueue) {
+      items.push({ kind: 'command', text: entry.label });
+    }
+    return items;
+  }
+
+  private updateWaitingList(): void {
+    const items = this.collectWaitingItems();
+    if (items.length === 0) {
+      this.waitingList = undefined;
+      this.inputBottomWidgetZone.children = [];
+      if (this.inputBottomWidgetZone.layout) this.inputBottomWidgetZone.layout.height = 0;
+      this.updateDockHeight();
+      this.tui.requestRender();
+      return;
+    }
+    const height = Math.min(items.length, 6);
+    if (this.waitingList) {
+      this.waitingList.setItems(items);
+    } else {
+      this.waitingList = new WaitingList({ items, layout: { width: 'fill', height } });
+      this.inputBottomWidgetZone.children = [this.waitingList];
+    }
+    if (this.inputBottomWidgetZone.layout) this.inputBottomWidgetZone.layout.height = height;
+    this.updateDockHeight();
+    this.tui.requestRender();
   }
 
   private filteredCommands(value: string): ChatCommand[] {
@@ -626,7 +701,7 @@ export class ChatApp {
         if (command) {
           this.input.setValue('');
           this.updateCommandPalette('');
-          command.run('');
+          this.executeCommand(command, '');
         }
       },
       layout: { width: 'fill', height: visibleItems.length },
@@ -659,7 +734,7 @@ export class ChatApp {
     if (!command) return;
     this.input.setValue('');
     this.updateCommandPalette('');
-    command.run('');
+    this.executeCommand(command, '');
   }
 
   private runCommand(value: string): boolean {
@@ -675,7 +750,7 @@ export class ChatApp {
       this.renderTranscript();
       return true;
     }
-    command.run(rest.join(' '));
+    this.executeCommand(command, rest.join(' '));
     return true;
   }
 
@@ -853,9 +928,12 @@ export class ChatApp {
     await this.runtime.stop();
     this.runtime = this.modelController.createRuntime();
     await this.runtime.start();
+    this.transcript.visibleQueuedLines.length = 0;
+    this.updateWaitingList();
     this.stopSpinner();
     this.setStatus('cancelled');
     this.tui.requestRender();
+    this.scheduleDeferredDrain();
   }
 
   // --- Session commands ---
@@ -874,20 +952,23 @@ export class ChatApp {
     this.runtime = this.modelController.createRuntime();
     await this.runtime.start();
     this.transcript.reset();
+    this.deferredCommandQueue.length = 0;
     this.contextText = '';
-    this.latestContext = undefined;
+    this.roundtrips.clear();
     this.setStatus('new session');
+    this.updateWaitingList();
     this.renderTranscript();
   }
 
   private showContextMap(): void {
     this.transcript.lines.push({ role: 'command', content: '/context' });
-    this.transcript.lines.push({ role: 'context', context: this.latestContext });
+    this.transcript.lines.push({ role: 'context', roundtrip: this.roundtrips.latest() });
     this.renderTranscript();
   }
 
   private async exportContext(args: string): Promise<void> {
-    if (!this.latestContext) {
+    const history = this.roundtrips.all();
+    if (history.length === 0) {
       this.showErrorToast('No context available to export.');
       return;
     }
@@ -897,7 +978,7 @@ export class ChatApp {
     const payload = {
       exportedAt: new Date().toISOString(),
       model: this.modelController?.getModel(),
-      context: this.latestContext,
+      roundtrips: history,
     };
 
     try {
@@ -955,6 +1036,7 @@ export class ChatApp {
       title: 'Model Picker',
       body: `Loading models...\nCurrent: ${this.modelController.getModel() || 'unknown'}`,
       footer: 'Up/Down to move, Enter to select, Esc to close',
+      contentPaddingX: 0,
       onClose: () => this.closeModal(),
     });
 
@@ -1010,6 +1092,7 @@ export class ChatApp {
     const selectList = new SelectList<Model>({
       items,
       selectedIndex: this.modelCursor,
+      itemPaddingX: 2,
       onChange: (_item, index) => {
         this.modelCursor = index;
       },
@@ -1125,6 +1208,7 @@ export class ChatApp {
         break;
       case 'queued_message':
         this.transcript.appendQueuedMessage(event.message, event.queue);
+        this.updateWaitingList();
         break;
       case 'queue_update':
         break;
@@ -1137,6 +1221,7 @@ export class ChatApp {
       }
     }
     this.renderTranscript();
+    this.scheduleDeferredDrain();
   }
 
   // --- Rendering ---
@@ -1163,7 +1248,7 @@ export class ChatApp {
           components.push(entry.component);
           break;
         case 'context':
-          components.push(new ContextMap({ context: entry.context, model: this.modelController?.getModel() }));
+          components.push(new ContextMap({ roundtrip: entry.roundtrip, model: this.modelController?.getModel() }));
           break;
         case 'reasoning':
           if (entry.closed) {
@@ -1187,9 +1272,6 @@ export class ChatApp {
           components.push(new ErrorLine(entry.content));
           break;
       }
-    }
-    for (const entry of this.transcript.visibleQueuedLines) {
-      components.push(new UserMessage({ content: entry.line.content, label: entry.line.label, theme }));
     }
     this.scrollView.setChildren(components, { stickToBottom: shouldStickToBottom });
     this.tui.requestRender();

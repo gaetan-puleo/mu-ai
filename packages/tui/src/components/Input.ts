@@ -25,10 +25,15 @@ export interface InputProps {
   hiddenPrefix?: string;
   /** Styled ranges within the input text (positions relative to value). */
   highlights?: InputHighlight[];
+  /** Software cursor blink half-period in ms. 0 disables blinking. Default 530. */
+  cursorBlinkMs?: number;
+  /** Called when the cursor blink toggles so the host can request a re-render. */
+  requestRedraw?: () => void;
 }
 
 const DEFAULT_PLACEHOLDER_STYLE = '\x1b[2m';
-const DEFAULT_CURSOR_STYLE = '\x1b[5;7m';
+const DEFAULT_CURSOR_STYLE = '\x1b[7m';
+const DEFAULT_CURSOR_BLINK_MS = 530;
 
 /**
  * Single-line text input.
@@ -51,6 +56,11 @@ export class Input implements Focusable {
   hiddenPrefix: string;
   highlights: InputHighlight[];
   private scrollOffset = 0;
+  private readonly cursorBlinkMs: number;
+  private readonly requestRedraw?: () => void;
+  private blinkTimer: ReturnType<typeof setInterval> | undefined;
+  private blinkOn = true;
+  private lastActivityAt = 0;
 
   constructor(props: InputProps = {}) {
     this._value = props.value ?? '';
@@ -64,6 +74,37 @@ export class Input implements Focusable {
     this.hiddenPrefix = props.hiddenPrefix ?? '';
     this.highlights = props.highlights ?? [];
     this.layout = { height: 1, focusable: true, ...props.layout };
+    this.cursorBlinkMs = props.cursorBlinkMs ?? DEFAULT_CURSOR_BLINK_MS;
+    this.requestRedraw = props.requestRedraw;
+    if (this.cursorBlinkMs > 0 && this.requestRedraw) {
+      this.blinkTimer = setInterval(() => {
+        if (!this.focused) {
+          if (!this.blinkOn) {
+            this.blinkOn = true;
+            this.requestRedraw?.();
+          }
+          return;
+        }
+        if (Date.now() - this.lastActivityAt < this.cursorBlinkMs) {
+          this.blinkOn = true;
+        } else {
+          this.blinkOn = !this.blinkOn;
+        }
+        this.requestRedraw?.();
+      }, this.cursorBlinkMs);
+    }
+  }
+
+  stop(): void {
+    if (this.blinkTimer) {
+      clearInterval(this.blinkTimer);
+      this.blinkTimer = undefined;
+    }
+  }
+
+  private resetBlink(): void {
+    this.blinkOn = true;
+    this.lastActivityAt = Date.now();
   }
 
   get value(): string {
@@ -91,9 +132,13 @@ export class Input implements Focusable {
     const hiddenPrefixLength = this.hiddenPrefixLength();
     if (this._value.includes('\n')) return this.renderMultiline(ctx, hiddenPrefixLength);
 
-    if (this._value.length === 0 && !ctx.focused && this.placeholder.length > 0) {
-      const ph = this.placeholder.slice(0, width);
-      return [`${this.placeholderStyle}${ph}\x1b[0m`];
+    if (this._value.length === 0 && this.placeholder.length > 0) {
+      const ph = sliceByColumn(this.placeholder, 0, width, true);
+      if (!ctx.focused) return [`${this.placeholderStyle}${ph}\x1b[0m`];
+      const cursorChar = sliceByColumn(ph, 0, 1, true) || ' ';
+      const rest = sliceByColumn(ph, 1, width, true);
+      const cursorPrefix = this.blinkOn ? this.cursorStyle : this.placeholderStyle;
+      return [`${cursorPrefix}${cursorChar}\x1b[0m${this.placeholderStyle}${rest}\x1b[0m`];
     }
 
     const renderValue = this._value.slice(hiddenPrefixLength);
@@ -118,10 +163,17 @@ export class Input implements Focusable {
     const after = sliceByColumn(padded, cursorCol + 1, width, true);
     const styledBefore = this.applyHighlights(`${before}${beforePad}`, baseOffset);
     const styledAfter = this.applyHighlights(after, baseOffset + cursorCol + 1);
+    if (!this.blinkOn) {
+      const styledCursorChar = this.textStyle ? `${this.textStyle}${cursorChar}\x1b[0m` : cursorChar;
+      return [`${styledBefore}${styledCursorChar}${styledAfter}`];
+    }
     return [`${styledBefore}${this.cursorStyle}${cursorChar}\x1b[0m${styledAfter}`];
   }
 
   handleEvent(event: InputEvent, _ctx: EventContext): void {
+    if (event.type === 'key' || event.type === 'text' || event.type === 'paste') {
+      this.resetBlink();
+    }
     if (event.type === 'text') {
       this.insert(event.text);
       return;
@@ -251,6 +303,10 @@ export class Input implements Focusable {
       const after = sliceByColumn(padded, clampedCursorCol + 1, width, true);
       const styledBefore = this.applyHighlights(`${before}${beforePad}`, valueOffset);
       const styledAfter = this.applyHighlights(after, valueOffset + clampedCursorCol + 1);
+      if (!this.blinkOn) {
+        const styledCursorChar = this.textStyle ? `${this.textStyle}${cursorChar}\x1b[0m` : cursorChar;
+        return `${styledBefore}${styledCursorChar}${styledAfter}`;
+      }
       return `${styledBefore}${this.cursorStyle}${cursorChar}\x1b[0m${styledAfter}`;
     });
 

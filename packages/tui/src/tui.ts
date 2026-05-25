@@ -75,6 +75,7 @@ export class TUI {
   private maxLinesRendered = 0;
   private previousViewportTop = 0;
   private stopped = false;
+  private terminalFocused = true;
   private children: Component[] = [];
   private layoutEntries: LayoutEntry[] = [];
   private globalKeybindings: GlobalKeybinding[] = [];
@@ -443,6 +444,14 @@ export class TUI {
       return;
     }
 
+    if (event.type === 'focus') {
+      if (this.terminalFocused !== event.focused) {
+        this.terminalFocused = event.focused;
+        this.requestRender();
+      }
+      return;
+    }
+
     if (event.type === 'key' && this.handleGlobalKeybinding(event)) {
       return;
     }
@@ -516,8 +525,9 @@ export class TUI {
 
     const buffer: CellBuffer = createCellBuffer(width, height, this.backdropColor);
     setBackdropColor(buffer, this.backdropColor);
+    const visualFocus = this.terminalFocused ? this.focusedComponent : null;
     for (const entry of sortForRender(entries)) {
-      drawEntry(buffer, entry, this.focusedComponent, this.capabilities, this.userContext);
+      drawEntry(buffer, entry, visualFocus, this.capabilities, this.userContext);
     }
 
     const lines = cellBufferToLines(buffer);

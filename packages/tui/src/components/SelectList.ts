@@ -34,6 +34,12 @@ export interface SelectListProps<T = unknown> {
    * `RenderContext.userContext` without coupling `mu-tui` to any theme system.
    */
   resolveStyles?: (ctx: RenderContext) => SelectListStyles | undefined;
+  /**
+   * Horizontal padding (in cells) inside each item row. The background
+   * highlight still spans the full row width — only the text is inset.
+   * Default 0.
+   */
+  itemPaddingX?: number;
 }
 
 // Default highlight palette. Precomputed from the canonical dark theme tokens
@@ -71,6 +77,7 @@ export class SelectList<T = unknown> implements Focusable {
   private readonly hoveredStyle: string;
   private readonly disabledStyle: string;
   private readonly resolveStyles?: (ctx: RenderContext) => SelectListStyles | undefined;
+  private readonly itemPaddingX: number;
   private viewportTop = 0;
 
   constructor(props: SelectListProps<T>) {
@@ -83,6 +90,7 @@ export class SelectList<T = unknown> implements Focusable {
     this.hoveredStyle = props.hoveredStyle ?? DEFAULT_HOVERED_STYLE;
     this.disabledStyle = props.disabledStyle ?? DEFAULT_DISABLED_STYLE;
     this.resolveStyles = props.resolveStyles;
+    this.itemPaddingX = Math.max(0, props.itemPaddingX ?? 0);
     this.layout = { focusable: true, ...props.layout };
   }
 
@@ -121,14 +129,18 @@ export class SelectList<T = unknown> implements Focusable {
     this.adjustViewport(height);
     const lines: string[] = [];
     const end = Math.min(this._items.length, this.viewportTop + height);
+    const padX = Math.min(this.itemPaddingX, Math.floor(width / 2));
+    const innerWidth = Math.max(0, width - 2 * padX);
+    const sidePad = padX > 0 ? ' '.repeat(padX) : '';
 
     for (let i = this.viewportTop; i < end; i++) {
       const item = this._items[i];
       const isSelected = i === this._selectedIndex && ctx.focused;
       const text = (isSelected && item.selectedLabel) ? item.selectedLabel : item.label;
-      let line = visibleWidth(text) > width ? truncateToWidth(text, width) : text;
-      const padding = width - visibleWidth(line);
-      if (padding > 0) line += ' '.repeat(padding);
+      let inner = visibleWidth(text) > innerWidth ? truncateToWidth(text, innerWidth) : text;
+      const fill = innerWidth - visibleWidth(inner);
+      if (fill > 0) inner += ' '.repeat(fill);
+      let line = `${sidePad}${inner}${sidePad}`;
 
       if (isSelected) {
         line = `${selectedStyle}${line}${RESET}`;

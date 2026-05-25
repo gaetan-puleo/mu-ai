@@ -19,6 +19,7 @@ import {
   getLlamaSwapOpenAIBaseUrl,
   LLAMA_SWAP_KIND,
   prepareLlamaSwapChatRequest,
+  tokenizeLlamaSwap,
 } from './backends/llama-swap';
 import type {
   LocalBackendInfo,
@@ -168,45 +169,70 @@ function addContextTokens(parts: Map<LocalContextPartKind, number>, kind: LocalC
   parts.set(kind, (parts.get(kind) ?? 0) + tokens);
 }
 
-function buildLocalContextMap(config: {
+export type TokenizeFn = (content: string) => Promise<number | undefined>;
+
+const BUCKET_SEPARATOR = '\n\n';
+
+function aggregateBuckets(messages: Message[], tools: Record<string, Tool>): Map<LocalContextPartKind, string[]> {
+  const buckets = new Map<LocalContextPartKind, string[]>();
+  const push = (kind: LocalContextPartKind, content: string) => {
+    if (!content) return;
+    const list = buckets.get(kind) ?? [];
+    list.push(content);
+    buckets.set(kind, list);
+  };
+
+  for (const message of messages) {
+    if (message.role === 'system') {
+      push('system', message.content);
+    } else if (message.role === 'tool') {
+      push('tool_results', message.content);
+    } else if (message.role === 'user' || message.role === 'assistant') {
+      push('messages', message.content);
+      if (message.tool_calls?.length) {
+        push('messages', JSON.stringify(message.tool_calls));
+      }
+    } else {
+      push('other', message.content);
+    }
+  }
+
+  for (const tool of Object.values(tools)) {
+    const schema = convertTools({ [tool.name]: tool })[0];
+    push(toolContextKind(tool), JSON.stringify(schema));
+  }
+
+  return buckets;
+}
+
+async function buildLocalContextMap(config: {
   backend: LocalBackendInfo;
   model: string;
   messages: Message[];
   tools: Record<string, Tool>;
   usage?: LocalLLMResponseContext['usage'];
   backendContext?: LocalLLMResponseContext;
-}): LocalContextMap {
-  const parts = new Map<LocalContextPartKind, number>();
+  tokenize?: TokenizeFn;
+}): Promise<LocalContextMap> {
+  const buckets = aggregateBuckets(config.messages, config.tools);
+  const entries = await Promise.all(
+    Array.from(buckets.entries()).map(async ([kind, contents]) => {
+      const joined = contents.join(BUCKET_SEPARATOR);
+      const { tokens, estimated } = await countBucketTokens(joined, config.tokenize);
+      return { kind, tokens, estimated };
+    }),
+  );
 
-  for (const message of config.messages) {
-    if (message.role === 'system') {
-      addContextTokens(parts, 'system', estimateTokens(message.content));
-    } else if (message.role === 'tool') {
-      addContextTokens(parts, 'tool_results', estimateTokens(message.content));
-    } else if (message.role === 'user' || message.role === 'assistant') {
-      addContextTokens(
-        parts,
-        'messages',
-        estimateTokens(message.content) + estimateJsonTokens(message.tool_calls ?? []),
-      );
-    } else {
-      addContextTokens(parts, 'other', estimateTokens(message.content));
-    }
-  }
-
-  for (const tool of Object.values(config.tools)) {
-    const schema = convertTools({ [tool.name]: tool })[0];
-    addContextTokens(parts, toolContextKind(tool), estimateJsonTokens(schema));
-  }
-
-  const windowTokens = config.backendContext?.props?.n_ctx ?? config.backendContext?.currentSlot?.n_ctx;
-  const usedTokens = config.usage?.promptTokens;
-  const out = Array.from(parts.entries()).map(([kind, tokens]) => ({
+  const partsEstimated = entries.some((entry) => entry.estimated);
+  const out = entries.map(({ kind, tokens, estimated }) => ({
     kind,
     label: labelContextPart(kind),
     tokens,
-    estimated: true,
+    estimated,
   }));
+
+  const windowTokens = config.backendContext?.props?.n_ctx ?? config.backendContext?.currentSlot?.n_ctx;
+  const usedTokens = config.usage?.promptTokens;
 
   return {
     provider: 'mu-local-provider',
@@ -214,9 +240,18 @@ function buildLocalContextMap(config: {
     model: config.model,
     usedTokens,
     windowTokens,
-    estimated: true,
+    estimated: partsEstimated,
     parts: out,
   };
+}
+
+async function countBucketTokens(content: string, tokenize?: TokenizeFn): Promise<{ tokens: number; estimated: boolean }> {
+  if (!content) return { tokens: 0, estimated: false };
+  if (tokenize) {
+    const real = await tokenize(content);
+    if (real !== undefined) return { tokens: real, estimated: false };
+  }
+  return { tokens: estimateTokens(content), estimated: true };
 }
 
 function labelContextPart(kind: LocalContextPartKind): string {
@@ -394,6 +429,14 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
         });
       }
 
+      const tokenize: TokenizeFn | undefined = backend.kind === 'llama-swap'
+        ? (content: string) => tokenizeLlamaSwap({ baseUrl: backend.baseUrl, apiKey: config.apiKey, model, content })
+        : undefined;
+
+      const localContext = backendContext || usage
+        ? await buildLocalContextMap({ backend, model, messages, tools, usage, backendContext, tokenize })
+        : undefined;
+
       yield {
         type: 'done',
         response: {
@@ -403,7 +446,7 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
             ? {
               ...backendContext,
               usage,
-              localContext: buildLocalContextMap({ backend, model, messages, tools, usage, backendContext }),
+              localContext,
             } as LocalLLMResponseContext
             : undefined,
         },
