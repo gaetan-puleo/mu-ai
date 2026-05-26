@@ -17,11 +17,9 @@ import { UserMessage } from './components/UserMessage';
 import { WaitingList, type WaitingItem } from './components/WaitingList';
 import { SubAgentPreview } from './components/SubAgentPreview';
 import { SubAgentRunStore, type SubAgentRun } from './subAgentRun';
-import { StatusLine } from './statusLine';
-import { STATUS_SLOTS, type StatusSlotContext } from './statusSlots';
+import { buildStatusParts, formatTokens, StatusLine } from './statusLine';
 import { darkTheme, getTheme, lightTheme, styleToAnsi, type Theme, ThemeProvider } from './theme';
 import { Transcript } from './Transcript';
-import { formatTokens } from './formatTokens';
 
 interface ChatBus {
   publish: (event: CoreEvent) => void;
@@ -115,8 +113,6 @@ export class ChatApp {
   private roundtrips = new RoundtripStore();
   private themeProvider: ThemeProvider;
   private unsubscribeTheme: (() => void) | undefined;
-  private unsubscribeStatusSlots: (() => void) | undefined;
-  private unregisterStatusSlotContributors: Array<() => void> = [];
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   private spinnerTimer: ReturnType<typeof setInterval> | undefined;
   private spinnerTick = 0;
@@ -224,7 +220,6 @@ export class ChatApp {
     this.tui.addGlobalKeybinding({ chord: { key: 'o', ctrl: true }, handler: () => this.toggleOutputBlocks() });
 
     this.unsubscribeTheme = this.themeProvider.subscribe((next) => this.applyTheme(next));
-    this.registerStatusSlots();
     this.updateStatusLine();
   }
 
@@ -233,8 +228,8 @@ export class ChatApp {
   async start(): Promise<void> {
     this.unsubscribe = this.bus.subscribe((event) => this.handleEvent(event));
     await this.runtime.start();
+    await this.loadModels();
     this.tui.start();
-    void this.loadModels();
   }
 
   private async loadModels(): Promise<void> {
@@ -253,9 +248,6 @@ export class ChatApp {
     this.unsubscribe = undefined;
     this.unsubscribeTheme?.();
     this.unsubscribeTheme = undefined;
-    this.unsubscribeStatusSlots?.();
-    this.unsubscribeStatusSlots = undefined;
-    for (const unregister of this.unregisterStatusSlotContributors.splice(0)) unregister();
     if (this.toastTimer) clearTimeout(this.toastTimer);
     this.toastTimer = undefined;
     if (this.deferredDrainTimer) clearTimeout(this.deferredDrainTimer);
@@ -316,17 +308,6 @@ export class ChatApp {
   }
 
   // --- Status ---
-
-  private registerStatusSlots(): void {
-    this.unregisterStatusSlotContributors.push(
-      STATUS_SLOTS.register('status.left', () => undefined),
-      STATUS_SLOTS.register('status.right', ({ contextText }) => contextText),
-    );
-    this.unsubscribeStatusSlots = STATUS_SLOTS.subscribe(() => {
-      this.updateStatusLine();
-      this.tui.requestRender();
-    });
-  }
 
   private setStatus(status: string): void {
     this.status = status;
@@ -430,12 +411,8 @@ export class ChatApp {
 
   private updateStatusLine(): void {
     this.updateModelLabel();
-    const ctx: StatusSlotContext = {
-      busy: this.isBusyStatus(this.status),
-      model: this.modelController?.model,
-      contextText: this.contextText,
-    };
-    this.statusText.setContent(STATUS_SLOTS.render('status.left', ctx), STATUS_SLOTS.render('status.right', ctx));
+    const { left, right } = buildStatusParts(this.contextText);
+    this.statusText.setContent(left, right);
   }
 
   // --- Toast ---
@@ -625,7 +602,7 @@ export class ChatApp {
     for (const entry of run.transcript) {
       switch (entry.kind) {
         case 'user':
-          components.push(new UserMessage({ content: entry.content, theme: this.themeProvider.current() }));
+          components.push(new UserMessage({ content: entry.content }));
           break;
         case 'assistant':
           components.push(new AssistantMessage({ content: entry.content }));
@@ -840,10 +817,10 @@ export class ChatApp {
       if (this.runtime.state() === 'running') {
         const now = Date.now();
         const elapsed = now - this.lastEscTime;
-        if (this.lastEscTime > 0 && elapsed > 100 && elapsed < 1500) {
+        if (this.lastEscTime > 0 && elapsed < 1500) {
           this.lastEscTime = 0;
           void this.cancelGeneration();
-        } else if (elapsed > 100 || this.lastEscTime === 0) {
+        } else {
           this.lastEscTime = now;
           this.setStatus('press Esc again to cancel');
         }
@@ -881,7 +858,7 @@ export class ChatApp {
     }
     if (event.key === 'down') {
       this.commandCursor = Math.min(
-        Math.min(6, this.filteredCommands(this.input.value).length) - 1,
+        Math.max(0, Math.min(6, this.filteredCommands(this.input.value).length) - 1),
         this.commandCursor + 1,
       );
       this.updateCommandPalette(this.input.value);
@@ -1230,12 +1207,22 @@ export class ChatApp {
     });
   }
 
+  // Note: mu-core Runtime exposes no AbortSignal, so we cannot interrupt an
+  // in-flight provider stream. We fire-and-forget the stop() and rebuild the
+  // runtime so the UI proceeds immediately; the provider may continue to drain
+  // in the background until its stream completes.
   private async cancelGeneration(): Promise<void> {
     if (!this.modelController) return;
-    await this.runtime.stop();
+    this.setStatus('cancelling...');
+    this.tui.requestRender();
+    void this.runtime.stop();
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
     this.runtime = this.modelController.createRuntime();
+    this.unsubscribe = this.bus.subscribe((event) => this.handleEvent(event));
     await this.runtime.start();
     this.transcript.visibleQueuedLines.length = 0;
+    this.transcript.resetPending();
     this.updateWaitingList();
     this.stopSpinner();
     this.setStatus('cancelled');
@@ -1255,10 +1242,16 @@ export class ChatApp {
       return;
     }
 
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
+    this.viewingSubAgentUnsubscribe?.();
+    this.viewingSubAgentUnsubscribe = undefined;
     await this.runtime.stop();
     this.runtime = this.modelController.createRuntime();
+    this.unsubscribe = this.bus.subscribe((event) => this.handleEvent(event));
     await this.runtime.start();
     this.transcript.reset();
+    this.subAgentPreviews.clear();
     this.deferredCommandQueue.length = 0;
     this.contextText = '';
     this.roundtrips.clear();
@@ -1522,12 +1515,11 @@ export class ChatApp {
       return;
     }
     const shouldStickToBottom = this.scrollView.isAtBottom();
-    const theme = this.themeProvider.current();
     const components: Component[] = [];
     for (const entry of this.transcript.lines) {
       switch (entry.role) {
         case 'user':
-          components.push(new UserMessage({ content: entry.content, label: entry.label, theme }));
+          components.push(new UserMessage({ content: entry.content, label: entry.label }));
           break;
         case 'assistant':
           components.push(new AssistantMessage({ content: entry.content }));

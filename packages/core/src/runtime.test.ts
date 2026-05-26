@@ -1223,6 +1223,79 @@ describe('createRuntime', () => {
     expect(events.filter((e) => e.type === 'assistant_message')).toHaveLength(1);
   });
 
+  it('publishes an error when a provider returns a wholly empty response', async () => {
+    const provider: LLMProvider = async () => ({ content: '' });
+    const bus = createBus<CoreEvent>();
+    const events = collectEvents(bus);
+    const session = newSession();
+    const runtime = createRuntime({ session, plugins: [providerPlugin(provider)], tools: {}, bus });
+
+    await runtime.start();
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'Hi' } });
+    await waitForAsync();
+    await waitForAsync();
+
+    const errorEvents = events.filter((e) => e.type === 'error');
+    expect(errorEvents).toHaveLength(1);
+    expect((errorEvents[0] as { error: Error }).error.message).toBe('Provider returned empty response');
+    expect(session.messages.some((m) => m.role === 'assistant')).toBe(false);
+    expect(runtime.state()).toBe('idle');
+  });
+
+  it('drains a steering message queued during a failed turn', async () => {
+    let callCount = 0;
+    let resolveProvider: (() => void) | undefined;
+    const provider: LLMProvider = async () => {
+      callCount++;
+      if (callCount === 1) {
+        await new Promise<void>((resolve) => {
+          resolveProvider = resolve;
+        });
+        throw new Error('first turn failed');
+      }
+      return { content: 'recovered' };
+    };
+    const bus = createBus<CoreEvent>();
+    const events = collectEvents(bus);
+    const runtime = createRuntime({ session: newSession(), plugins: [providerPlugin(provider)], tools: {}, bus });
+
+    await runtime.start();
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'go' } });
+    await waitForAsync();
+
+    bus.publish({ type: 'steer', message: { role: 'user', content: 'try again' } });
+    resolveProvider?.();
+    for (let i = 0; i < 6; i++) await waitForAsync();
+
+    expect(events).toContainEqual({
+      type: 'queued_message',
+      queue: 'steering',
+      message: { role: 'user', content: 'try again' },
+    });
+    expect(events).toContainEqual({
+      type: 'assistant_message',
+      message: { role: 'assistant', content: 'recovered' },
+    });
+  });
+
+  it('does not publish assistant_start when the stream yields nothing', async () => {
+    const provider: LLMProvider = async () =>
+      (async function* () {
+        // yields nothing
+      })();
+    const bus = createBus<CoreEvent>();
+    const events = collectEvents(bus);
+    const runtime = createRuntime({ session: newSession(), plugins: [providerPlugin(provider)], tools: {}, bus });
+
+    await runtime.start();
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'Hi' } });
+    await waitForAsync();
+    await waitForAsync();
+
+    expect(events.some((e) => e.type === 'assistant_start')).toBe(false);
+    expect(events.some((e) => e.type === 'error')).toBe(true);
+  });
+
   it('does not leave a subscription if stop runs while start is awaiting onStart', async () => {
     let releaseOnStart: (() => void) | undefined;
     const provider: LLMProvider = async () => ({ content: 'ok' });

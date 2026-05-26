@@ -26,8 +26,13 @@ describe('compileGlob', () => {
     expect(compileGlob('a.b').test('axb')).toBe(false);
   });
 
-  it('allows * to span newlines (matches multi-line tool args)', () => {
-    expect(compileGlob('*"ls*').test('{"command":"ls\n/tmp"}')).toBe(true);
+  it('does not let * span newlines (prevents newline-injection bypass)', () => {
+    expect(compileGlob('*"command":"ls *').test('{"command":"ls -la"}')).toBe(
+      true,
+    );
+    expect(
+      compileGlob('*"command":"ls *').test('{"command":"ls\nrm -rf ~"}'),
+    ).toBe(false);
   });
 });
 

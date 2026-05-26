@@ -40,18 +40,18 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: If one `executeSingle` throws (e.g. unknown tool at 306), `Promise.all` rejects immediately; messages from already-completed tools are computed but never pushed/published.
 - Impact: Side effects happened but transcript has no record; provider sees `tool_calls` with missing tool responses on retry.
 
-**6. `assistant_start` with no matching finalize on empty/stop streams**
+**6. `assistant_start` with no matching finalize on empty/stop streams — DONE**
 - File: `src/runtime.ts:241-286`
 - Dimension: Bug — Severity: P2
 - Detail: `assistant_start` is published before the loop unconditionally. If the stream yields nothing or everything is empty after stop, neither `assistant_message` nor any push happens.
 - Impact: UI typing indicators leak.
 
-**7. Wholly empty responses silently swallowed**
+**7. Wholly empty responses silently swallowed — DONE**
 - File: `src/runtime.ts:217-239`
 - Dimension: Bug — Severity: P2
 - Detail: When `content === ''`, `toolCalls.length === 0`, and no reasoning, `finalizeResponse` pushes nothing and the loop falls through to `break`. User sees no response, no error, no continuation; queue idles.
 
-**8. Side queues never drained on turn error**
+**8. Side queues never drained on turn error — DONE**
 - File: `src/runtime.ts:368` (finally block)
 - Dimension: Bug — Severity: P1
 - Detail: When the turn throws, the catch publishes error and the finally re-enters `processQueue`. `processQueue` shifts from the user `queue` (now empty), sets idle, returns — `steeringQueue`/`followUpQueue` accumulated during the failed turn sit dormant until the next user_message.
@@ -347,7 +347,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Only `SIGINT`, `SIGTERM`, `exit` are wired for cleanup. On terminal disconnect (closing tab/SSH drop), raw mode, alternate screen, mouse modes etc. are NOT restored.
 - Impact: User's shell broken until manual `reset`.
 
-**62. Escape-timeout timer race**
+**62. Escape-timeout timer race — DONE**
 - File: `src/tui.ts:387-392, 379`
 - Dimension: Bug — Severity: P2
 - Detail: Every new input chunk clears the prior pending-escape timer unconditionally. If a CSI sequence arrives split across chunks larger than `escapeTimeoutMs`, the timer keeps getting cancelled and may never fire.
@@ -362,12 +362,12 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P2
 - Detail: `first > 0xffff ? 2 : 1` — control bytes can never be > 0xffff. Dead branch. Harmless but indicates confused intent.
 
-**65. `SelectList.moveSelection` with all disabled**
+**65. `SelectList.moveSelection` with all disabled — DONE**
 - File: `src/components/SelectList.ts:213-222`
 - Dimension: Bug — Severity: P2
 - Detail: Iterates `len` times and ends back at original index. Behavior depends on clamping.
 
-**66. `ScrollView.InnerContainer.measure` ignores constraints**
+**66. `ScrollView.InnerContainer.measure` ignores constraints — DONE**
 - File: `src/components/ScrollView.ts:195-200`
 - Dimension: Bug — Severity: P2
 - Detail: Returns `{ width: 0, height: this.measureNaturalHeight() }` with infinite maxWidth. Children may report height-for-infinite-width that doesn't match actual wrap.
@@ -1121,27 +1121,27 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: Extended by `LocalBackendInfo` and never used independently.
 
-**208. `LocalBackendKind` single-value union — drop**
+**208. `LocalBackendKind` single-value union — drop — DONE**
 - File: `src/types.ts:3`
 - Dimension: Simplification — Severity: P1
 - Detail: Callers don't need to pick.
 
-**209. Package description false promises**
+**209. Package description false promises — DONE**
 - File: `package.json:4`
 - Dimension: Simplification — Severity: P1
 - Detail: Claims "llama-swap, Ollama, LM Studio" but only llama-swap implemented.
 
-**210. `selectAvailableSlot`/`normalizeSlots` inline**
+**210. `selectAvailableSlot`/`normalizeSlots` inline — DONE**
 - File: `src/backends/llama-swap.ts:108-115, 141-150`
 - Dimension: Simplification — Severity: P2
 - Detail: One-liner / used-once.
 
-**211. `backends/` subfolder flatten**
+**211. `backends/` subfolder flatten — DONE**
 - File: `src/backends/`
 - Dimension: Simplification — Severity: P1
 - Detail: With one backend, move into top-level.
 
-**212. `createLocalProvider` unused outside wrapper**
+**212. `createLocalProvider` unused outside wrapper — DONE**
 - File: `src/index.ts`
 - Dimension: Simplification — Severity: P2
 - Detail: Only tests + plugin wrapper use it. Drop export or merge.
@@ -1152,7 +1152,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Bugs
 
-**213. No SSRF protection**
+**213. No SSRF protection — DONE**
 - File: `src/plugin.ts:117-119, 218-221`
 - Dimension: Bug — Severity: P1
 - Detail: `isHttpUrl` validates only scheme. `http://localhost`, `http://127.0.0.1`, `http://169.254.169.254/latest/meta-data/`, `http://[::1]`, RFC1918 addrs all pass. Combined with default `redirect: 'follow'`, an external URL can also 302 to internal host.
@@ -1234,7 +1234,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Responsibilities — Severity: P1
 - Detail: Trust boundary already matches.
 
-**229. README should say "markdown-first"**
+**229. README should say "markdown-first" — DONE**
 - File: package.json
 - Dimension: Responsibilities — Severity: P1
 - Detail: Description ("returns it as text") should reflect markdown default.
@@ -1314,31 +1314,31 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Simplifications
 
-**244. `format` parameter never set externally**
+**244. `format` parameter never set externally — DONE**
 - File: `src/plugin.ts:23, 33-44, 121-123, 261-265`
 - Dimension: Simplification — Severity: P1
 - Detail: Drop entirely; ~60 LOC removed (accept-header switch, HTMLRewriter path, regex fallback, pickFormat, html passthrough).
 
-**245. Two identical catch blocks in CF retry**
+**245. Two identical catch blocks in CF retry — DONE**
 - File: `src/plugin.ts:132-172`
 - Dimension: Simplification — Severity: P2
 - Detail: Lines 142-151 vs 159-168 byte-identical.
 
-**246. Turndown defaults redundantly set**
+**246. Turndown defaults redundantly set — INVALID (review wrong: turndown defaults are actually setext/asterisks/indented; keeping explicit overrides)**
 - File: `src/plugin.ts:67-73`
 - Dimension: Simplification — Severity: P2
 - Detail: `headingStyle: 'atx'`, `bulletListMarker: '-'`, `codeBlockStyle: 'fenced'` all turndown defaults.
 
-**247. `buildHeaders` inlinable**
+**247. `buildHeaders` inlinable — DONE**
 - File: `src/plugin.ts:46-52`
 - Dimension: Simplification — Severity: P2
 - Detail: Only called from inside `fetchWithCloudflareRetry`.
 
-**248. `isHttpUrl`/`pickFormat`/`isImageMime`/`imageDataUrl`/`createTimeoutSignal` one-shot**
+**248. `isHttpUrl`/`pickFormat`/`isImageMime`/`imageDataUrl`/`createTimeoutSignal` one-shot — DONE**
 - File: `src/plugin.ts:54-58, 60-64, 117-119, 121-123, 205-208`
 - Dimension: Simplification — Severity: P2
 
-**249. `NON_IMAGE_MIMES` two entries**
+**249. `NON_IMAGE_MIMES` two entries — DONE**
 - File: `src/plugin.ts:60-64`
 - Dimension: Simplification — Severity: P2
 - Detail: `svg+xml`, `vnd.microsoft.icon`. Inline check clearer.
@@ -1360,42 +1360,42 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P1
 - Detail: `run()` loads state and writes via `setActivePrimary`/`onModelChange`; `main()` re-loads its own state and writes `thinkingVisible`. Each writer can clobber the other.
 
-**252. Ctrl-C doesn't abort in-flight provider request**
+**252. Ctrl-C doesn't abort in-flight provider request — DONE**
 - File: `src/ui/ChatApp.ts:476, 1240`
 - Dimension: Bug — Severity: P1
 - Detail: `handleCtrlC` calls `this.stop()` which awaits `this.runtime.stop()`; if provider is mid-stream, user waits indefinitely. No AbortSignal plumbing in `cancelGeneration`.
 
-**253. `runtime.start()` race with `loadModels()`**
+**253. `runtime.start()` race with `loadModels()` — DONE**
 - File: `src/ui/ChatApp.ts:241, 250`
 - Dimension: Bug — Severity: P1
 - Detail: `start()` order: subscribe → runtime.start → tui.start → void loadModels(). loadModels fire-and-forget; rejection swallowed; UI starts in partial state.
 
-**254. `subAgentPreviews` never pruned on /new**
+**254. `subAgentPreviews` never pruned on /new — DONE**
 - File: `src/ui/ChatApp.ts:141, 1599, 1266`
 - Dimension: Bug — Severity: P2
 - Detail: `startNewSession` calls `transcript.reset()` but Map and `viewingSubAgentUnsubscribe` not cleared. Stale entries collide via `set(entry.runId, preview)`.
 
-**255. Esc-cancel double-tap window fragile**
+**255. Esc-cancel double-tap window fragile — DONE**
 - File: `src/ui/ChatApp.ts:847`
 - Dimension: Bug — Severity: P2
 - Detail: `elapsed > 100 && elapsed < 1500` — rapid taps under 100ms silently do nothing.
 
-**256. `cancelGeneration` doesn't reset transcript state**
+**256. `cancelGeneration` doesn't reset transcript state — DONE**
 - File: `src/ui/ChatApp.ts:1238`
 - Dimension: Bug — Severity: P2
 - Detail: Clears `visibleQueuedLines` but `queuedUserLines` and pending assistant/reasoning indices in `Transcript` not reset. Subsequent `assistant_delta` mixes cancelled and new output.
 
-**257. History truncation silently drops entries**
+**257. History truncation silently drops entries — DONE**
 - File: `src/config.ts:94`
 - Dimension: Bug — Severity: P2
 - Detail: `loadHistory` truncates to last 500; `appendHistory` re-reads, slices, overwrites, permanently dropping older entries on every push.
 
-**258. Command palette cursor off-by-one**
+**258. Command palette cursor off-by-one — DONE**
 - File: `src/ui/ChatApp.ts:888`
 - Dimension: Bug — Severity: P2
 - Detail: `Math.min(6, items.length) - 1` becomes `-1` when items empty. Transient empty-filter race leaves palette inconsistent.
 
-**259. `/new` doesn't re-subscribe bus**
+**259. `/new` doesn't re-subscribe bus — DONE**
 - File: `src/ui/ChatApp.ts:1264`
 - Dimension: Bug — Severity: P2
 - Detail: Runtime recreated but `this.unsubscribe` still bound to original bus.
@@ -1579,7 +1579,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P1
 - Detail: `/context` command is commented out. Component (259 LOC) + `showContextMap()` + `role:'context'` branch + ChatLine union arm all unreachable.
 
-**294. `STATUS_SLOTS` registry premature**
+**294. `STATUS_SLOTS` registry premature — DONE**
 - File: `src/ui/statusSlots.ts:1-61`
 - Dimension: Simplification — Severity: P1
 - Detail: Only used by ChatApp with two trivial renderers. Inline `contextText` into `statusLine.ts`.
@@ -1613,12 +1613,12 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: Wraps OutputBlock component reference; pattern is one-off.
 
-**301. `UserMessage` theme prop redundant**
+**301. `UserMessage` theme prop redundant — DONE**
 - File: `src/ui/components/UserMessage.ts:9-15`
 - Dimension: Simplification — Severity: P2
 - Detail: `getTheme(ctx)` in body already handles live updates.
 
-**302. `formatTokens.ts` 3 lines, one call site**
+**302. `formatTokens.ts` 3 lines, one call site — DONE**
 - File: `src/ui/formatTokens.ts`
 - Dimension: Simplification — Severity: P2
 - Detail: Inline.
@@ -1629,7 +1629,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Bugs
 
-**303. Permissions glob dotall newline bypass**
+**303. Permissions glob dotall newline bypass — DONE**
 - File: `src/permissions/glob.ts:18`
 - Dimension: Bug — Severity: P1 (security)
 - Detail: `RegExp(..., 's')` (dotAll) — `*` and `?` match `\n`. Rule `argsPattern: '*"command":"ls *'` matches `{"command":"ls\nrm -rf ~"}`. JSON-encoded tool args can carry literal newlines, defeating per-command bash policies.
@@ -1639,22 +1639,22 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P1
 - Detail: `resolve(id, decision)` performs no validation. `userDecision === 'deny'` — any other string (typo, malicious transport, 'allow ', 'ALLOW') treated as allow.
 
-**305. `persistOnBus` non-atomic write**
+**305. `persistOnBus` non-atomic write — DONE**
 - File: `src/sessions/jsonl-store.ts:263`
 - Dimension: Bug — Severity: P1
 - Detail: Each event triggers `appendFileSync` + `store.touch()`. No locking, no rename-tmp; crash between JSON bytes and `\n` produces corrupt line that `readMessages` silently drops.
 
-**306. `touch()` rewrites createdAt permanently**
+**306. `touch()` rewrites createdAt permanently — DONE**
 - File: `src/sessions/jsonl-store.ts:222-231`
 - Dimension: Bug — Severity: P2
 - Detail: Non-atomic read-modify-write of meta. Transient meta-read failure + subsequent `touch` permanently rewrites `createdAt` to `Date.now()`.
 
-**307. Session ID collision realistic**
+**307. Session ID collision realistic — DONE**
 - File: `src/sessions/jsonl-store.ts:151, 185`
 - Dimension: Bug — Severity: P2
 - Detail: ID = `Date.now().toString(36)_<6 random base36 chars>`. Same-ms collision in `create`/`fork` overwrites/appends to existing transcript (no `O_EXCL`).
 
-**308. `waitForIdle` polls forever**
+**308. `waitForIdle` polls forever — DONE**
 - File: `src/sub-agents/runner.ts:119`
 - Dimension: Bug — Severity: P1
 - Detail: Polls every 10ms forever with no abort signal/timeout. Parent's `subagent` tool call cancellation doesn't stop sub-agent — hang/leak.
@@ -1664,7 +1664,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P2
 - Detail: `runError = event.error` overwrites on every error event.
 
-**310. Parallel sub-agent approvals not attributable**
+**310. Parallel sub-agent approvals not attributable — DONE**
 - File: `src/sub-agents/tool.ts:112-143`, `src/approvals/queue.ts:12`
 - Dimension: Bug — Severity: P2
 - Detail: `subagent_parallel` shares one `approvalPrompt` with N concurrent sub-agents. `ApprovalRequest` carries no agent name.
@@ -1674,7 +1674,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P2
 - Detail: Registering `{name: 'a', aliases: ['b']}` then `{name: 'b'}` is allowed. `resolve('b')` misroutes to `a` because alias lookup precedes name lookup.
 
-**312. Plugin loader runs arbitrary code on boot**
+**312. Plugin loader runs arbitrary code on boot — PARTIAL (manifest gate + traversal block + load logging added; full sandbox/trust-prompt deferred)**
 - File: `src/plugin-loader.ts:58-71`
 - Dimension: Bug — Severity: P1 (security)
 - Detail: Any `.ts/.js/.mts/.mjs` file in `<dataDir>/plugins` is dynamically `import()`-ed on boot. Top-level side effects run before `validatePlugin`. No signature, no sandbox.
@@ -1689,7 +1689,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P2
 - Detail: `new Cron(task.cron, ...)` throws synchronously on invalid cron strings; no try/catch around `scheduleTask`. One malformed line kills scheduler start.
 
-**315. Cron-fired prompts have no provenance**
+**315. Cron-fired prompts have no provenance — PARTIAL (TODO documented at cron-publish site; full fix requires mu-core CoreEvent extension)**
 - File: `src/scheduler/plugin.ts:70`
 - Dimension: Bug — Severity: P2 (security)
 - Detail: Scheduled tasks publish `user_message` directly. Permission rules can't distinguish "user typed this" from "cron fired".
@@ -1699,7 +1699,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P2
 - Detail: `channels.set` before awaiting `channel.start`. If `start` rejects, manager keeps the half-started channel; later `remove`/`stopAll` calls `stop` on a never-started channel.
 
-**317. Mention engine no escape mechanism**
+**317. Mention engine no escape mechanism — DONE**
 - File: `src/mentions/engine.ts:8`
 - Dimension: Bug — Severity: P2
 - Detail: Regex allows mentions inside arbitrary strings (code blocks, tool results). Resolvers run on `@prefix:target` in unexpected places.
@@ -1977,7 +1977,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P1
 - Detail: Coding-agent never accesses `result.commandRegistry`. Drop `extraCommands`/`skipDefaultCommands`/`commandRegistry` from bootstrap.
 
-**371. Bootstrap dead fields**
+**371. Bootstrap dead fields — DONE**
 - File: `src/bootstrap.ts:106-122`
 - Dimension: Simplification — Severity: P1
 - Detail: `hostName`, `paths`, `hostConfig`, `envResult`, `permissionConfig`, `commandRegistry`, `skills` never read.
@@ -1997,12 +1997,12 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P1
 - Detail: 285 lines. Coding-agent passes `sessionStore: 'memory'`. Either remove or move out.
 
-**375. Permission internals reexported unnecessarily**
+**375. Permission internals reexported unnecessarily — DONE**
 - File: `src/index.ts:31-46`
 - Dimension: Simplification — Severity: P2
 - Detail: `compileGlob`, `matchTool`, `matchArgs`, `loadPermissions`, etc. — only consumed inside the package.
 
-**376. Markdown/skills/sub-agents internals reexported**
+**376. Markdown/skills/sub-agents internals reexported — DONE**
 - File: `src/index.ts:48-65`
 - Dimension: Simplification — Severity: P2
 - Detail: `parseFrontmatter`, `parseSkill`, `loadSkills`, etc. — internal-only.
@@ -2022,7 +2022,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: Coding-agent uses 7 of 12 properties. `createRuntime(sessionId)`, `currentSession()`, `listModels`, `models` array, `model` getter, `onModelChange` can collapse.
 
-**380. `HostConfig` wrapper unnecessary**
+**380. `HostConfig` wrapper unnecessary — DONE**
 - File: `src/host-config.ts`
 - Dimension: Simplification — Severity: P2
 - Detail: 26-line wrapper around 4 string-arrays. Collapse to plain interface.
@@ -2037,7 +2037,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: `queue.request(call.tool, call.args, matched)`. Inline.
 
-**383. `XdgPaths` over-declared**
+**383. `XdgPaths` over-declared — DONE**
 - File: `src/paths/xdg.ts`
 - Dimension: Simplification — Severity: P2
 - Detail: Declares 18 path fields; coding-agent reads `pluginsDir`, `agentsDir`, `skillsDir`, `permissionsFile`.

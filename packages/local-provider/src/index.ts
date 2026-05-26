@@ -21,7 +21,7 @@ import {
   LLAMA_SWAP_KIND,
   prepareLlamaSwapChatRequest,
   tokenizeLlamaSwap,
-} from './backends/llama-swap';
+} from './llama-swap';
 import type {
   LocalBackendInfo,
   LocalLLMResponseContext,
@@ -33,7 +33,6 @@ export type {
   LLMResponseContextProps,
   LLMResponseContextSlot,
   LocalBackendInfo,
-  LocalBackendKind,
   LocalLLMResponseContext,
   LocalModel,
   LocalProviderConfig,
@@ -235,7 +234,7 @@ function labelContextPart(kind: ContextPartKind): string {
   }
 }
 
-export const createLocalProvider = (config: LocalProviderConfig): LLMProvider => {
+const createLocalProvider = (config: LocalProviderConfig): LLMProvider => {
   let backendPromise: Promise<LocalBackendInfo> | undefined;
   let client: OpenAI | undefined;
 
@@ -433,11 +432,6 @@ function extractReasoningDelta(delta: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-/**
- * Wrap `createLocalProvider` as a `Plugin` for uniform composition. Prefer
- * this in host wiring; use `createLocalProvider()` directly only when you
- * need the raw `LLMProvider` (e.g. tests).
- */
 export const createLocalProviderPlugin = (config: LocalProviderConfig): Plugin => ({
   name: 'mu-local-provider',
   provider: createLocalProvider(config),

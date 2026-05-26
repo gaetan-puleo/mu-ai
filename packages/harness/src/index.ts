@@ -10,8 +10,6 @@ export {
   RoundtripStore,
 } from './roundtrips';
 export { loadPlugins, type LoadPluginsOptions } from './plugin-loader';
-export { createHostConfig, type HostConfig } from './host-config';
-export { type Frontmatter, parseFrontmatter } from './markdown';
 export { bootstrap, type BootstrapOptions, type BootstrapResult } from './bootstrap';
 
 // ── paths ────────────────────────────────────────────────────────────
@@ -22,19 +20,19 @@ export {
   type ApprovalDecision,
   type ApprovalQueue,
   type ApprovalRequest,
+  type ApprovalRequestMeta,
   approvalQueueToPrompt,
   createApprovalQueue,
 } from './approvals/queue';
 
 // ── permissions ──────────────────────────────────────────────────────
-export { compileGlob, matchArgs, matchTool } from './permissions/glob';
 export { createPermissionRegistry, type PermissionRegistry } from './permissions/registry';
 export {
   createPermissionHook,
   type PermissionHookOptions,
   type PermissionPrompt,
+  type PermissionPromptMeta,
 } from './permissions/hook';
-export { loadPermissions } from './permissions/loader';
 export type {
   PermissionCheck,
   PermissionConfig,
@@ -44,14 +42,10 @@ export type {
 } from './permissions/types';
 
 // ── skills ───────────────────────────────────────────────────────────
-export { loadSkills } from './skills/loader';
-export { parseSkill, type SkillParseInput } from './skills/parser';
 export { formatSkillInvocation, formatSkillsForSystemPrompt } from './skills/system-prompt';
-export type { Skill } from './skills/types';
+export { type Skill } from './skills/types';
 
 // ── sub-agents ───────────────────────────────────────────────────────
-export { loadSubAgents } from './sub-agents/loader';
-export { parseSubAgent, type SubAgentParseInput } from './sub-agents/parser';
 export { runSubAgent, type RunSubAgentOptions, type SubAgentRunResult } from './sub-agents/runner';
 export {
   createSubAgentParallelTool,

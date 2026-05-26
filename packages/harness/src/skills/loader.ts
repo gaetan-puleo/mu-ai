@@ -1,11 +1,10 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
-import type { HostConfig } from '../host-config';
 import { parseSkill } from './parser';
 import type { Skill } from './types';
 
 /**
- * Load all skills from every directory in `hostConfig.skillsDirs`.
+ * Load all skills from every directory in `skillsDirs`.
  *
  * v1 behavior: top-level `.md` files only (no recursion). When two skills
  * share a name, the one from the later directory in the list wins —
@@ -13,10 +12,10 @@ import type { Skill } from './types';
  *
  * Missing directories are skipped silently. Malformed skill files throw.
  */
-export function loadSkills(hostConfig: HostConfig): Skill[] {
+export function loadSkills(skillsDirs: string[]): Skill[] {
   const byName = new Map<string, Skill>();
 
-  for (const dir of hostConfig.skillsDirs) {
+  for (const dir of skillsDirs) {
     if (!existsSync(dir)) continue;
     const stat = statSync(dir);
     if (!stat.isDirectory()) continue;

@@ -2,12 +2,24 @@ import type { BeforeToolHook } from 'mu-core';
 import type { PermissionRegistry } from './registry';
 import type { PermissionCheck, PermissionRule } from './types';
 
+export interface PermissionPromptMeta {
+  /** Sub-agent that triggered the call, if any. Set by `runSubAgent`. */
+  agent?: string;
+}
+
 /**
  * Asks the host whether to allow a tool call that the static config could
  * not decide automatically. The host can show a TUI dialog, send an RPC
  * request, defer to a policy, etc. Must resolve to `allow` or `deny`.
+ *
+ * The optional `meta` carries provenance (e.g. originating sub-agent) so the
+ * host can attribute concurrent approval prompts.
  */
-export type PermissionPrompt = (call: PermissionCheck, matched?: PermissionRule) => Promise<'allow' | 'deny'>;
+export type PermissionPrompt = (
+  call: PermissionCheck,
+  matched?: PermissionRule,
+  meta?: PermissionPromptMeta,
+) => Promise<'allow' | 'deny'>;
 
 export interface PermissionHookOptions {
   registry: PermissionRegistry;

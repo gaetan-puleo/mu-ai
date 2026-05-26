@@ -1,9 +1,8 @@
 import type {
-  LLMResponseContextSlot,
   LocalBackendInfo,
   LocalLLMResponseContext,
   LocalModel,
-} from '../types';
+} from './types';
 
 export const LLAMA_SWAP_KIND = 'llama-swap' as const;
 
@@ -105,15 +104,6 @@ export async function getLlamaSwapSlots(config: {
   }
 }
 
-export function selectAvailableSlot(slots: LlamaSwapSlotInfo[]): LlamaSwapSlotInfo | undefined {
-  for (const slot of slots) {
-    if (!slot.is_processing) {
-      return slot;
-    }
-  }
-  return undefined;
-}
-
 export interface LlamaSwapChatRequestExtras {
   id_slot: number;
   cache_prompt: boolean;
@@ -128,7 +118,7 @@ export async function prepareLlamaSwapChatRequest(config: {
   if (!slots?.length) {
     return undefined;
   }
-  const slot = selectAvailableSlot(slots);
+  const slot = slots.find((s) => !s.is_processing);
   if (!slot) {
     return undefined;
   }
@@ -136,17 +126,6 @@ export async function prepareLlamaSwapChatRequest(config: {
     id_slot: slot.id,
     cache_prompt: true,
   };
-}
-
-function normalizeSlots(slots: LlamaSwapSlotInfo[] | undefined): LLMResponseContextSlot[] | undefined {
-  if (!slots?.length) {
-    return undefined;
-  }
-  return slots.map((slot) => ({
-    id: slot.id,
-    n_ctx: slot.n_ctx,
-    is_processing: slot.is_processing,
-  }));
 }
 
 export async function collectLlamaSwapContext(config: {
@@ -175,8 +154,12 @@ export async function collectLlamaSwapContext(config: {
     };
   }
 
-  const normalizedSlots = normalizeSlots(slots);
-  if (normalizedSlots) {
+  if (slots?.length) {
+    const normalizedSlots = slots.map((slot) => ({
+      id: slot.id,
+      n_ctx: slot.n_ctx,
+      is_processing: slot.is_processing,
+    }));
     context.slots = normalizedSlots;
 
     if (config.selectedSlotId !== undefined) {

@@ -1,18 +1,11 @@
 import type { Component, Constraints, LayoutStyle, RenderContext, Size } from 'mu-tui';
 import { truncateToWidth, visibleWidth, wrapText } from 'mu-tui';
-import { Box, Text } from 'mu-tui/components';
-import { getTheme, styleToAnsi, type Theme } from '../theme';
+import { Box } from 'mu-tui/components';
+import { darkTheme, getTheme, styleToAnsi } from '../theme';
 
 export interface UserMessageProps {
   content: string;
   label?: string;
-  /**
-   * Theme captured at construction time. The surface color is baked into the
-   * outer Box so the layout engine paints padding cells correctly. Text
-   * styling still reads the active theme at render time, so live switches
-   * recolor text within the same bubble.
-   */
-  theme: Theme;
 }
 
 const RESET = '\x1b[0m';
@@ -33,6 +26,18 @@ class UserMessageLabel implements Component {
     const text = `[${this.label}]`;
     const fitted = visibleWidth(text) > width ? truncateToWidth(text, width) : text;
     return [prefix ? `${prefix}${fitted}${RESET}` : fitted];
+  }
+}
+
+class UserMessagePrompt implements Component {
+  layout: LayoutStyle = { width: 2, height: 1 };
+
+  render(ctx: RenderContext): string[] {
+    const { width, height } = ctx.contentRect;
+    if (width <= 0 || height <= 0) return [];
+    const theme = getTheme(ctx);
+    const prefix = styleToAnsi(theme.styles.muted);
+    return [prefix ? `${prefix}❯${RESET}` : '❯'];
   }
 }
 
@@ -80,16 +85,10 @@ class UserMessageBody implements Component {
 
 export class UserMessage extends Box {
   constructor(props: UserMessageProps) {
-    const prefix = styleToAnsi(props.theme.styles.muted);
-    const prompt = new Text({
-      text: `${prefix}❯${RESET}`,
-      wrap: false,
-      layout: { width: 2, height: 1 },
-    });
     const body = new UserMessageBody(props.content);
     const contentRow = new Box({
       layout: { width: 'fill', height: 'auto', direction: 'row' },
-      children: [prompt, body],
+      children: [new UserMessagePrompt(), body],
     });
 
     const children: Component[] = [];
@@ -102,9 +101,14 @@ export class UserMessage extends Box {
         height: 'auto',
         margin: { bottom: 1 },
         padding: { right: 1, left: 1 },
-        backgroundColor: props.theme.styles.userMessage.bg,
+        backgroundColor: darkTheme.styles.userMessage.bg,
       },
       children,
     });
+  }
+
+  override render(ctx?: RenderContext): string[] {
+    if (ctx && this.layout) this.layout.backgroundColor = getTheme(ctx).styles.userMessage.bg;
+    return super.render();
   }
 }

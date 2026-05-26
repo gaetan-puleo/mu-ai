@@ -1,7 +1,7 @@
 {
   "name": "mu-webfetch",
   "version": "0.16.0",
-  "description": "Webfetch tool for mu — fetches a URL and returns it as text.",
+  "description": "Webfetch tool for mu — fetches a URL and returns it as markdown by default.",
   "type": "module",
   "main": "./src/plugin.ts",
   "types": "./src/plugin.ts",

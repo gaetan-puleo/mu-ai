@@ -36,7 +36,6 @@ import {
   createSessionsCommand,
 } from './commands/defaults';
 import { type CommandRegistry, createCommandRegistry } from './commands/registry';
-import { createHostConfig, type HostConfig } from './host-config';
 import { createXdgPaths, type XdgPaths } from './paths/xdg';
 import { createPermissionHook } from './permissions/hook';
 import { loadPermissions } from './permissions/loader';
@@ -44,10 +43,8 @@ import { createPermissionRegistry } from './permissions/registry';
 import type { PermissionConfig } from './permissions/types';
 import { loadPlugins } from './plugin-loader';
 import { createJsonlSessionStore } from './sessions/jsonl-store';
-import type { PersistedSessionStore } from './sessions/types';
 import { loadSkills } from './skills/loader';
 import { formatSkillsForSystemPrompt } from './skills/system-prompt';
-import type { Skill } from './skills/types';
 import { loadSubAgents } from './sub-agents/loader';
 import { filterToolsByPrimary, pickPrimaryAgent } from './sub-agents/primary';
 import { createSubAgentParallelTool, createSubAgentTool } from './sub-agents/tool';
@@ -68,7 +65,6 @@ export interface BootstrapOptions {
    */
   extraAgentsDirs?: string[];
   extraSkillsDirs?: string[];
-  extraPluginsDirs?: string[];
   /** Extra permissions files (in addition to `<configDir>/permissions.json`). */
   extraPermissionsFiles?: string[];
   /** npm specs to pre-load as plugins. */
@@ -102,20 +98,14 @@ export interface BootstrapOptions {
 }
 
 export interface BootstrapResult {
-  hostName: string;
-  paths: XdgPaths;
-  hostConfig: HostConfig;
   bus: EventBus<CoreEvent>;
   store: SessionStore;
   approvalQueue: ApprovalQueue;
-  commandRegistry: CommandRegistry;
-  permissionConfig: PermissionConfig;
   /** First primary agent picked at boot. Stable across the run. */
   primaryAgent: SubAgent | undefined;
   /** Every agent declared with `type: primary`. Hosts that support switching iterate this list. */
   primaryAgents: SubAgent[];
   subAgents: SubAgent[];
-  skills: Skill[];
   /** Tools the runtime should expose (after primary-agent filtering and subagent injection). */
   tools: Tools;
   /** Plugins composed for the runtime (provider + extras + user plugins). */
@@ -136,26 +126,17 @@ export interface BootstrapResult {
 export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult> {
   const paths = opts.paths ?? createXdgPaths(opts.hostName);
 
-  // HostConfig
   const skillsDirs = uniqueExisting([paths.skillsDir, ...(opts.extraSkillsDirs ?? [])]);
   const subAgentsDirs = uniqueExisting([paths.agentsDir, ...(opts.extraAgentsDirs ?? [])]);
-  const pluginsDirs = uniqueExisting([paths.pluginsDir, ...(opts.extraPluginsDirs ?? [])]);
   const permissionsFiles = unique([paths.permissionsFile, ...(opts.extraPermissionsFiles ?? [])]);
-
-  const hostConfig = createHostConfig(opts.hostName, {
-    pluginsDirs,
-    permissionsFiles,
-    skillsDirs,
-    subAgentsDirs,
-  });
 
   // 3. Resources from disk
   const userPlugins = await loadPlugins({
     localDir: paths.pluginsDir,
     npmSpecs: opts.npmPlugins,
   });
-  const subAgentsAll = loadSubAgents(hostConfig);
-  const skills = loadSkills(hostConfig);
+  const subAgentsAll = loadSubAgents(subAgentsDirs);
+  const skills = loadSkills(skillsDirs);
   const primaryAgents = subAgentsAll.filter((a) => a.type === 'primary');
   const primaryAgent = pickPrimaryAgent(subAgentsAll);
   const subAgents = subAgentsAll.filter((a) => a.type !== 'primary');
@@ -170,7 +151,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   if (source === 'primary-agent' && primaryAgent) {
     permissionConfig = { rules: primaryAgent.permissions, default: defaultDecision };
   } else if (source === 'permissions-file') {
-    permissionConfig = loadPermissions(hostConfig);
+    permissionConfig = loadPermissions(permissionsFiles);
   } else {
     permissionConfig = { rules: [], default: defaultDecision };
   }
@@ -270,18 +251,12 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   }
 
   return {
-    hostName: opts.hostName,
-    paths,
-    hostConfig,
     bus,
     store,
     approvalQueue,
-    commandRegistry,
-    permissionConfig,
     primaryAgent,
     primaryAgents,
     subAgents,
-    skills,
     tools,
     plugins,
     systemPrompt,

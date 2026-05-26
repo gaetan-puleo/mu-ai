@@ -48,34 +48,25 @@ describe('mu-webfetch — URL validation', () => {
 });
 
 describe('mu-webfetch — content negotiation', () => {
-  it('returns plain text bodies untouched in text mode', async () => {
+  it('returns plain text bodies untouched', async () => {
     setFetch(async () => new Response('hello world', { headers: { 'content-type': 'text/plain' } }));
-    const out = await run({ url: 'https://example.com/x', format: 'text' });
+    const out = await run({ url: 'https://example.com/x' });
     expect(out).toBe('hello world');
   });
 
-  it('returns raw HTML in html mode', async () => {
-    const html = '<html><head><title>t</title></head><body><p>hi</p></body></html>';
-    setFetch(async () => new Response(html, { headers: { 'content-type': 'text/html' } }));
-    const out = await run({ url: 'https://example.com/x', format: 'html' });
-    expect(out).toBe(html);
-  });
-
-  it('converts HTML to markdown by default', async () => {
+  it('converts HTML to markdown', async () => {
     const html = '<html><body><h1>Title</h1><p>body <em>copy</em></p></body></html>';
     setFetch(async () => new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } }));
     const out = await run({ url: 'https://example.com/x' });
-    expect(typeof out).toBe('string');
-    const md = out;
-    expect(md).toContain('# Title');
-    expect(md).toContain('*copy*');
-    expect(md).not.toContain('<h1>');
+    expect(out).toContain('# Title');
+    expect(out).toContain('*copy*');
+    expect(out).not.toContain('<h1>');
   });
 
-  it('extracts text from HTML in text mode', async () => {
+  it('drops script and style content when converting HTML', async () => {
     const html = '<html><body><script>var x=1</script><p>visible</p><style>.x{}</style></body></html>';
     setFetch(async () => new Response(html, { headers: { 'content-type': 'text/html' } }));
-    const out = await run({ url: 'https://example.com/x', format: 'text' });
+    const out = await run({ url: 'https://example.com/x' });
     expect(out).toContain('visible');
     expect(out).not.toContain('var x=1');
     expect(out).not.toContain('<p>');
@@ -94,7 +85,7 @@ describe('mu-webfetch — image responses', () => {
   it('treats svg as text, not image', async () => {
     const svg = '<svg><title>x</title></svg>';
     setFetch(async () => new Response(svg, { headers: { 'content-type': 'image/svg+xml' } }));
-    const out = await run({ url: 'https://example.com/x.svg', format: 'html' });
+    const out = await run({ url: 'https://example.com/x.svg' });
     expect(out).toBe(svg);
   });
 });
@@ -140,7 +131,7 @@ describe('mu-webfetch — Cloudflare retry', () => {
       return new Response('ok', { headers: { 'content-type': 'text/plain' } });
     });
 
-    const out = await run({ url: 'https://example.com/x', format: 'text' });
+    const out = await run({ url: 'https://example.com/x' });
     expect(out).toBe('ok');
     expect(calls.length).toBe(2);
     expect(calls[0]?.ua).toContain('Mozilla/');
@@ -206,14 +197,84 @@ describe('mu-webfetch — turndown failure (#217)', () => {
 });
 
 describe('mu-webfetch — tool surface', () => {
-  it('declares the format enum on its parameters', () => {
-    const tool = getTool();
-    const params = tool.parameters as { properties: { format: { enum: string[] } } };
-    expect(params.properties.format.enum).toEqual(['text', 'markdown', 'html']);
-  });
-
   it('declares its tool system prompt', () => {
     const tool = getTool();
     expect(tool.systemPrompt).toContain('## webfetch');
+  });
+});
+
+describe('mu-webfetch — SSRF protection (#213)', () => {
+  it('rejects http://127.0.0.1 without contacting fetch', async () => {
+    setFetch(() => Promise.reject(new Error('fetch should not run')));
+    const out = await run({ url: 'http://127.0.0.1/foo' });
+    expect(out).toContain('Error:');
+    expect(out).toContain('internal');
+  });
+
+  it('rejects cloud metadata endpoint 169.254.169.254', async () => {
+    setFetch(() => Promise.reject(new Error('fetch should not run')));
+    const out = await run({ url: 'http://169.254.169.254/latest/meta-data/' });
+    expect(out).toContain('Error:');
+    expect(out).toContain('internal');
+  });
+
+  it('rejects http://localhost/', async () => {
+    setFetch(() => Promise.reject(new Error('fetch should not run')));
+    const out = await run({ url: 'http://localhost/' });
+    expect(out).toContain('Error:');
+    expect(out).toContain('internal');
+  });
+
+  it('rejects RFC1918 http://10.0.0.5/', async () => {
+    setFetch(() => Promise.reject(new Error('fetch should not run')));
+    const out = await run({ url: 'http://10.0.0.5/' });
+    expect(out).toContain('Error:');
+    expect(out).toContain('internal');
+  });
+
+  it('rejects IPv6 loopback http://[::1]/', async () => {
+    setFetch(() => Promise.reject(new Error('fetch should not run')));
+    const out = await run({ url: 'http://[::1]/' });
+    expect(out).toContain('Error:');
+    expect(out).toContain('internal');
+  });
+
+  it('rejects IPv4-mapped IPv6 http://[::ffff:127.0.0.1]/', async () => {
+    setFetch(() => Promise.reject(new Error('fetch should not run')));
+    const out = await run({ url: 'http://[::ffff:127.0.0.1]/' });
+    expect(out).toContain('Error:');
+    expect(out).toContain('internal');
+  });
+
+  it('allows a public HTTPS URL through validation (fetch mocked)', async () => {
+    setFetch(async () => new Response('ok', { headers: { 'content-type': 'text/plain' } }));
+    const out = await run({ url: 'https://example.com/x' });
+    expect(out).toBe('ok');
+  });
+
+  it('rejects when a public URL redirects to 127.0.0.1', async () => {
+    let n = 0;
+    setFetch(async () => {
+      n++;
+      if (n === 1) {
+        return new Response(null, { status: 302, headers: { location: 'http://127.0.0.1/secret' } });
+      }
+      throw new Error('should not follow into internal host');
+    });
+    const out = await run({ url: 'https://example.com/x' });
+    expect(out).toContain('Error:');
+    expect(out).toContain('internal');
+    expect(n).toBe(1);
+  });
+
+  it('caps redirect chains at MAX_REDIRECTS', async () => {
+    let n = 0;
+    setFetch(async (_url) => {
+      n++;
+      return new Response(null, { status: 302, headers: { location: `https://example.com/r${n}` } });
+    });
+    const out = await run({ url: 'https://example.com/start' });
+    expect(out).toContain('Error:');
+    expect(out).toContain('Too many redirects');
   });
 });

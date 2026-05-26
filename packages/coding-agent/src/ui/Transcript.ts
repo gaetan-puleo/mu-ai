@@ -41,6 +41,12 @@ export class Transcript {
     this.pendingReasoningIndex = undefined;
   }
 
+  resetPending(): void {
+    this.queuedUserLines = [];
+    this.pendingAssistantIndex = undefined;
+    this.pendingReasoningIndex = undefined;
+  }
+
   appendUser(content: string): void {
     this.lines.push({ role: 'user', content });
   }

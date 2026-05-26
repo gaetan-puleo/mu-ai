@@ -1,5 +1,4 @@
 #!/usr/bin/env -S deno run -A
-import type { LocalBackendKind } from 'mu-local-provider';
 import { createLocalProviderPlugin, listLocalModels } from 'mu-local-provider';
 import { createMuTools } from 'mu-tools';
 import {
@@ -46,8 +45,8 @@ async function run(): Promise<void> {
 
   // Build a mutable provider config so `onModelChange` can swap models without
   // recreating the plugin (the local provider reads `config.model` lazily).
-  const providerConfig: { kind?: LocalBackendKind; baseUrl: string; model: string; apiKey?: string } = {
-    kind: config.kind as LocalBackendKind | undefined,
+  const providerConfig: { kind?: 'llama-swap'; baseUrl: string; model: string; apiKey?: string } = {
+    kind: config.kind as 'llama-swap' | undefined,
     baseUrl: config.baseUrl,
     model: initialModel,
   };

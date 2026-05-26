@@ -336,6 +336,32 @@ describe('SelectList', () => {
     expect(changed).toBe(1);
   });
 
+  it('keeps selectedIndex stable when all items are disabled', () => {
+    const allDisabled = [
+      { label: 'one', disabled: true },
+      { label: 'two', disabled: true },
+      { label: 'three', disabled: true },
+    ];
+    const list = new SelectList({ items: allDisabled, selectedIndex: 1 });
+    const ctxIn = { rect: { x: 0, y: 0, width: 1, height: 1 }, contentRect: { x: 0, y: 0, width: 1, height: 1 }, focused: true };
+    const down = {
+      type: 'key' as const,
+      key: 'down',
+      kind: 'press' as const,
+      source: 'legacy' as const,
+      raw: '',
+      shift: false,
+      ctrl: false,
+      alt: false,
+      meta: false,
+    };
+    list.handleEvent(down, ctxIn);
+    expect(list.selectedIndex).toBe(1);
+    list.handleEvent(down, ctxIn);
+    list.handleEvent(down, ctxIn);
+    expect(list.selectedIndex).toBe(1);
+  });
+
   it('Enter triggers onSelect', () => {
     let selected: string | null = null;
     const list = new SelectList({ items, onSelect: (item) => (selected = item.label) });

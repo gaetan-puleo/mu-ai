@@ -15,7 +15,7 @@ export function compileGlob(pattern: string): RegExp {
     else if (ch === '?') regex += '.';
     else regex += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
   }
-  return new RegExp(`^${regex}$`, 's');
+  return new RegExp(`^${regex}$`);
 }
 
 export function matchTool(ruleTool: string, callTool: string): boolean {

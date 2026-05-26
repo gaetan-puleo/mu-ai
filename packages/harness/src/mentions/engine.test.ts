@@ -61,4 +61,62 @@ describe('createMentionEngine', () => {
     engine.register(fileResolver);
     expect(() => engine.register(fileResolver)).toThrow();
   });
+
+  it('does not resolve an escaped mention and strips the backslash', async () => {
+    let resolveCalls = 0;
+    const engine = createMentionEngine();
+    engine.register({
+      prefix: 'user',
+      resolve(target) {
+        resolveCalls++;
+        return { display: `<@${target}>` };
+      },
+    });
+    const { text, mentions } = await engine.expand('contact \\@user:alice for help');
+    expect(text).toBe('contact @user:alice for help');
+    expect(mentions).toHaveLength(0);
+    expect(resolveCalls).toBe(0);
+  });
+
+  it('does not resolve mentions inside inline code spans', async () => {
+    let resolveCalls = 0;
+    const engine = createMentionEngine();
+    engine.register({
+      prefix: 'file',
+      resolve(target) {
+        resolveCalls++;
+        return { display: `[file:${target}]` };
+      },
+    });
+    const { text, mentions } = await engine.expand('see `@file:foo.ts` in the log');
+    expect(text).toBe('see `@file:foo.ts` in the log');
+    expect(mentions).toHaveLength(0);
+    expect(resolveCalls).toBe(0);
+  });
+
+  it('does not resolve mentions inside fenced code blocks', async () => {
+    let resolveCalls = 0;
+    const engine = createMentionEngine();
+    engine.register({
+      prefix: 'file',
+      resolve(target) {
+        resolveCalls++;
+        return { display: `[file:${target}]` };
+      },
+    });
+    const input = 'before\n```\n@file:foo.ts\n```\nafter';
+    const { text, mentions } = await engine.expand(input);
+    expect(text).toBe(input);
+    expect(mentions).toHaveLength(0);
+    expect(resolveCalls).toBe(0);
+  });
+
+  it('still resolves mentions outside code regions when both are present', async () => {
+    const engine = createMentionEngine();
+    engine.register(fileResolver);
+    const { text, mentions } = await engine.expand('see `@file:skip.ts` but check @file:./foo.ts');
+    expect(text).toBe('see `@file:skip.ts` but check [file:./foo.ts]');
+    expect(mentions).toHaveLength(1);
+    expect(mentions[0].target).toBe('./foo.ts');
+  });
 });

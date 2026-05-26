@@ -1,7 +1,5 @@
 import type { LLMResponseContext } from 'mu-core';
 
-export type LocalBackendKind = 'llama-swap';
-
 export interface LLMResponseContextSlot {
   id: number;
   n_ctx: number;
@@ -29,13 +27,13 @@ export interface LocalModel {
 }
 
 export interface LocalBackendInfo {
-  kind: LocalBackendKind;
+  kind: 'llama-swap';
   baseUrl: string;
   models: LocalModel[];
 }
 
 export interface LocalProviderConfig {
-  kind?: LocalBackendKind;
+  kind?: 'llama-swap';
   baseUrl?: string;
   model?: string;
   apiKey?: string;

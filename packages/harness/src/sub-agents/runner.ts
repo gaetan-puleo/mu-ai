@@ -42,6 +42,18 @@ export interface RunSubAgentOptions {
   /** Poll interval (ms) used to detect runtime idle. Defaults to 10ms. */
   pollIntervalMs?: number;
   /**
+   * Optional cancellation channel. When aborted, the runner stops polling for
+   * idle, tears the runtime down, and surfaces the abort reason in `errors`.
+   */
+  signal?: AbortSignal;
+  /**
+   * Hard ceiling on how long `waitForIdle` will poll before giving up. Defaults
+   * to 10 minutes — long enough for any realistic single sub-agent task, short
+   * enough that a wedged runtime doesn't leak forever. Pass `Infinity` to
+   * disable.
+   */
+  timeoutMs?: number;
+  /**
    * Forwards every `CoreEvent` the sub-agent's runtime emits. Useful when the
    * host wants to display the sub-agent's transcript live (separate from the
    * parent runtime).
@@ -119,7 +131,13 @@ export async function runSubAgent(opts: RunSubAgentOptions): Promise<SubAgentRun
       message: { role: 'user', content: prompt },
     });
 
-    await waitForIdle(runtime, opts.pollIntervalMs ?? 10);
+    await waitForIdle(runtime, {
+      pollMs: opts.pollIntervalMs ?? 10,
+      signal: opts.signal,
+      timeoutMs: opts.timeoutMs ?? 10 * 60 * 1000,
+    });
+  } catch (err) {
+    runErrors.push(err);
   } finally {
     unsubscribe();
     await runtime.stop();
@@ -133,13 +151,20 @@ export async function runSubAgent(opts: RunSubAgentOptions): Promise<SubAgentRun
 }
 
 function composeHooks(subAgent: SubAgent, opts: RunSubAgentOptions): ToolHooks | undefined {
+  // Tag every approval request emitted from this sub-agent with its name so
+  // the host UI can disambiguate concurrent prompts from parallel sub-agents.
+  const taggedPrompt: PermissionPrompt | undefined = opts.approvalPrompt
+    ? (call, matched, meta) =>
+      opts.approvalPrompt!(call, matched, { ...meta, agent: meta?.agent ?? subAgent.name })
+    : undefined;
+
   const permissionHook = subAgent.permissions.length > 0
     ? createPermissionHook({
       registry: createPermissionRegistry({
         rules: subAgent.permissions,
         default: opts.permissionDefault ?? 'allow',
       }),
-      prompt: opts.approvalPrompt,
+      prompt: taggedPrompt,
     })
     : undefined;
 
@@ -171,10 +196,54 @@ function filterPlugin(plugin: Plugin, allow: string[]): Plugin {
   return { ...plugin, tools: filterTools(plugin.tools, allow) };
 }
 
-async function waitForIdle(runtime: ReturnType<typeof createRuntime>, pollMs: number): Promise<void> {
+interface WaitForIdleOptions {
+  pollMs: number;
+  signal?: AbortSignal;
+  timeoutMs: number;
+}
+
+async function waitForIdle(
+  runtime: ReturnType<typeof createRuntime>,
+  opts: WaitForIdleOptions,
+): Promise<void> {
   // Yield a microtask so processQueue starts before we check state.
   await Promise.resolve();
+  const { pollMs, signal, timeoutMs } = opts;
+  if (signal?.aborted) throw abortError(signal);
+  const deadline = Number.isFinite(timeoutMs) ? Date.now() + timeoutMs : Infinity;
   while (runtime.state() !== 'idle') {
-    await new Promise((r) => setTimeout(r, pollMs));
+    if (signal?.aborted) throw abortError(signal);
+    if (Date.now() >= deadline) {
+      throw new Error(`sub-agent waitForIdle timed out after ${timeoutMs}ms`);
+    }
+    await sleep(pollMs, signal);
   }
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      reject(abortError(signal!));
+    };
+    if (signal) {
+      if (signal.aborted) {
+        clearTimeout(timer);
+        reject(abortError(signal));
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+  });
+}
+
+function abortError(signal: AbortSignal): Error {
+  const reason = signal.reason;
+  if (reason instanceof Error) return reason;
+  return new Error(typeof reason === 'string' ? reason : 'sub-agent run aborted');
 }

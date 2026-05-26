@@ -10,19 +10,6 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 export interface XdgPaths {
-  hostName: string;
-  /** $XDG_CONFIG_HOME or ~/.config */
-  configHome: string;
-  /** $XDG_DATA_HOME or ~/.local/share */
-  dataHome: string;
-  /** $XDG_STATE_HOME or ~/.local/state */
-  stateHome: string;
-  /** $XDG_CONFIG_HOME/<host> */
-  configDir: string;
-  /** $XDG_DATA_HOME/<host> */
-  dataDir: string;
-  /** $XDG_STATE_HOME/<host> */
-  stateDir: string;
   /** $XDG_CONFIG_HOME/<host>/config.json */
   configFile: string;
   /** $XDG_CONFIG_HOME/<host>/.env */
@@ -55,13 +42,6 @@ export function createXdgPaths(hostName: string): XdgPaths {
   const stateDir = join(stateHome, hostName);
 
   return {
-    hostName,
-    configHome,
-    dataHome,
-    stateHome,
-    configDir,
-    dataDir,
-    stateDir,
     configFile: join(configDir, 'config.json'),
     envFile: join(configDir, '.env'),
     permissionsFile: join(configDir, 'permissions.json'),

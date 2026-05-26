@@ -212,13 +212,15 @@ export class SelectList<T = unknown> implements Focusable {
 
   private moveSelection(delta: number): void {
     if (this._items.length === 0) return;
-    let next = this._selectedIndex;
     const len = this._items.length;
+    let next = this._selectedIndex;
     for (let i = 0; i < len; i++) {
       next = (next + delta + len) % len;
-      if (!this._items[next].disabled) break;
+      if (!this._items[next].disabled) {
+        this.setSelectedIndex(next);
+        return;
+      }
     }
-    this.setSelectedIndex(next);
   }
 
   private adjustViewport(height: number): void {

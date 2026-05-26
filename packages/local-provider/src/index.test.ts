@@ -5,10 +5,18 @@ import {
   getLlamaSwapOpenAIBaseUrl,
   normalizeLlamaSwapBaseUrl,
   prepareLlamaSwapChatRequest,
-  selectAvailableSlot,
   tokenizeLlamaSwap,
-} from './backends/llama-swap';
-import { createLocalProvider, detectLocalBackend, listLocalModels, setOpenAIClientForTesting } from './index';
+} from './llama-swap';
+import type { LLMProvider } from 'mu-core';
+import {
+  createLocalProviderPlugin,
+  detectLocalBackend,
+  listLocalModels,
+  setOpenAIClientForTesting,
+} from './index';
+import type { LocalProviderConfig } from './index';
+
+const createLocalProvider = (config: LocalProviderConfig): LLMProvider => createLocalProviderPlugin(config).provider!;
 
 let currentChatImpl: ((options: unknown) => unknown) | undefined;
 const mockCreateChatCompletion = fn((options: unknown) => currentChatImpl?.(options));
@@ -100,24 +108,6 @@ describe('getLlamaSwapOpenAIBaseUrl', () => {
   });
 });
 
-describe('selectAvailableSlot', () => {
-  it('selects first non-processing slot', () => {
-    const slot = selectAvailableSlot(MOCK_SLOTS_RESPONSE);
-    expect(slot).toBeDefined();
-    expect(slot?.id).toBe(0);
-  });
-
-  it('returns undefined when all slots are processing', () => {
-    const allBusy = MOCK_SLOTS_RESPONSE.map((s) => ({ ...s, is_processing: true }));
-    const slot = selectAvailableSlot(allBusy);
-    expect(slot).toBeUndefined();
-  });
-
-  it('returns undefined for empty array', () => {
-    expect(selectAvailableSlot([])).toBeUndefined();
-  });
-});
-
 describe('prepareLlamaSwapChatRequest', () => {
   let cleanup: (() => void) | undefined;
 
@@ -139,6 +129,20 @@ describe('prepareLlamaSwapChatRequest', () => {
       id_slot: 0,
       cache_prompt: true,
     });
+  });
+
+  it('returns undefined when all slots are processing', async () => {
+    const allBusy = MOCK_SLOTS_RESPONSE.map((s) => ({ ...s, is_processing: true }));
+    cleanup = mockFetch({
+      '/slots': { ok: true, json: () => allBusy },
+    });
+
+    const extras = await prepareLlamaSwapChatRequest({
+      baseUrl: 'http://localhost:8080',
+      model: 'gemma-4-e2b',
+    });
+
+    expect(extras).toBeUndefined();
   });
 
   it('returns undefined when slots fetch fails', async () => {

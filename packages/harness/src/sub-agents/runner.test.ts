@@ -123,6 +123,39 @@ describe('runSubAgent', () => {
     expect(result.error).toBe('boom');
   });
 
+  it('tags approval prompts with the sub-agent name', async () => {
+    let seenMeta: { agent?: string } | undefined;
+    const toolCall: ToolCall = { type: 'tool_call', id: 'c1', tool: 'echo', args: '{}' };
+    let turn = 0;
+    const provider: LLMProvider = async () => {
+      turn++;
+      if (turn === 1) return { tool_calls: [toolCall] };
+      return { content: 'done' };
+    };
+    const echo: Tool = {
+      name: 'echo',
+      description: 'echo',
+      parameters: { type: 'object', properties: {} },
+      execute: () => 'ok',
+      onError: (e) => String(e),
+    };
+    await runSubAgent({
+      subAgent: makeSubAgent({
+        name: 'explorer',
+        tools: ['echo'],
+        permissions: [{ tool: 'echo', decision: 'ask' }],
+      }),
+      prompt: 'go',
+      tools: { echo },
+      plugins: [providerPlugin(provider)],
+      approvalPrompt: (_call, _matched, meta) => {
+        seenMeta = meta;
+        return Promise.resolve('allow');
+      },
+    });
+    expect(seenMeta?.agent).toBe('explorer');
+  });
+
   it('handles a tool-using turn followed by a final response', async () => {
     let turn = 0;
     const toolCall: ToolCall = { type: 'tool_call', id: 'c1', tool: 'echo', args: '{"msg":"hi"}' };
@@ -149,5 +182,33 @@ describe('runSubAgent', () => {
     });
     expect(result.content).toBe('all done');
     expect(turn).toBe(2);
+  });
+
+  it('aborts when the caller signal fires and surfaces the abort reason', async () => {
+    // Provider that never resolves — without the signal the run would hang
+    // forever on `waitForIdle`.
+    const provider: LLMProvider = () => new Promise(() => {});
+    const controller = new AbortController();
+    queueMicrotask(() => controller.abort(new Error('caller cancelled')));
+    const result = await runSubAgent({
+      subAgent: makeSubAgent(),
+      prompt: 'task',
+      plugins: [providerPlugin(provider)],
+      signal: controller.signal,
+      pollIntervalMs: 1,
+    });
+    expect(result.error).toBe('caller cancelled');
+  });
+
+  it('times out cleanly when waitForIdle exceeds timeoutMs', async () => {
+    const provider: LLMProvider = () => new Promise(() => {});
+    const result = await runSubAgent({
+      subAgent: makeSubAgent(),
+      prompt: 'task',
+      plugins: [providerPlugin(provider)],
+      timeoutMs: 25,
+      pollIntervalMs: 1,
+    });
+    expect(result.error).toContain('timed out');
   });
 });

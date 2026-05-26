@@ -192,10 +192,10 @@ class InnerContainer implements Component {
     };
   }
 
-  measure(_constraints: Constraints): Size {
+  measure(constraints: Constraints): Size {
     return {
-      width: 0,
-      height: this.measureNaturalHeight(),
+      width: constraints.maxWidth,
+      height: this.measureNaturalHeight(constraints.maxWidth),
     };
   }
 

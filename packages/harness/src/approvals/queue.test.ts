@@ -44,6 +44,21 @@ describe('createApprovalQueue', () => {
     const queue = createApprovalQueue();
     expect(() => queue.resolve('does-not-exist', 'allow')).not.toThrow();
   });
+
+  it('attaches `agent` to the pending request when provided in meta', async () => {
+    const queue = createApprovalQueue();
+    const pending = queue.request('Read', '{}', undefined, { agent: 'explorer' });
+    const req = queue.pending()[0];
+    expect(req.agent).toBe('explorer');
+    queue.resolve(req.id, 'allow');
+    expect(await pending).toBe('allow');
+  });
+
+  it('leaves `agent` undefined when meta is not provided', () => {
+    const queue = createApprovalQueue();
+    queue.request('Read', '{}');
+    expect(queue.pending()[0].agent).toBeUndefined();
+  });
 });
 
 describe('assertApprovalDecision', () => {

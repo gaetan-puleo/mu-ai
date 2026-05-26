@@ -225,11 +225,19 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     let content = '';
     let reasoning = '';
     let finalized = false;
+    let started = false;
     const streamedCalls: ToolCall[] = [];
     const seenCallIds = new Set<string>();
     let doneCalls: ToolCall[] | undefined;
 
-    bus.publish({ type: 'assistant_start' });
+    // Publish `assistant_start` lazily on the first non-finalizing event so an
+    // empty stream or stop-before-yield doesn't leave the UI typing forever.
+    const ensureStarted = (): void => {
+      if (!started) {
+        started = true;
+        bus.publish({ type: 'assistant_start' });
+      }
+    };
 
     for await (const event of stream) {
       if ((currentState as RuntimeState) === 'stopped') {
@@ -237,17 +245,25 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       }
 
       if (event.type === 'delta') {
+        ensureStarted();
         content += event.content;
         bus.publish({ type: 'assistant_delta', content: event.content });
       } else if (event.type === 'reasoning_delta') {
+        ensureStarted();
         reasoning += event.content;
         bus.publish({ type: 'reasoning_delta', content: event.content });
       } else if (event.type === 'tool_call') {
+        ensureStarted();
         streamedCalls.push(event.call);
         seenCallIds.add(event.call.id);
         bus.publish({ type: 'tool_call', call: event.call });
       } else if (event.type === 'done') {
         const responseCalls = event.response?.tool_calls ?? [];
+        const hasContent = !!(event.response?.content ?? content);
+        const hasReasoning = !!(event.response?.reasoning ?? reasoning);
+        if (hasContent || hasReasoning || responseCalls.length) {
+          ensureStarted();
+        }
         for (const call of responseCalls) {
           if (!seenCallIds.has(call.id)) {
             seenCallIds.add(call.id);
@@ -326,7 +342,19 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       return;
     }
 
-    const next = queue.shift();
+    let next = queue.shift();
+    let nextSource: 'steering' | 'follow_up' | undefined;
+    if (!next) {
+      // Promote a side-queue head as the next turn so messages enqueued during
+      // a failed turn don't sit dormant until the next user_message.
+      if (steeringQueue.length) {
+        next = steeringQueue.shift();
+        nextSource = 'steering';
+      } else if (followUpQueue.length) {
+        next = followUpQueue.shift();
+        nextSource = 'follow_up';
+      }
+    }
     if (!next) {
       currentState = 'idle';
       return;
@@ -334,6 +362,10 @@ export function createRuntime(config: RuntimeConfig): Runtime {
 
     processing = true;
     currentState = 'running';
+    if (nextSource) {
+      emitQueueUpdate();
+      bus.publish({ type: 'queued_message', queue: nextSource, message: next });
+    }
     messages.push(next);
     const repeatedToolCalls = new Map<string, number>();
 
@@ -341,6 +373,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       while ((currentState as RuntimeState) !== 'stopped') {
         const activeTools = getTools();
         const providerMessages = await buildProviderMessages(activeTools);
+        const lastBeforeCall = messages[messages.length - 1];
         const result = await provider(providerMessages, activeTools);
 
         const calls = await consumeResult(result);
@@ -370,6 +403,16 @@ export function createRuntime(config: RuntimeConfig): Runtime {
           if (failed) break;
           drainIntoTranscript(steeringQueue, 'steering');
           continue;
+        }
+
+        // Detect a wholly empty response: finalizeResponse pushed nothing, so
+        // the transcript head is unchanged. Surface as an error and break to
+        // avoid an infinite loop on an unresponsive provider.
+        if (messages[messages.length - 1] === lastBeforeCall) {
+          const error = new Error('Provider returned empty response');
+          bus.publish({ type: 'error', error });
+          callOnError(error);
+          break;
         }
 
         if (drainIntoTranscript(steeringQueue, 'steering')) continue;

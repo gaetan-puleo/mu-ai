@@ -366,19 +366,19 @@ export class TUI {
       }
     }
 
-    if (this.pendingEscapeTimer) {
-      clearTimeout(this.pendingEscapeTimer);
-      this.pendingEscapeTimer = undefined;
-    }
-
     const events = this.parser.feed(data);
     this.dispatchEvents(events);
 
     if (this.parser.hasPending()) {
-      this.pendingEscapeTimer = setTimeout(() => {
-        this.pendingEscapeTimer = undefined;
-        this.dispatchEvents(this.parser.flushPending());
-      }, this.escapeTimeoutMs);
+      if (!this.pendingEscapeTimer) {
+        this.pendingEscapeTimer = setTimeout(() => {
+          this.pendingEscapeTimer = undefined;
+          this.dispatchEvents(this.parser.flushPending());
+        }, this.escapeTimeoutMs);
+      }
+    } else if (this.pendingEscapeTimer) {
+      clearTimeout(this.pendingEscapeTimer);
+      this.pendingEscapeTimer = undefined;
     }
   }
 

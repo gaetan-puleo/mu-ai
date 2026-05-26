@@ -85,23 +85,26 @@ export function getHistoryPath(): string {
   return paths.historyFile;
 }
 
-export function loadHistory(): string[] {
+function readHistoryRaw(): string[] {
   const path = getHistoryPath();
   if (!existsSync(path)) return [];
   try {
     const raw = JSON.parse(readFileSync(path, 'utf-8')) as unknown;
     if (!Array.isArray(raw)) return [];
-    return raw.filter((e): e is string => typeof e === 'string').slice(-MAX_HISTORY);
+    return raw.filter((e): e is string => typeof e === 'string');
   } catch {
     return [];
   }
 }
 
+export function loadHistory(): string[] {
+  return readHistoryRaw().slice(-MAX_HISTORY);
+}
+
 export function appendHistory(entry: string): void {
-  const history = loadHistory();
+  const history = readHistoryRaw();
   if (history[history.length - 1] === entry) return;
   history.push(entry);
-  if (history.length > MAX_HISTORY) history.splice(0, history.length - MAX_HISTORY);
   try {
     saveJson(getHistoryPath(), history);
   } catch { /* ignore */ }

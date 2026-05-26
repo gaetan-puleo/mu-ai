@@ -1,22 +1,21 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { extname } from 'node:path';
 import { parse as parseYaml } from '@std/yaml';
-import type { HostConfig } from '../host-config';
 import type { PermissionConfig, PermissionDecision, PermissionRule } from './types';
 
 const VALID_DECISIONS: PermissionDecision[] = ['allow', 'deny', 'ask'];
 
 /**
- * Read every file in `hostConfig.permissionsFiles` (in order) and merge them
- * into a single PermissionConfig. Later files extend rules and overwrite the
- * default. Missing files are skipped silently; malformed files throw.
+ * Read every file in `permissionsFiles` (in order) and merge them into a
+ * single PermissionConfig. Later files extend rules and overwrite the default.
+ * Missing files are skipped silently; malformed files throw.
  *
  * Files ending in `.yaml` / `.yml` are parsed as YAML; everything else as JSON.
  */
-export function loadPermissions(hostConfig: HostConfig): PermissionConfig {
+export function loadPermissions(permissionsFiles: string[]): PermissionConfig {
   const merged: PermissionConfig = { rules: [], default: 'ask' };
 
-  for (const path of hostConfig.permissionsFiles) {
+  for (const path of permissionsFiles) {
     if (!existsSync(path)) continue;
     const parsed = parseFile(path);
     merged.rules.push(...parsed.rules);

@@ -44,12 +44,14 @@ function metaFile(dir: string, id: string): string {
 function readMessages(file: string): Message[] {
   if (!existsSync(file)) return [];
   const out: Message[] = [];
+  let lineNo = 0;
   for (const line of readFileSync(file, 'utf-8').split('\n')) {
+    lineNo++;
     if (!line) continue;
     try {
       out.push(JSON.parse(line) as Message);
-    } catch {
-      /* skip malformed lines */
+    } catch (err) {
+      console.error(`[mu-harness/sessions] malformed transcript line ${lineNo} in ${file}:`, err);
     }
   }
   return out;
@@ -138,6 +140,20 @@ export function createJsonlSessionStore(dir: string): PersistedSessionStore {
     return [...ids];
   }
 
+  function idExists(id: string): boolean {
+    return sessions.has(id) || existsSync(metaFile(dir, id)) || existsSync(transcriptFile(dir, id));
+  }
+
+  function freshId(): string {
+    // Retry on the (rare) same-millisecond collision rather than overwriting an
+    // existing transcript / appending to it.
+    for (let i = 0; i < 16; i++) {
+      const id = `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      if (!idExists(id)) return id;
+    }
+    throw new Error('[mu-harness/sessions] failed to generate a unique session id after 16 attempts');
+  }
+
   const store: PersistedSessionStore = {
     list() {
       return listIds().map((id) => loadSession(id)!).filter(Boolean);
@@ -148,7 +164,7 @@ export function createJsonlSessionStore(dir: string): PersistedSessionStore {
     },
 
     create(init: SessionInit = {}) {
-      const id = `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      const id = freshId();
       const now = Date.now();
       const session: Session = {
         id,
@@ -182,7 +198,7 @@ export function createJsonlSessionStore(dir: string): PersistedSessionStore {
       if (pivot.role !== 'user') {
         throw new Error(`Fork point must be a user message; got role "${pivot.role}" at index ${atIndex}`);
       }
-      const id = `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      const id = freshId();
       const now = Date.now();
       const fork: Session = {
         id,
@@ -222,8 +238,13 @@ export function createJsonlSessionStore(dir: string): PersistedSessionStore {
     touch(id) {
       const session = loadSession(id);
       if (!session) return;
+      // Read the existing meta first; if it's unreadable (transient FS error or
+      // genuinely missing) we MUST NOT synthesize a new one — doing so would
+      // permanently rewrite `createdAt` to "now". Abort the touch instead;
+      // callers see an outdated `updatedAt` but the record stays correct.
+      const meta = readMeta(metaFile(dir, id));
+      if (!meta) return;
       session.updatedAt = Date.now();
-      const meta = readMeta(metaFile(dir, id)) ?? { title: session.title ?? id, createdAt: session.createdAt };
       meta.updatedAt = session.updatedAt;
       writeMeta(metaFile(dir, id), meta);
       emitCore({ type: 'updated', session });
@@ -259,8 +280,13 @@ export function createJsonlSessionStore(dir: string): PersistedSessionStore {
       return bus.subscribe((event: CoreEvent) => {
         const msg = messageFromEvent(event);
         if (!msg) return;
+        // Pre-build the full line (JSON + newline) so the single `appendFileSync`
+        // call writes a complete record. A crash mid-call can still produce a
+        // partial write, but at least no second call can interleave between the
+        // JSON bytes and the terminating newline.
+        const line = `${JSON.stringify(msg)}\n`;
         try {
-          appendFileSync(file, `${JSON.stringify(msg)}\n`, 'utf-8');
+          appendFileSync(file, line, 'utf-8');
           store.touch(sessionId);
         } catch (err) {
           console.error(`[mu-harness/sessions] failed to persist ${sessionId}:`, err);
