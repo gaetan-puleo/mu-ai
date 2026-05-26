@@ -340,9 +340,7 @@ describe('createLocalProvider', () => {
             { id: 1, n_ctx: 32000, is_processing: true },
           ],
           currentSlot: { id: 0, n_ctx: 32000, is_processing: false },
-          localContext: {
-            provider: 'mu-local-provider',
-            backend: 'llama-swap',
+          contextMap: {
             model: 'gemma-4-e2b',
             usedTokens: 1234,
             windowTokens: 32000,
@@ -420,16 +418,16 @@ describe('createLocalProvider', () => {
     const events: unknown[] = [];
     for await (const event of result as AsyncIterable<unknown>) events.push(event);
 
-    const done = events.at(-1) as { response: { context: { localContext: unknown } } };
-    const localContext = done.response.context.localContext as {
+    const done = events.at(-1) as { response: { context: { contextMap: unknown } } };
+    const contextMap = done.response.context.contextMap as {
       estimated: boolean;
       parts: Array<{ kind: string; tokens: number; estimated: boolean }>;
     };
 
-    expect(localContext.estimated).toBe(false);
-    expect(localContext.parts.every((p) => p.estimated === false)).toBe(true);
-    expect(localContext.parts.every((p) => p.tokens === 7)).toBe(true);
-    expect(localContext.parts.map((p) => p.kind).sort()).toEqual(['messages', 'system', 'tool_results']);
+    expect(contextMap.estimated).toBe(false);
+    expect(contextMap.parts.every((p) => p.estimated === false)).toBe(true);
+    expect(contextMap.parts.every((p) => p.tokens === 7)).toBe(true);
+    expect(contextMap.parts.map((p) => p.kind).sort()).toEqual(['messages', 'system', 'tool_results']);
   });
 
   it('falls back to estimate when /tokenize returns 404', async () => {
@@ -456,14 +454,14 @@ describe('createLocalProvider', () => {
     const events: unknown[] = [];
     for await (const event of result as AsyncIterable<unknown>) events.push(event);
 
-    const done = events.at(-1) as { response: { context: { localContext: unknown } } };
-    const localContext = done.response.context.localContext as {
+    const done = events.at(-1) as { response: { context: { contextMap: unknown } } };
+    const contextMap = done.response.context.contextMap as {
       estimated: boolean;
       parts: Array<{ kind: string; estimated: boolean }>;
     };
 
-    expect(localContext.estimated).toBe(true);
-    expect(localContext.parts[0].estimated).toBe(true);
+    expect(contextMap.estimated).toBe(true);
+    expect(contextMap.parts[0].estimated).toBe(true);
   });
 });
 

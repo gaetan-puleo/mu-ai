@@ -1,6 +1,6 @@
 {
   "name": "mu-tools",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Shared filesystem + shell tools (read, write, edit, bash, list_dir) for mu hosts",
   "type": "module",
   "main": "./src/index.ts",

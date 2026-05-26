@@ -4,7 +4,11 @@ import { createBus } from './bus';
 import type { LLMProvider } from './provider';
 import type { CoreEvent } from './runtime';
 import { createRuntime } from './runtime';
+import { createInMemorySessionStore } from './session';
 import type { ToolHooks } from './types/Hook';
+
+const store = createInMemorySessionStore();
+const newSession = () => store.create();
 
 function collectEvents(bus: ReturnType<typeof createBus<CoreEvent>>): CoreEvent[] {
   const events: CoreEvent[] = [];
@@ -30,7 +34,7 @@ describe('tool hooks', () => {
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [{ name: 'test-provider', provider }],
       tools: {
         sum: {
@@ -70,7 +74,7 @@ describe('tool hooks', () => {
       beforeTool: async () => ({ block: true, reason: 'Blocked by hook' }),
     };
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [{ name: 'test-provider', provider }],
       tools: {
         sum: {
@@ -118,7 +122,7 @@ describe('tool hooks', () => {
       afterTool: async () => ({ result: '999' }),
     };
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [{ name: 'test-provider', provider }],
       tools: {
         sum: {
@@ -170,7 +174,7 @@ describe('tool hooks', () => {
       },
     };
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [{ name: 'test-provider', provider }],
       tools: {
         sum: {

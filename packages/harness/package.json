@@ -1,0 +1,18 @@
+{
+  "name": "mu-harness",
+  "version": "0.16.0",
+  "description": "Agent harness: bootstrap, AgentRuntime, plugin loader, permissions, skills, sub-agents, commands, mentions, channels, sessions (jsonl), scheduler, approvals, XDG paths, logger",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "mu-core": "workspace:*",
+    "croner": "^9.0.0"
+  }
+}

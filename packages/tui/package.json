@@ -1,13 +1,11 @@
 {
   "name": "mu-tui",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./features": "./src/features/index.ts",
-    "./components": "./src/components/index.ts",
-    "./layout": "./src/layout/index.ts"
+    "./components": "./src/components/index.ts"
   },
   "scripts": {
     "test": "deno test -A"

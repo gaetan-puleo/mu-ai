@@ -2,7 +2,8 @@ import type { Color, Component, Constraints, LayoutStyle, RenderContext, Size } 
 import { truncateToWidth, visibleWidth } from 'mu-tui';
 import { getTheme, palette, styleToAnsi } from '../theme';
 import { formatTokens } from '../formatTokens';
-import type { Roundtrip, RoundtripPart, RoundtripPartKind } from '../../runtime/RoundtripStore';
+import type { ContextPartKind } from 'mu-core';
+import type { Roundtrip } from 'mu-harness';
 
 const RESET = '\x1b[0m';
 const GRID_SIZE = 10;
@@ -11,7 +12,7 @@ const GRID_WIDTH = GRID_SIZE * 2 - 1;
 const GRID_LINE_WIDTH = GRID_WIDTH + 4;
 const SIDE_BY_SIDE_MIN_WIDTH = 52;
 
-type CellKind = RoundtripPartKind | 'empty';
+type CellKind = ContextPartKind | 'empty';
 
 interface RenderPart {
   kind: CellKind;
@@ -20,7 +21,7 @@ interface RenderPart {
   cells: number;
 }
 
-const PART_ORDER: RoundtripPartKind[] = [
+const PART_ORDER: ContextPartKind[] = [
   'system',
   'tools',
   'skills',
@@ -238,7 +239,7 @@ function sumCells(parts: Array<{ cells: number }>): number {
   return parts.reduce((sum, part) => sum + part.cells, 0);
 }
 
-function labelContextPart(kind: RoundtripPartKind): string {
+function labelContextPart(kind: ContextPartKind): string {
   switch (kind) {
     case 'system':
       return 'system';

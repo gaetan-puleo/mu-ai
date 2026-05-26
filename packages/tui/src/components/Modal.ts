@@ -1,5 +1,5 @@
 import type { InputEvent } from '../events';
-import type { Constraints, EventContext, LayoutStyle, Rect, RenderContext, Size } from '../layout/types';
+import type { Color, Constraints, EventContext, LayoutStyle, Rect, RenderContext, Size } from '../layout/types';
 import type { Component, Focusable } from '../types/component';
 import { truncateToWidth, visibleWidth, wrapText } from '../utils';
 import { Box } from './Box';
@@ -19,7 +19,7 @@ export interface ModalProps {
    * `backdropOpacity = 0.5`, producing a real semi-transparent darken — the
    * content underneath the modal shows through, blended.
    */
-  backdropColor?: string;
+  backdropColor?: Color;
   /** Backdrop opacity, 0.0-1.0. Defaults to 0.5. */
   backdropOpacity?: number;
   panelStyle?: string;
@@ -36,7 +36,7 @@ export interface ModalProps {
 }
 
 const RESET = '\x1b[0m';
-const DEFAULT_BACKDROP_COLOR = '#000000';
+const DEFAULT_BACKDROP_COLOR: Color = '#000000';
 const DEFAULT_BACKDROP_OPACITY = 0.7;
 const DEFAULT_PANEL_STYLE = '\x1b[48;2;24;24;24m';
 const DEFAULT_TITLE_STYLE = '\x1b[1m\x1b[37m';

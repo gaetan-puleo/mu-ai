@@ -13,7 +13,3 @@ export interface Plugin {
   hooks?: PluginHooks;
   provider?: LLMProvider;
 }
-
-export function definePlugin<Args extends unknown[]>(factory: (...args: Args) => Plugin): (...args: Args) => Plugin {
-  return factory;
-}

@@ -1,10 +1,15 @@
 import { expect } from '@std/expect';
 import { describe, it } from '@std/testing/bdd';
 import { createBus } from './bus';
-import { definePlugin, type Plugin } from './plugin';
+import type { Plugin } from './plugin';
 import type { LLMProvider } from './provider';
 import type { CoreEvent } from './runtime';
 import { createRuntime } from './runtime';
+import { createInMemorySessionStore } from './session';
+import type { Message } from './types/Message';
+
+const store = createInMemorySessionStore();
+const newSession = () => store.create();
 
 function collectEvents(bus: ReturnType<typeof createBus<CoreEvent>>): CoreEvent[] {
   const events: CoreEvent[] = [];
@@ -30,7 +35,7 @@ describe('createRuntime', () => {
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {},
       bus,
@@ -71,7 +76,7 @@ describe('createRuntime', () => {
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {
         sum: {
@@ -119,7 +124,7 @@ describe('createRuntime', () => {
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {},
       bus,
@@ -151,7 +156,7 @@ describe('createRuntime', () => {
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {},
       bus,
@@ -188,7 +193,7 @@ describe('createRuntime', () => {
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {},
       bus,
@@ -220,7 +225,7 @@ describe('createRuntime', () => {
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {},
       bus,
@@ -256,7 +261,7 @@ describe('createRuntime', () => {
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {},
       bus,
@@ -289,7 +294,7 @@ describe('createRuntime', () => {
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {},
       bus,
@@ -308,7 +313,7 @@ describe('createRuntime', () => {
     expect(eventIndex(events, 'assistant_message')).toBeLessThan(eventIndex(events, 'context_update'));
   });
 
-  it('adds runtime and tool system prompts to provider messages without publishing them', async () => {
+  it('injects only the runtime system prompt (tool-level systemPrompt is not auto-included)', async () => {
     const providerMessages: string[][] = [];
     const provider: LLMProvider = async (messages) => {
       providerMessages.push(messages.map((message) => `${message.role}:${message.content}`));
@@ -317,13 +322,14 @@ describe('createRuntime', () => {
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {
         webfetch: {
           name: 'webfetch',
           description: 'Fetch URLs',
           parameters: {},
+          // Defined but intentionally ignored by the runtime — see buildProviderMessages.
           systemPrompt: 'Use webfetch for URLs.',
           execute: () => 'ok',
           onError: () => 'failed',
@@ -338,11 +344,11 @@ describe('createRuntime', () => {
 
     await waitForAsync();
 
-    expect(providerMessages[0]).toEqual(['system:You are helpful.\n\nUse webfetch for URLs.', 'user:Hi']);
+    expect(providerMessages[0]).toEqual(['system:You are helpful.', 'user:Hi']);
     expect(events.some((event) => 'message' in event && event.message.role === 'system')).toBe(false);
   });
 
-  it('recomputes dynamic tool system prompts on each provider call', async () => {
+  it('recomputes the runtime system prompt on each provider call when it is a function', async () => {
     let promptVersion = 0;
     let callCount = 0;
     const providerMessages: string[][] = [];
@@ -356,19 +362,19 @@ describe('createRuntime', () => {
       return { content: 'Done' };
     };
     const bus = createBus<CoreEvent>();
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {
         dynamic: {
           name: 'dynamic',
           description: 'Dynamic tool',
           parameters: {},
-          systemPrompt: () => (promptVersion === 0 ? 'version 0' : 'version 1'),
           execute: () => 'ok',
           onError: () => 'failed',
         },
       },
       bus,
+      systemPrompt: () => (promptVersion === 0 ? 'version 0' : 'version 1'),
     });
 
     await runtime.start();
@@ -386,7 +392,7 @@ describe('createRuntime', () => {
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {},
       bus,
@@ -431,7 +437,7 @@ describe('createRuntime', () => {
     };
 
     const bus = createBus<CoreEvent>();
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {
         slow: {
@@ -483,7 +489,7 @@ describe('createRuntime', () => {
 
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
-    const runtime = createRuntime({ plugins: [providerPlugin(provider)], tools: {}, bus });
+    const runtime = createRuntime({ session: newSession(), plugins: [providerPlugin(provider)], tools: {}, bus });
 
     await runtime.start();
     bus.publish({ type: 'user_message', message: { role: 'user', content: 'Start' } });
@@ -516,7 +522,7 @@ describe('createRuntime', () => {
 
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {
         slow: {
@@ -566,7 +572,7 @@ describe('createRuntime', () => {
 
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {
         slow: {
@@ -614,7 +620,7 @@ describe('createRuntime', () => {
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {},
       bus,
@@ -646,7 +652,7 @@ describe('createRuntime', () => {
     const provider: LLMProvider = async () => ({ content: 'Response' });
     const bus = createBus<CoreEvent>();
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {},
       bus,
@@ -670,7 +676,7 @@ describe('createRuntime', () => {
     };
 
     const bus = createBus<CoreEvent>();
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       plugins: [providerPlugin(provider)],
       tools: {},
       bus,
@@ -705,7 +711,7 @@ describe('createRuntime', () => {
     };
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);
-    const plugin = definePlugin(() => ({
+    const plugin: Plugin = {
       name: 'plugin',
       tools: {
         plugin: {
@@ -716,9 +722,9 @@ describe('createRuntime', () => {
           onError: () => 'failed',
         },
       },
-    }))();
+    };
 
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       tools: {
         base: {
           name: 'base',
@@ -748,7 +754,7 @@ describe('createRuntime', () => {
   it('throws when plugin tools collide with base tools', () => {
     const bus = createBus<CoreEvent>();
     const provider: LLMProvider = async () => ({ content: 'ok' });
-    const plugin = definePlugin(() => ({
+    const plugin: Plugin = {
       name: 'plugin',
       tools: {
         same: {
@@ -759,10 +765,10 @@ describe('createRuntime', () => {
           onError: () => 'failed',
         },
       },
-    }))();
+    };
 
     expect(() =>
-      createRuntime({
+      createRuntime({ session: newSession(),
         tools: {
           same: {
             name: 'same',
@@ -782,7 +788,7 @@ describe('createRuntime', () => {
     const order: string[] = [];
     const provider: LLMProvider = async () => ({ content: 'ok' });
     const bus = createBus<CoreEvent>();
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       tools: {},
       plugins: [
         providerPlugin(provider),
@@ -826,7 +832,7 @@ describe('createRuntime', () => {
       tool_calls: [{ type: 'tool_call', id: '1', tool: 'missing', args: '{}' }],
     });
     const bus = createBus<CoreEvent>();
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       tools: {},
       plugins: [providerPlugin(provider), { name: 'errors', hooks: { onError: (error) => errors.push(error) } }],
       bus,
@@ -843,7 +849,7 @@ describe('createRuntime', () => {
   it('throws when start() is called after stop()', async () => {
     const provider: LLMProvider = async () => ({ content: 'ok' });
     const bus = createBus<CoreEvent>();
-    const runtime = createRuntime({ plugins: [providerPlugin(provider)], tools: {}, bus });
+    const runtime = createRuntime({ session: newSession(), plugins: [providerPlugin(provider)], tools: {}, bus });
 
     await runtime.start();
     await runtime.stop();
@@ -858,7 +864,7 @@ describe('createRuntime', () => {
       return { content: 'from plugin' };
     };
     const bus = createBus<CoreEvent>();
-    const runtime = createRuntime({
+    const runtime = createRuntime({ session: newSession(),
       tools: {},
       plugins: [{ name: 'my-provider', provider: pluginProvider }],
       bus,
@@ -876,7 +882,188 @@ describe('createRuntime', () => {
 
   it('throws when no plugin provides a provider', () => {
     const bus = createBus<CoreEvent>();
-    expect(() => createRuntime({ tools: {}, bus })).toThrow('No provider configured');
+    expect(() => createRuntime({ session: newSession(), tools: {}, bus })).toThrow('No provider configured');
+  });
+
+  it('emits assistant_start for non-streaming providers', async () => {
+    const provider: LLMProvider = async () => ({ content: 'Hello!' });
+    const bus = createBus<CoreEvent>();
+    const events = collectEvents(bus);
+
+    const runtime = createRuntime({ session: newSession(),
+      plugins: [providerPlugin(provider)],
+      tools: {},
+      bus,
+    });
+
+    await runtime.start();
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'Hi' } });
+    await waitForAsync();
+
+    expect(events.some((event) => event.type === 'assistant_start')).toBe(true);
+  });
+
+  it('emits tool_call events for non-streaming providers', async () => {
+    let callCount = 0;
+    const provider: LLMProvider = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { tool_calls: [{ type: 'tool_call', id: '1', tool: 'sum', args: '1 2' }] };
+      }
+      return { content: 'Done' };
+    };
+    const bus = createBus<CoreEvent>();
+    const events = collectEvents(bus);
+
+    const runtime = createRuntime({ session: newSession(),
+      plugins: [providerPlugin(provider)],
+      tools: {
+        sum: {
+          name: 'sum',
+          description: 'Add',
+          parameters: {},
+          execute: () => '3',
+          onError: () => 'failed',
+        },
+      },
+      bus,
+    });
+
+    await runtime.start();
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'Calc' } });
+    await waitForAsync();
+    await waitForAsync();
+
+    expect(events).toContainEqual({
+      type: 'tool_call',
+      call: { type: 'tool_call', id: '1', tool: 'sum', args: '1 2' },
+    });
+  });
+
+  it('does not duplicate tool_call events when a streamed call also appears in done.response', async () => {
+    const call = { type: 'tool_call' as const, id: '1', tool: 'sum', args: '1 2' };
+    let callCount = 0;
+    const provider: LLMProvider = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return (async function* () {
+          yield { type: 'tool_call', call };
+          yield { type: 'done', response: { tool_calls: [call] } };
+        })();
+      }
+      return { content: 'Done' };
+    };
+    const bus = createBus<CoreEvent>();
+    const events = collectEvents(bus);
+
+    const runtime = createRuntime({ session: newSession(),
+      plugins: [providerPlugin(provider)],
+      tools: {
+        sum: {
+          name: 'sum',
+          description: 'Add',
+          parameters: {},
+          execute: () => '3',
+          onError: () => 'failed',
+        },
+      },
+      bus,
+    });
+
+    await runtime.start();
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'Calc' } });
+    await waitForAsync();
+    await waitForAsync();
+
+    expect(events.filter((event) => event.type === 'tool_call')).toHaveLength(1);
+  });
+
+  it('merges content and tool_calls into a single transcript entry for the next provider call', async () => {
+    const providerMessages: Message[][] = [];
+    let callCount = 0;
+    const provider: LLMProvider = async (messages) => {
+      callCount++;
+      providerMessages.push(messages.map((m) => ({ ...m })));
+      if (callCount === 1) {
+        return {
+          content: 'Reading file now',
+          tool_calls: [{ type: 'tool_call', id: '1', tool: 'read', args: '{}' }],
+        };
+      }
+      return { content: 'Done' };
+    };
+    const bus = createBus<CoreEvent>();
+    const runtime = createRuntime({ session: newSession(),
+      plugins: [providerPlugin(provider)],
+      tools: {
+        read: {
+          name: 'read',
+          description: 'Read a file',
+          parameters: {},
+          execute: () => 'file contents',
+          onError: () => 'failed',
+        },
+      },
+      bus,
+    });
+
+    await runtime.start();
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'Read it' } });
+    await waitForAsync();
+    await waitForAsync();
+
+    const secondCallTranscript = providerMessages[1];
+    const assistantEntries = secondCallTranscript.filter((m) => m.role === 'assistant');
+
+    expect(assistantEntries).toHaveLength(1);
+    expect(assistantEntries[0].content).toBe('Reading file now');
+    expect(assistantEntries[0].tool_calls).toEqual([
+      { type: 'tool_call', id: '1', tool: 'read', args: '{}' },
+    ]);
+  });
+
+  it('does not wipe queued messages when a turn fails', async () => {
+    let callCount = 0;
+    const provider: LLMProvider = async () => {
+      callCount++;
+      if (callCount <= 3) throw new Error(`boom ${callCount}`);
+      return { content: 'finally worked' };
+    };
+    const bus = createBus<CoreEvent>();
+    const events = collectEvents(bus);
+    const runtime = createRuntime({ session: newSession(), plugins: [providerPlugin(provider)], tools: {}, bus });
+
+    await runtime.start();
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'one' } });
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'two' } });
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'three' } });
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'four' } });
+
+    for (let i = 0; i < 10; i++) await waitForAsync();
+
+    expect(events.filter((e) => e.type === 'error')).toHaveLength(3);
+    expect(events).toContainEqual({
+      type: 'assistant_message',
+      message: { role: 'assistant', content: 'finally worked' },
+    });
+  });
+
+  it('emits queue events when steering arrives while idle', async () => {
+    const provider: LLMProvider = async () => ({ content: 'ok' });
+    const bus = createBus<CoreEvent>();
+    const events = collectEvents(bus);
+    const runtime = createRuntime({ session: newSession(), plugins: [providerPlugin(provider)], tools: {}, bus });
+
+    await runtime.start();
+    bus.publish({ type: 'steer', message: { role: 'user', content: 'while idle' } });
+    await waitForAsync();
+
+    expect(events).toContainEqual({
+      type: 'queued_message',
+      queue: 'steering',
+      message: { role: 'user', content: 'while idle' },
+    });
+    expect(events.filter((e) => e.type === 'queue_update').length).toBeGreaterThan(0);
   });
 
   it('throws when multiple plugins provide a provider', () => {
@@ -884,7 +1071,7 @@ describe('createRuntime', () => {
     const p2: LLMProvider = async () => ({ content: '' });
     const bus = createBus<CoreEvent>();
     expect(() =>
-      createRuntime({
+      createRuntime({ session: newSession(),
         tools: {},
         plugins: [
           { name: 'a', provider: p1 },

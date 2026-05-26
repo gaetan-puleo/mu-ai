@@ -519,7 +519,9 @@ export class TUI {
     }
 
     const lines = cellBufferToLines(buffer);
-    return trimTrailingBlankLines(lines);
+    let end = lines.length;
+    while (end > 0 && /^ *$/.test(lines[end - 1])) end--;
+    return end === lines.length ? lines : lines.slice(0, end);
   }
 
   private doRender(): void {
@@ -746,16 +748,3 @@ export class TUI {
   }
 }
 
-function trimTrailingBlankLines(lines: string[]): string[] {
-  let end = lines.length;
-  while (end > 0 && isBlankLine(lines[end - 1])) end--;
-  if (end === lines.length) return lines;
-  return lines.slice(0, end);
-}
-
-function isBlankLine(line: string): boolean {
-  for (const ch of line) {
-    if (ch !== ' ') return false;
-  }
-  return true;
-}

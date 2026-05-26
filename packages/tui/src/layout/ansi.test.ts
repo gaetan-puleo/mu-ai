@@ -61,7 +61,6 @@ describe('parseLine', () => {
 
   it('handles 22 (normal intensity) clearing bold and dim', () => {
     const cells = parseLine('\x1b[1;2mA\x1b[22mB');
-    expect(cells[0].bold).toBeUndefined();
     expect(cells[0].style.bold).toBe(true);
     expect(cells[0].style.dim).toBe(true);
     expect(cells[1].style.bold).toBe(false);

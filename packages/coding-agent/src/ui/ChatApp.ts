@@ -3,8 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { CoreEvent, LLMResponseContext, Message, Runtime, Unsubscribe } from 'mu-core';
 import { appendHistory, loadHistory } from '../config';
-import type { Model } from '../runtime';
-import { RoundtripStore } from '../runtime/RoundtripStore';
+import { formatSubAgentReplyForParent, type Model, RoundtripStore } from 'mu-harness';
 import { type Component, type InputEvent, ProcessTerminal, TUI } from 'mu-tui';
 import { Box, Input, type InputHighlight, Modal, ScrollView, SelectList, Text } from 'mu-tui/components';
 import { AssistantMessage } from './components/AssistantMessage';
@@ -17,6 +16,8 @@ import { ReasoningBlock } from './components/ReasoningBlock';
 import { ToolLine } from './components/ToolLine';
 import { UserMessage } from './components/UserMessage';
 import { WaitingList, type WaitingItem } from './components/WaitingList';
+import { SubAgentPreview } from './components/SubAgentPreview';
+import { SubAgentRunStore, type SubAgentRun } from './subAgentRun';
 import { StatusLine } from './statusLine';
 import { STATUS_SLOTS, type StatusSlotContext } from './statusSlots';
 import { darkTheme, getTheme, lightTheme, styleToAnsi, type Theme, ThemeProvider } from './theme';
@@ -36,13 +37,45 @@ interface ChatCommand extends CommandPaletteItem {
 interface ModelController {
   createRuntime: () => Runtime;
   listModels: () => Promise<Model[]>;
-  getModel: () => string;
+  readonly model: string;
   setModel: (model: string) => void;
+}
+
+interface AgentDisplay {
+  name: string;
+  color?: string;
+  description?: string;
 }
 
 interface ChatAppOptions {
   thinkingVisible?: boolean;
   onThinkingVisibleChange?: (visible: boolean) => void;
+  /** Every switchable primary agent. Empty/single → Tab switching disabled. */
+  primaryAgents?: AgentDisplay[];
+  /** Returns the currently active primary (or undefined). */
+  getActivePrimary?: () => AgentDisplay | undefined;
+  /** Called when the user cycles the active primary (Tab). */
+  setActivePrimary?: (next: AgentDisplay) => void;
+  /**
+   * One-shot override set when the user submits a message with `@<primary>`.
+   * Passing `undefined` clears it. Cleared automatically when the runtime
+   * returns to idle.
+   */
+  setOverridePrimary?: (next: AgentDisplay | undefined) => void;
+  /** Sub-agents available for @-mention in the file picker dropdown. */
+  subAgents?: AgentDisplay[];
+  /**
+   * Dispatch a sub-agent in an isolated runtime. Called when the user submits
+   * a message starting with `@<sub-agent>`. The result is rendered as a
+   * sub-agent block in the transcript; the main runtime never sees the turn.
+   * `onEvent` receives every `CoreEvent` from the isolated runtime so the UI
+   * can stream activity live.
+   */
+  dispatchSubAgent?: (
+    name: string,
+    task: string,
+    onEvent?: (event: CoreEvent) => void,
+  ) => Promise<{ content: string; error?: string }>;
 }
 
 type ModalMode = 'model';
@@ -102,6 +135,13 @@ export class ChatApp {
   private deferredCommandQueue: Array<{ label: string; run: () => void }> = [];
   private deferredDrainTimer: ReturnType<typeof setTimeout> | undefined;
   private waitingList: WaitingList | undefined;
+  private overrideIdleTimer: ReturnType<typeof setInterval> | undefined;
+  private overrideActive = false;
+  private subAgentRuns = new SubAgentRunStore();
+  private subAgentPreviews = new Map<string, SubAgentPreview>();
+  /** When set, the main chat area renders this sub-agent's transcript instead of the primary one. */
+  private viewingSubAgent: string | undefined;
+  private viewingSubAgentUnsubscribe: (() => void) | undefined;
 
   constructor(
     runtime: Runtime,
@@ -225,6 +265,7 @@ export class ChatApp {
     if (this.deferredDrainTimer) clearTimeout(this.deferredDrainTimer);
     this.deferredDrainTimer = undefined;
     this.deferredCommandQueue.length = 0;
+    this.stopOverrideTimer();
     this.stopSpinner();
     this.input.stop();
     await this.runtime.stop();
@@ -329,7 +370,7 @@ export class ChatApp {
   }
 
   private setContext(context: LLMResponseContext): void {
-    const roundtrip = this.roundtrips.record(context, this.modelController?.getModel());
+    const roundtrip = this.roundtrips.record(context, this.modelController?.model);
     const used = roundtrip.usedTokens;
     const total = roundtrip.windowTokens;
     this.contextText = used !== undefined && total !== undefined
@@ -338,22 +379,64 @@ export class ChatApp {
     this.updateStatusLine();
   }
 
+  private canCyclePrimaryAgent(): boolean {
+    return (this.options.primaryAgents?.length ?? 0) > 1 && !!this.options.setActivePrimary;
+  }
+
+  /** Agents shown in the @-mention dropdown: sub-agents + every primary except the active one. */
+  private collectMentionableAgents(): AgentDisplay[] {
+    const active = this.options.getActivePrimary?.();
+    const primaries = (this.options.primaryAgents ?? []).filter((a) => !active || a.name !== active.name);
+    const subs = this.options.subAgents ?? [];
+    const seen = new Set<string>();
+    const out: AgentDisplay[] = [];
+    for (const a of [...primaries, ...subs]) {
+      if (seen.has(a.name)) continue;
+      seen.add(a.name);
+      out.push(a);
+    }
+    return out;
+  }
+
+  private cyclePrimaryAgent(direction: 1 | -1): void {
+    const agents = this.options.primaryAgents ?? [];
+    if (agents.length < 2) return;
+    const current = this.options.getActivePrimary?.();
+    const idx = current ? agents.findIndex((a) => a.name === current.name) : -1;
+    const nextIdx = ((idx + direction) % agents.length + agents.length) % agents.length;
+    this.options.setActivePrimary?.(agents[nextIdx]);
+    this.updateModelLabel();
+    this.tui.requestRender();
+  }
+
   private updateModelLabel(): void {
-    const modelId = this.modelController?.getModel() ?? '';
-    if (!modelId) { this.modelLabel.setText(''); return; }
+    const modelId = this.modelController?.model ?? '';
+    const agent = this.options.getActivePrimary?.();
+    if (!modelId && !agent) { this.modelLabel.setText(''); return; }
     const theme = this.themeProvider.current();
     const white = styleToAnsi({ fg: theme.colors.text });
     const dim = styleToAnsi({ fg: theme.colors.textMuted });
-    const model = this.models.find((m) => m.id === modelId);
-    const provider = model?.ownedBy ? `  ${dim}${model.ownedBy}\x1b[0m` : '';
-    this.modelLabel.setText(`${white}${modelId}\x1b[0m${provider}`);
+    const reset = '\x1b[0m';
+    const parts: string[] = [];
+    if (agent) {
+      const dotColor = agent.color?.startsWith('#') ? styleToAnsi({ fg: agent.color as `#${string}` }) : '';
+      const dot = `${dotColor}●${reset}`;
+      const displayName = agent.name.charAt(0).toUpperCase() + agent.name.slice(1);
+      parts.push(`${dot} ${white}${displayName}${reset}`);
+    }
+    if (modelId) {
+      const model = this.models.find((m) => m.id === modelId);
+      const provider = model?.ownedBy ? `  ${dim}${model.ownedBy}${reset}` : '';
+      parts.push(`${white}${modelId}${reset}${provider}`);
+    }
+    this.modelLabel.setText(parts.join(`  ${dim}·${reset}  `));
   }
 
   private updateStatusLine(): void {
     this.updateModelLabel();
     const ctx: StatusSlotContext = {
       busy: this.isBusyStatus(this.status),
-      model: this.modelController?.getModel(),
+      model: this.modelController?.model,
       contextText: this.contextText,
     };
     this.statusText.setContent(STATUS_SLOTS.render('status.left', ctx), STATUS_SLOTS.render('status.right', ctx));
@@ -396,6 +479,8 @@ export class ChatApp {
   private handleSubmit(value: string): void {
     const text = value.trim();
     if (!text) return;
+    // Sub-agent screen is read-only — ignore any stray submits.
+    if (this.viewingSubAgent) return;
 
     this.pushHistory(text);
 
@@ -410,8 +495,20 @@ export class ChatApp {
     this.clearToast();
     this.updateCommandPalette('');
     const isSteering = this.runtime.state() !== 'idle';
+
     if (!isSteering) {
+      // Routing: @<primary> = one-shot override; @<sub-agent> = isolated dispatch.
+      const routing = this.classifyMention(text);
+      if (routing.kind === 'dispatch' && routing.agent) {
+        this.transcript.appendUser(text);
+        this.renderTranscript();
+        void this.dispatchSubAgentRun(routing.agent, routing.task ?? text);
+        return;
+      }
       this.transcript.appendUser(text);
+      if (routing.kind === 'override' && routing.agent) {
+        this.applyOverrideAgent(routing.agent);
+      }
     }
     this.setStatus('thinking...');
 
@@ -422,6 +519,206 @@ export class ChatApp {
     }
     this.renderTranscript();
     this.bus.publish({ type: isSteering ? 'steer' : 'user_message', message });
+  }
+
+  private classifyMention(text: string): { kind: 'override' | 'dispatch' | 'none'; agent?: AgentDisplay; task?: string } {
+    const match = text.match(/@([a-zA-Z_][\w-]*)/);
+    if (!match) return { kind: 'none' };
+    const name = match[1].toLowerCase();
+    const primary = (this.options.primaryAgents ?? []).find((a) => a.name.toLowerCase() === name);
+    if (primary) return { kind: 'override', agent: primary };
+    const sub = (this.options.subAgents ?? []).find((a) => a.name.toLowerCase() === name);
+    if (sub) {
+      const task = text.replace(new RegExp(`@${match[1]}\\s*`, 'i'), '').trim() || text;
+      return { kind: 'dispatch', agent: sub, task };
+    }
+    return { kind: 'none' };
+  }
+
+  private applyOverrideAgent(target: AgentDisplay): void {
+    if (!this.options.setOverridePrimary) return;
+    const current = this.options.getActivePrimary?.();
+    if (current && current.name === target.name) return;
+    this.options.setOverridePrimary(target);
+    this.overrideActive = true;
+    this.updateModelLabel();
+    this.scheduleOverrideClear();
+  }
+
+  private dispatchSubAgentRun(agent: AgentDisplay, task: string): void {
+    if (!this.options.dispatchSubAgent) {
+      this.transcript.appendError(`No dispatcher wired for @${agent.name}`);
+      this.renderTranscript();
+      return;
+    }
+    const runId = `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+    this.subAgentRuns.start({ id: runId, agentName: agent.name, agentColor: agent.color, task });
+
+    // Append a preview entry; renderTranscript wires the live component below.
+    this.transcript.appendSubAgentPreview(runId);
+    this.setStatus(`@${agent.name} running...`);
+    this.renderTranscript();
+
+    // Subscribe to live updates: refresh the cached preview component and
+    // re-render so the activity sub-line keeps pace with the sub-agent. The
+    // sub-agent in-place view subscribes independently in openSubAgentDetail.
+    const unsubscribe = this.subAgentRuns.subscribe(runId, (run) => {
+      const preview = this.subAgentPreviews.get(runId);
+      if (preview) preview.update(run);
+      this.tui.requestRender();
+    });
+
+    void this.options.dispatchSubAgent(
+      agent.name,
+      task,
+      (event) => this.subAgentRuns.pushEvent(runId, event),
+    )
+      .then((result) => {
+        this.subAgentRuns.complete(runId, result);
+        // Feed the sub-agent's answer back to the primary as a user-side
+        // context note so it takes a turn and reacts.
+        this.feedPrimaryWithSubAgentResult(agent.name, task, result);
+      })
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.subAgentRuns.complete(runId, { content: '', error: msg });
+        this.feedPrimaryWithSubAgentResult(agent.name, task, { content: '', error: msg });
+      })
+      .finally(() => {
+        unsubscribe();
+        this.tui.requestRender();
+      });
+  }
+
+  private feedPrimaryWithSubAgentResult(
+    agentName: string,
+    task: string,
+    result: { content: string; error?: string },
+  ): void {
+    // The primary takes a turn over a synthetic user message that frames the
+    // sub-agent's output. ChatApp's bus handler never appends user_messages
+    // to the transcript (handleSubmit does it directly), so this stays invisible
+    // until the primary's response streams in.
+    //
+    // Framing comes from `mu-harness/sub-agents/tool` so user-initiated `@<sub>`
+    // and LLM-initiated `subagent({...})` produce identical context blocks.
+    const content = formatSubAgentReplyForParent({
+      agentName,
+      task,
+      content: result.content,
+      error: result.error,
+    });
+    this.setStatus('thinking...');
+    this.bus.publish({ type: 'user_message', message: { role: 'user', content } });
+  }
+
+  /** In-place render of a sub-agent's full transcript (replaces the main chat). */
+  private renderSubAgentView(runId: string): void {
+    const run = this.subAgentRuns.get(runId);
+    if (!run) {
+      this.viewingSubAgent = undefined;
+      this.renderTranscript();
+      return;
+    }
+    const shouldStickToBottom = this.scrollView.isAtBottom();
+    const components: Component[] = [];
+    // Header line so the user knows they're in a sub-agent context.
+    const status = run.status === 'running' ? '◐ running' : run.status === 'completed' ? '✓ done' : '✗ error';
+    components.push(new CommandLine(`@${run.agentName} — ${run.task}    [${status}]    Esc to return`));
+
+    for (const entry of run.transcript) {
+      switch (entry.kind) {
+        case 'user':
+          components.push(new UserMessage({ content: entry.content, theme: this.themeProvider.current() }));
+          break;
+        case 'assistant':
+          components.push(new AssistantMessage({ content: entry.content }));
+          break;
+        case 'reasoning':
+          components.push(
+            new ReasoningBlock({
+              content: entry.content,
+              layout: { width: 'fill', height: 'auto', padding: { left: 1, right: 1 } },
+            }),
+          );
+          break;
+        case 'tool_call':
+          components.push(new ToolLine(entry.tool, entry.args.length > 120 ? `${entry.args.slice(0, 119)}…` : entry.args));
+          break;
+        case 'tool_result':
+          components.push(new CommandResultLine(entry.content.length > 200 ? `${entry.content.slice(0, 199)}…` : entry.content));
+          break;
+        case 'error':
+          components.push(new ErrorLine(entry.message));
+          break;
+      }
+    }
+    this.scrollView.setChildren(components, { stickToBottom: shouldStickToBottom });
+    this.tui.requestRender();
+  }
+
+  /** Click on a SubAgentPreview → swap the visible transcript to the sub-agent's. */
+  private openSubAgentDetail(runId: string): void {
+    const run = this.subAgentRuns.get(runId);
+    if (!run) return;
+    this.viewingSubAgentUnsubscribe?.();
+    this.viewingSubAgent = runId;
+    this.setInputVisible(false);
+    this.viewingSubAgentUnsubscribe = this.subAgentRuns.subscribe(runId, () => {
+      if (this.viewingSubAgent === runId) this.renderTranscript();
+    });
+    this.renderTranscript();
+  }
+
+  /** Return to the primary agent's transcript. */
+  private closeSubAgentDetail(): void {
+    if (!this.viewingSubAgent) return;
+    this.viewingSubAgentUnsubscribe?.();
+    this.viewingSubAgentUnsubscribe = undefined;
+    this.viewingSubAgent = undefined;
+    this.setInputVisible(true);
+    this.renderTranscript();
+  }
+
+  private setInputVisible(visible: boolean): void {
+    if (!this.inputBox.layout) return;
+    if (visible) {
+      // Restore to whatever the input value currently needs.
+      this.updateInputHeight(this.input.value);
+    } else {
+      this.inputBox.layout.height = 0;
+      // Also hide the auxiliary zones above/below the input.
+      if (this.inputTopWidgetZone.layout) this.inputTopWidgetZone.layout.height = 0;
+      if (this.inputBottomWidgetZone.layout) this.inputBottomWidgetZone.layout.height = 0;
+      this.updateDockHeight();
+    }
+    this.tui.requestRender();
+  }
+
+  private scheduleOverrideClear(): void {
+    if (this.overrideIdleTimer) return;
+    this.overrideIdleTimer = setInterval(() => {
+      if (this.stopped) {
+        this.stopOverrideTimer();
+        return;
+      }
+      if (this.runtime.state() === 'idle') {
+        this.stopOverrideTimer();
+        if (this.overrideActive) {
+          this.overrideActive = false;
+          this.options.setOverridePrimary?.(undefined);
+          this.updateModelLabel();
+          this.tui.requestRender();
+        }
+      }
+    }, 200);
+  }
+
+  private stopOverrideTimer(): void {
+    if (this.overrideIdleTimer) {
+      clearInterval(this.overrideIdleTimer);
+      this.overrideIdleTimer = undefined;
+    }
   }
 
   private handleFollowUpSubmit(): boolean {
@@ -525,6 +822,16 @@ export class ChatApp {
       return this.interceptModalInput(event);
     }
 
+    // Sub-agent screen is read-only: only Esc (return to main) reaches us;
+    // every other key is swallowed before the input or any shortcut sees it.
+    // Mouse and paste events fall through so scroll / click can still work.
+    if (this.viewingSubAgent && event.type === 'key' && event.kind !== 'release') {
+      if (event.key === 'escape' || event.key === 'esc') {
+        this.closeSubAgentDetail();
+      }
+      return true;
+    }
+
     if (event.type === 'key' && event.kind !== 'release' && (event.key === 'escape' || event.key === 'esc')) {
       if (this.clearToast()) return true;
       if (this.filePicker) return false;
@@ -563,6 +870,10 @@ export class ChatApp {
     if (event.type === 'key' && event.kind !== 'release' && !this.commandPalette && !this.filePicker) {
       if (event.key === 'up') return this.navigateHistory('up');
       if (event.key === 'down') return this.navigateHistory('down');
+      if (event.key === 'tab' && this.canCyclePrimaryAgent()) {
+        this.cyclePrimaryAgent(event.shift ? -1 : 1);
+        return true;
+      }
     }
 
     if (!this.commandPalette || event.type !== 'key' || event.kind === 'release') return false;
@@ -786,6 +1097,7 @@ export class ChatApp {
     this.filePicker = new FilePicker({
       cwd: process.cwd(),
       query: mention.token,
+      agents: this.collectMentionableAgents(),
       selectedIndex: this.filePickerCursor,
       onSelect: (entry) => this.selectFilePickerEntry(entry),
     });
@@ -822,10 +1134,10 @@ export class ChatApp {
 
     const before = value.slice(0, anchor + 1);
     const after = value.slice(cursor);
-    const insertPath = entry.path;
+    const insertText = entry.kind === 'agent' ? entry.name : entry.path;
 
-    const newValue = `${before}${insertPath}${after}`;
-    const newCursor = anchor + 1 + insertPath.length;
+    const newValue = `${before}${insertText}${after}`;
+    const newCursor = anchor + 1 + insertText.length;
     this.input.setValue(newValue);
     this.input.setCursor(newCursor);
     this.updateHighlights(newValue);
@@ -977,7 +1289,7 @@ export class ChatApp {
     const resolvedPath = resolve(outputPath);
     const payload = {
       exportedAt: new Date().toISOString(),
-      model: this.modelController?.getModel(),
+      model: this.modelController?.model,
       roundtrips: history,
     };
 
@@ -1034,7 +1346,7 @@ export class ChatApp {
 
     this.openModal('model', {
       title: 'Model Picker',
-      body: `Loading models...\nCurrent: ${this.modelController.getModel() || 'unknown'}`,
+      body: `Loading models...\nCurrent: ${this.modelController.model || 'unknown'}`,
       footer: 'Up/Down to move, Enter to select, Esc to close',
       contentPaddingX: 0,
       onClose: () => this.closeModal(),
@@ -1047,7 +1359,7 @@ export class ChatApp {
     if (!(this.modelController && this.modal) || this.modalMode !== 'model') return;
     try {
       this.models = await this.modelController.listModels();
-      const current = this.modelController.getModel();
+      const current = this.modelController.model;
       this.modelCursor = Math.max(0, this.models.findIndex((model) => model.id === current));
       this.mountModelSelectList();
     } catch (error) {
@@ -1064,7 +1376,7 @@ export class ChatApp {
 
   private mountModelSelectList(): void {
     if (!this.modal || this.modalMode !== 'model') return;
-    const current = this.modelController?.getModel() ?? '';
+    const current = this.modelController?.model ?? '';
 
     if (this.models.length === 0) {
       this.modal.setContent({
@@ -1227,6 +1539,10 @@ export class ChatApp {
   // --- Rendering ---
 
   private renderTranscript(): void {
+    if (this.viewingSubAgent) {
+      this.renderSubAgentView(this.viewingSubAgent);
+      return;
+    }
     const shouldStickToBottom = this.scrollView.isAtBottom();
     const theme = this.themeProvider.current();
     const components: Component[] = [];
@@ -1248,7 +1564,7 @@ export class ChatApp {
           components.push(entry.component);
           break;
         case 'context':
-          components.push(new ContextMap({ roundtrip: entry.roundtrip, model: this.modelController?.getModel() }));
+          components.push(new ContextMap({ roundtrip: entry.roundtrip, model: this.modelController?.model }));
           break;
         case 'reasoning':
           if (entry.closed) {
@@ -1271,6 +1587,19 @@ export class ChatApp {
         case 'error':
           components.push(new ErrorLine(entry.content));
           break;
+        case 'subagent_preview': {
+          const run = this.subAgentRuns.get(entry.runId);
+          if (!run) break;
+          const preview = new SubAgentPreview({
+            run,
+            onClick: (id) => this.openSubAgentDetail(id),
+          });
+          // Cache the live preview component so per-run notifications can
+          // mutate the props in place without rebuilding the whole transcript.
+          this.subAgentPreviews.set(entry.runId, preview);
+          components.push(preview);
+          break;
+        }
       }
     }
     this.scrollView.setChildren(components, { stickToBottom: shouldStickToBottom });

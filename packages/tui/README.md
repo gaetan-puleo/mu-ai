@@ -9,13 +9,13 @@ packages/
 ├── mu-core/             # Plugin SDK + agent loop + types + sessions/channels/activity
 ├── mu-local-provider/   # Local-server-aware provider (llama-swap + llama-cpp) — used by mu-coding
 ├── mu-openai-provider/  # OpenAI-compatible provider plugin (strict OpenAI; available for other hosts)
-├── mu-agents/           # Agent switcher, sub-agents, permissions, approval gateway
+├── mu-cores/           # Agent switcher, sub-agents, permissions, approval gateway
 ├── mu-repomap/          # Code indexing plugin (ast-grep based repomap) — opt-in
 ├── mu-coding-agents/    # Coding agents (build/plan/explore/review) — opt-in
 └── mu-coding/           # CLI + TUI application
 ```
 
-Layering: `mu-core` ← `{mu-local-provider, mu-openai-provider, mu-agents}` ← `mu-coding`.
+Layering: `mu-core` ← `{mu-local-provider, mu-openai-provider, mu-cores}` ← `mu-coding`.
 Optional plugins (`mu-repomap`, `mu-coding-agents`, …) are enabled via
 `config.plugins` rather than auto-loaded.
 
@@ -90,13 +90,13 @@ LLM provider abstraction for local runners and OpenAI-compatible APIs.
 import { listModels, streamChat } from 'mu-provider';
 ```
 
-### `mu-agents`
+### `mu-cores`
 
 Agent loop orchestration with a full plugin system.
 
 ```typescript
-import { createBuiltinPlugin, PluginRegistry, runAgent } from 'mu-agents';
-import type { LifecycleHooks, Plugin, PluginTool } from 'mu-agents';
+import { createBuiltinPlugin, PluginRegistry, runAgent } from 'mu-cores';
+import type { LifecycleHooks, Plugin, PluginTool } from 'mu-cores';
 ```
 
 **Plugin interface:**

@@ -1,57 +1,57 @@
 import { expect } from '@std/expect';
 import { describe, it } from '@std/testing/bdd';
-import type { LLMResponseContext } from 'mu-core';
-import { RoundtripStore } from './RoundtripStore';
+import type { ContextMap, LLMResponseContext } from 'mu-core';
+import { RoundtripStore } from './roundtrips';
 
-function buildContext(extras: Record<string, unknown>): LLMResponseContext {
-  return extras as LLMResponseContext;
+function buildContext(extras: {
+  usage?: LLMResponseContext['usage'];
+  contextMap?: Partial<ContextMap>;
+}): LLMResponseContext {
+  if (extras.contextMap) {
+    return {
+      usage: extras.usage,
+      contextMap: {
+        estimated: false,
+        parts: [],
+        ...extras.contextMap,
+      },
+    };
+  }
+  return { usage: extras.usage };
 }
 
 describe('RoundtripStore.record', () => {
-  it('prefers usage.promptTokens over localContext.usedTokens', () => {
+  it('prefers usage.promptTokens over contextMap.usedTokens', () => {
     const store = new RoundtripStore();
     const round = store.record(buildContext({
       usage: { promptTokens: 1234, completionTokens: 56, totalTokens: 1290 },
-      localContext: { usedTokens: 9999 },
+      contextMap: { usedTokens: 9999 },
     }));
     expect(round.usedTokens).toBe(1234);
     expect(round.completionTokens).toBe(56);
     expect(round.totalTokens).toBe(1290);
   });
 
-  it('falls back to localContext.usedTokens when usage is missing', () => {
+  it('falls back to contextMap.usedTokens when usage is missing', () => {
     const store = new RoundtripStore();
     const round = store.record(buildContext({
-      localContext: { usedTokens: 800 },
+      contextMap: { usedTokens: 800 },
     }));
     expect(round.usedTokens).toBe(800);
   });
 
-  it('reads windowTokens from props.n_ctx first, then currentSlot.n_ctx, then localContext', () => {
+  it('reads windowTokens from contextMap.windowTokens', () => {
     const store = new RoundtripStore();
-    const fromProps = store.record(buildContext({
-      props: { n_ctx: 32000 },
-      currentSlot: { n_ctx: 16000 },
-      localContext: { windowTokens: 4096 },
+    const round = store.record(buildContext({
+      contextMap: { windowTokens: 32000 },
     }));
-    expect(fromProps.windowTokens).toBe(32000);
-
-    const fromSlot = store.record(buildContext({
-      currentSlot: { n_ctx: 16000 },
-      localContext: { windowTokens: 4096 },
-    }));
-    expect(fromSlot.windowTokens).toBe(16000);
-
-    const fromLocal = store.record(buildContext({
-      localContext: { windowTokens: 4096 },
-    }));
-    expect(fromLocal.windowTokens).toBe(4096);
+    expect(round.windowTokens).toBe(32000);
   });
 
   it('marks estimated true when parts come without authoritative usedTokens', () => {
     const store = new RoundtripStore();
     const round = store.record(buildContext({
-      localContext: {
+      contextMap: {
         parts: [{ kind: 'system', label: 'system', tokens: 100, estimated: true }],
       },
     }));
@@ -62,7 +62,7 @@ describe('RoundtripStore.record', () => {
     const store = new RoundtripStore();
     const round = store.record(buildContext({
       usage: { promptTokens: 100, completionTokens: 0, totalTokens: 100 },
-      localContext: { estimated: true, parts: [] },
+      contextMap: { estimated: true, parts: [] },
     }));
     expect(round.estimated).toBe(true);
   });

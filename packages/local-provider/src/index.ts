@@ -1,12 +1,14 @@
 import type {
+  ContextMap,
+  ContextPartKind,
   LLMProvider,
   LLMProviderResult,
   LLMStreamEvent,
   Message,
+  Plugin,
   Tool,
   ToolCall,
 } from 'mu-core';
-import { defineProvider } from 'mu-core';
 import OpenAI from 'openai';
 import type {
   ChatCompletionMessageParam,
@@ -22,8 +24,6 @@ import {
 } from './backends/llama-swap';
 import type {
   LocalBackendInfo,
-  LocalContextMap,
-  LocalContextPartKind,
   LocalLLMResponseContext,
   LocalModel,
   LocalProviderConfig,
@@ -35,9 +35,6 @@ export type {
   LocalBackendIdentity,
   LocalBackendInfo,
   LocalBackendKind,
-  LocalContextMap,
-  LocalContextPart,
-  LocalContextPartKind,
   LocalLLMResponseContext,
   LocalModel,
   LocalProviderConfig,
@@ -146,25 +143,20 @@ function estimateJsonTokens(value: unknown): number {
   return estimateTokens(JSON.stringify(value));
 }
 
-function toolContextKind(tool: Tool): LocalContextPartKind {
+function toolContextKind(tool: Tool): ContextPartKind {
   const name = tool.name.toLowerCase();
   if (name.includes('skill')) return 'skills';
   if (name.startsWith('mcp') || name.includes('_mcp') || name.includes('mcp_')) return 'mcp';
   return 'tools';
 }
 
-function addContextTokens(parts: Map<LocalContextPartKind, number>, kind: LocalContextPartKind, tokens: number): void {
-  if (tokens <= 0) return;
-  parts.set(kind, (parts.get(kind) ?? 0) + tokens);
-}
-
 export type TokenizeFn = (content: string) => Promise<number | undefined>;
 
 const BUCKET_SEPARATOR = '\n\n';
 
-function aggregateBuckets(messages: Message[], tools: Record<string, Tool>): Map<LocalContextPartKind, string[]> {
-  const buckets = new Map<LocalContextPartKind, string[]>();
-  const push = (kind: LocalContextPartKind, content: string) => {
+function aggregateBuckets(messages: Message[], tools: Record<string, Tool>): Map<ContextPartKind, string[]> {
+  const buckets = new Map<ContextPartKind, string[]>();
+  const push = (kind: ContextPartKind, content: string) => {
     if (!content) return;
     const list = buckets.get(kind) ?? [];
     list.push(content);
@@ -194,15 +186,14 @@ function aggregateBuckets(messages: Message[], tools: Record<string, Tool>): Map
   return buckets;
 }
 
-async function buildLocalContextMap(config: {
-  backend: LocalBackendInfo;
+async function buildContextMap(config: {
   model: string;
   messages: Message[];
   tools: Record<string, Tool>;
   usage?: LocalLLMResponseContext['usage'];
   backendContext?: LocalLLMResponseContext;
   tokenize?: TokenizeFn;
-}): Promise<LocalContextMap> {
+}): Promise<ContextMap> {
   const buckets = aggregateBuckets(config.messages, config.tools);
   const entries = await Promise.all(
     Array.from(buckets.entries()).map(async ([kind, contents]) => {
@@ -224,8 +215,6 @@ async function buildLocalContextMap(config: {
   const usedTokens = config.usage?.promptTokens;
 
   return {
-    provider: 'mu-local-provider',
-    backend: config.backend.kind,
     model: config.model,
     usedTokens,
     windowTokens,
@@ -243,7 +232,7 @@ async function countBucketTokens(content: string, tokenize?: TokenizeFn): Promis
   return { tokens: estimateTokens(content), estimated: true };
 }
 
-function labelContextPart(kind: LocalContextPartKind): string {
+function labelContextPart(kind: ContextPartKind): string {
   switch (kind) {
     case 'system':
       return 'system';
@@ -262,7 +251,7 @@ function labelContextPart(kind: LocalContextPartKind): string {
   }
 }
 
-export const createLocalProvider = defineProvider<LocalProviderConfig>((config): LLMProvider => {
+export const createLocalProvider = (config: LocalProviderConfig): LLMProvider => {
   let backendPromise: Promise<LocalBackendInfo> | undefined;
   let client: OpenAI | undefined;
 
@@ -406,8 +395,8 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
         ? (content: string) => tokenizeLlamaSwap({ baseUrl: backend.baseUrl, apiKey: config.apiKey, model, content })
         : undefined;
 
-      const localContext = backendContext || usage
-        ? await buildLocalContextMap({ backend, model, messages, tools, usage, backendContext, tokenize })
+      const contextMap = backendContext || usage
+        ? await buildContextMap({ model, messages, tools, usage, backendContext, tokenize })
         : undefined;
 
       yield {
@@ -419,7 +408,7 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
             ? {
               ...backendContext,
               usage,
-              localContext,
+              contextMap,
             } as LocalLLMResponseContext
             : undefined,
         },
@@ -428,7 +417,7 @@ export const createLocalProvider = defineProvider<LocalProviderConfig>((config):
 
     return streamCompletion();
   };
-});
+};
 
 function extractReasoningDelta(delta: unknown): string {
   if (!delta || typeof delta !== 'object') return '';
@@ -436,3 +425,13 @@ function extractReasoningDelta(delta: unknown): string {
   const value = record.reasoning_content ?? record.reasoning ?? record.reasoningContent;
   return typeof value === 'string' ? value : '';
 }
+
+/**
+ * Wrap `createLocalProvider` as a `Plugin` for uniform composition. Prefer
+ * this in host wiring; use `createLocalProvider()` directly only when you
+ * need the raw `LLMProvider` (e.g. tests).
+ */
+export const createLocalProviderPlugin = (config: LocalProviderConfig): Plugin => ({
+  name: 'mu-local-provider',
+  provider: createLocalProvider(config),
+});

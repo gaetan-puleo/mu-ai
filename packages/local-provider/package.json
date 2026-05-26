@@ -1,6 +1,6 @@
 {
   "name": "mu-local-provider",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Local LLM provider for mu-core (llama-swap, Ollama, LM Studio)",
   "type": "module",
   "main": "./src/index.ts",

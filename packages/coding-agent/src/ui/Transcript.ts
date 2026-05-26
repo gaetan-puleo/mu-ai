@@ -1,7 +1,7 @@
 import type { CoreEvent, Message } from 'mu-core';
 import { formatToolCallArgs } from './components/ToolLine';
 import type { OutputBlock } from './components/OutputBlock';
-import type { Roundtrip } from '../runtime/RoundtripStore';
+import type { Roundtrip } from 'mu-harness';
 
 export type ChatLine =
   | { role: 'user'; content: string; label?: 'queued steering' | 'follow-up' }
@@ -11,7 +11,8 @@ export type ChatLine =
   | { role: 'output_block'; component: OutputBlock }
   | { role: 'context'; roundtrip?: Roundtrip }
   | { role: 'reasoning'; content: string; closed?: boolean }
-  | { role: 'tool'; callId: string; name: string; argsPreview: string };
+  | { role: 'tool'; callId: string; name: string; argsPreview: string }
+  | { role: 'subagent_preview'; runId: string };
 
 export type UserChatLine = Extract<ChatLine, { role: 'user' }>;
 
@@ -95,6 +96,10 @@ export class Transcript {
       name: call.tool,
       argsPreview: formatToolCallArgs(call.tool, call.args),
     });
+  }
+
+  appendSubAgentPreview(runId: string): void {
+    this.lines.push({ role: 'subagent_preview', runId });
   }
 
   appendError(msg: string): void {

@@ -138,6 +138,7 @@ function hexBackgroundToAnsi(color: string): string | undefined {
 type NamedColor = Exclude<Color, `#${string}`>;
 
 const NAMED_BACKGROUND_COLORS: Record<NamedColor, string> = {
+  default: '\x1b[49m',
   black: '\x1b[40m',
   red: '\x1b[41m',
   green: '\x1b[42m',

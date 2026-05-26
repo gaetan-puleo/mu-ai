@@ -5,20 +5,26 @@
     "jsr:@deno/dnt@~0.42.3": "0.42.3",
     "jsr:@std/assert@^1.0.15": "1.0.19",
     "jsr:@std/assert@^1.0.19": "1.0.19",
+    "jsr:@std/async@^1.3.0": "1.3.0",
+    "jsr:@std/data-structures@^1.0.11": "1.0.11",
     "jsr:@std/expect@1": "1.0.19",
     "jsr:@std/fmt@1": "1.0.10",
     "jsr:@std/fs@1": "1.0.23",
+    "jsr:@std/fs@^1.0.23": "1.0.23",
     "jsr:@std/internal@^1.0.12": "1.0.13",
     "jsr:@std/internal@^1.0.13": "1.0.13",
     "jsr:@std/path@1": "1.1.4",
     "jsr:@std/path@^1.1.4": "1.1.4",
     "jsr:@std/testing@1": "1.0.18",
+    "jsr:@std/yaml@1": "1.1.0",
     "jsr:@ts-morph/bootstrap@0.27": "0.27.0",
     "jsr:@ts-morph/common@0.27": "0.27.0",
     "npm:@types/turndown@^5.0.6": "5.0.6",
+    "npm:croner@9": "9.1.0",
     "npm:knip@^6.4.1": "6.14.2_@emnapi+core@1.10.0_@emnapi+runtime@1.10.0",
-    "npm:openai@^6.38.0": "6.39.0",
-    "npm:turndown@^7.2.2": "7.2.4"
+    "npm:openai@^6.38.0": "6.39.0_ws@8.21.0",
+    "npm:turndown@^7.2.2": "7.2.4",
+    "npm:ws@^8.18.0": "8.21.0"
   },
   "jsr": {
     "@david/code-block-writer@13.0.3": {
@@ -29,7 +35,7 @@
       "dependencies": [
         "jsr:@david/code-block-writer",
         "jsr:@std/fmt",
-        "jsr:@std/fs",
+        "jsr:@std/fs@1",
         "jsr:@std/path@1",
         "jsr:@ts-morph/bootstrap"
       ]
@@ -39,6 +45,12 @@
       "dependencies": [
         "jsr:@std/internal@^1.0.12"
       ]
+    },
+    "@std/async@1.3.0": {
+      "integrity": "80485538a4f7baaa46bfe2246168069e02ed142b9f9079cd164f43bb060ad9e9"
+    },
+    "@std/data-structures@1.0.11": {
+      "integrity": "53b98ed7efa61f107dfc14244bd2ec5557f7f7ee0bbaef6d449d7937facacb89"
     },
     "@std/expect@1.0.19": {
       "integrity": "25271785688c7ff902fa54875d6aa4001f552c5578f7f0fefb5b5aac1fc2ed8a",
@@ -71,8 +83,15 @@
       "integrity": "d3152f57b11666bf6358d0e127c7e3488e91178b0c2d8fbf0793e1c53cd13cb1",
       "dependencies": [
         "jsr:@std/assert@^1.0.19",
-        "jsr:@std/internal@^1.0.13"
+        "jsr:@std/async",
+        "jsr:@std/data-structures",
+        "jsr:@std/fs@^1.0.23",
+        "jsr:@std/internal@^1.0.13",
+        "jsr:@std/path@^1.1.4"
       ]
+    },
+    "@std/yaml@1.1.0": {
+      "integrity": "fc1c5c63e05c4c5eb6118355f557958035d41940d6c29d35b306ef7155d6edb0"
     },
     "@ts-morph/bootstrap@0.27.0": {
       "integrity": "b8d7bc8f7942ce853dde4161b28f9aa96769cef3d8eebafb379a81800b9e2448",
@@ -83,7 +102,7 @@
     "@ts-morph/common@0.27.0": {
       "integrity": "c7b73592d78ce8479b356fd4f3d6ec3c460d77753a8680ff196effea7a939052",
       "dependencies": [
-        "jsr:@std/fs",
+        "jsr:@std/fs@1",
         "jsr:@std/path@1"
       ]
     }
@@ -337,6 +356,9 @@
     "@types/turndown@5.0.6": {
       "integrity": "sha512-ru00MoyeeouE5BX4gRL+6m/BsDfbRayOskWqUvh7CLGW+UXxHQItqALa38kKnOiZPqJrtzJUgAC2+F0rL1S4Pg=="
     },
+    "croner@9.1.0": {
+      "integrity": "sha512-p9nwwR4qyT5W996vBZhdvBCnMhicY5ytZkR4D1Xj0wuTDEiMnjwR57Q3RXYY/s0EpX6Ay3vgIcfaR+ewGHsi+g=="
+    },
     "fd-package-json@2.0.0": {
       "integrity": "sha512-jKmm9YtsNXN789RS/0mSzOC1NUq9mkVd65vbSSVsKdjGvYXBuE4oWe2QOEoFeRmJg+lPuZxpmrfFclNhoRMneQ==",
       "dependencies": [
@@ -392,8 +414,14 @@
     "minimist@1.2.8": {
       "integrity": "sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA=="
     },
-    "openai@6.39.0": {
+    "openai@6.39.0_ws@8.21.0": {
       "integrity": "sha512-O61LIsimY3acVabwvomwFhwrnN36yvHY2quIfy9keEcFytGgWeV35yLHQ6NVMLSBxRpHmcg2yuhCnlu2HT4pLQ==",
+      "dependencies": [
+        "ws"
+      ],
+      "optionalPeers": [
+        "ws"
+      ],
       "bin": true
     },
     "oxc-parser@0.130.0": {
@@ -483,6 +511,9 @@
     "walk-up-path@4.0.0": {
       "integrity": "sha512-3hu+tD8YzSLGuFYtPRb48vdhKMi0KQV5sn+uWr8+7dMEq/2G/dtLrdDinkLjqq5TIbIBjYJ4Ax/n3YiaW7QM8A=="
     },
+    "ws@8.21.0": {
+      "integrity": "sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g=="
+    },
     "yaml@2.9.0": {
       "integrity": "sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==",
       "bin": true
@@ -495,7 +526,10 @@
     "dependencies": [
       "jsr:@std/assert@^1.0.15",
       "jsr:@std/expect@1",
-      "jsr:@std/testing@1"
+      "jsr:@std/testing@1",
+      "jsr:@std/yaml@1",
+      "npm:croner@9",
+      "npm:ws@^8.18.0"
     ],
     "packageJson": {
       "dependencies": [
@@ -503,6 +537,13 @@
       ]
     },
     "members": {
+      "packages/harness": {
+        "packageJson": {
+          "dependencies": [
+            "npm:croner@9"
+          ]
+        }
+      },
       "packages/local-provider": {
         "packageJson": {
           "dependencies": [

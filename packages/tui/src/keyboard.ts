@@ -4,8 +4,6 @@ import process from 'node:process';
 import { type InputEvent, type KeyInputEvent, type Modifiers, type MouseInputEvent, NO_MODIFIERS } from './events';
 import type { MouseEvent } from './types/mouse';
 
-export type KeyEvent = KeyInputEvent;
-
 // CSI-u / Kitty-like keyboard event: ESC [ code ; modifiers u, with optional Kitty subfields.
 // deno-lint-ignore no-control-regex
 const CSI_U_RE = /^\x1b\[(\d+)(?::[\d:]+)?(?:;(\d+(?::\d+)?))?(?:;([\d:]+))?u$/;

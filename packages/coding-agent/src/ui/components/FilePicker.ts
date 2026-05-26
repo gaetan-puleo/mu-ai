@@ -1,24 +1,34 @@
 import { readdirSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 import type { Component, EventContext, InputEvent, LayoutStyle, RenderContext } from 'mu-tui';
 import { truncateToWidth, visibleWidth } from 'mu-tui';
 import { getTheme, styleToAnsi } from '../theme';
 
-export interface FilePickerEntry {
-  path: string;
-  isDir: boolean;
+export interface AgentPickerInfo {
+  name: string;
+  description?: string;
+  color?: string;
 }
+
+/** A row in the dropdown — either an agent mention or a file path. */
+export type PickerEntry =
+  | { kind: 'agent'; name: string; description?: string; color?: string }
+  | { kind: 'file'; path: string; isDir: boolean };
+
+/** Back-compat alias: existing callers used `FilePickerEntry`. */
+export type FilePickerEntry = PickerEntry;
 
 export interface FilePickerProps {
   cwd: string;
   query: string;
+  /** Optional list of agents shown above the file matches. */
+  agents?: AgentPickerInfo[];
   selectedIndex?: number;
-  onSelect?: (entry: FilePickerEntry) => void;
+  onSelect?: (entry: PickerEntry) => void;
   layout?: LayoutStyle;
 }
 
 const RESET = '\x1b[0m';
-const DESCRIPTION = '\x1b[2m';
 const MAX_VISIBLE = 8;
 const MAX_DEPTH = 6;
 const MAX_ENTRIES = 5000;
@@ -29,7 +39,7 @@ const IGNORED_DIRS = new Set([
   '.deno', 'coverage', '.cache',
 ]);
 
-function walkTree(root: string, prefix: string, depth: number, result: FilePickerEntry[]): void {
+function walkTree(root: string, prefix: string, depth: number, result: Array<{ path: string; isDir: boolean }>): void {
   if (depth > MAX_DEPTH || result.length >= MAX_ENTRIES) return;
   let entries;
   try {
@@ -52,9 +62,9 @@ function walkTree(root: string, prefix: string, depth: number, result: FilePicke
 }
 
 let cachedCwd = '';
-let cachedTree: FilePickerEntry[] = [];
+let cachedTree: Array<{ path: string; isDir: boolean }> = [];
 
-export function getProjectTree(cwd: string): FilePickerEntry[] {
+export function getProjectTree(cwd: string): Array<{ path: string; isDir: boolean }> {
   if (cachedCwd === cwd && cachedTree.length > 0) return cachedTree;
   cachedCwd = cwd;
   cachedTree = [];
@@ -67,8 +77,8 @@ export function invalidateTreeCache(): void {
   cachedTree = [];
 }
 
-function fuzzyScore(path: string, query: string): number {
-  const lower = path.toLowerCase();
+function fuzzyScore(text: string, query: string): number {
+  const lower = text.toLowerCase();
   const q = query.toLowerCase();
   let score = 0;
   let j = 0;
@@ -83,42 +93,65 @@ function fuzzyScore(path: string, query: string): number {
     }
   }
   if (j < q.length) return -1;
-  score -= path.length * 0.01;
+  score -= text.length * 0.01;
   return score;
 }
 
-export function fuzzyFilter(entries: FilePickerEntry[], query: string): FilePickerEntry[] {
-  if (!query) return entries.slice(0, 50);
-  const scored = [];
+function fuzzyFilterFiles(entries: Array<{ path: string; isDir: boolean }>, query: string, limit: number) {
+  if (!query) return entries.slice(0, limit);
+  const scored: Array<{ entry: { path: string; isDir: boolean }; score: number }> = [];
   for (const entry of entries) {
     const s = fuzzyScore(entry.path, query);
     if (s >= 0) scored.push({ entry, score: s });
   }
   scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, 50).map((s) => s.entry);
+  return scored.slice(0, limit).map((s) => s.entry);
+}
+
+function fuzzyFilterAgents(agents: AgentPickerInfo[], query: string) {
+  if (!query) return agents;
+  const scored: Array<{ entry: AgentPickerInfo; score: number }> = [];
+  for (const a of agents) {
+    const s = fuzzyScore(a.name, query);
+    if (s >= 0) scored.push({ entry: a, score: s });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((s) => s.entry);
+}
+
+/** Back-compat: legacy callers that filtered just files. */
+export function fuzzyFilter(entries: Array<{ path: string; isDir: boolean }>, query: string): Array<{ path: string; isDir: boolean }> {
+  return fuzzyFilterFiles(entries, query, 50);
 }
 
 export class FilePicker implements Component {
   layout: LayoutStyle;
-  private entries: FilePickerEntry[];
+  private entries: PickerEntry[];
   private selectedIndex: number;
   private hoveredIndex = -1;
-  private readonly onSelect?: (entry: FilePickerEntry) => void;
+  private readonly onSelect?: (entry: PickerEntry) => void;
 
   constructor(props: FilePickerProps) {
+    const agents = props.agents ? fuzzyFilterAgents(props.agents, props.query) : [];
+    const fileBudget = Math.max(0, 50 - agents.length);
     const tree = getProjectTree(props.cwd);
-    this.entries = fuzzyFilter(tree, props.query);
+    const files = fuzzyFilterFiles(tree, props.query, fileBudget);
+
+    this.entries = [
+      ...agents.map((a): PickerEntry => ({ kind: 'agent', name: a.name, description: a.description, color: a.color })),
+      ...files.map((f): PickerEntry => ({ kind: 'file', path: f.path, isDir: f.isDir })),
+    ];
     this.selectedIndex = props.selectedIndex ?? 0;
     this.onSelect = props.onSelect;
     const visible = Math.min(MAX_VISIBLE, Math.max(1, this.entries.length));
     this.layout = { width: 'fill', height: visible, ...props.layout };
   }
 
-  get visibleEntries(): FilePickerEntry[] {
+  get visibleEntries(): PickerEntry[] {
     return this.entries;
   }
 
-  get selected(): FilePickerEntry | undefined {
+  get selected(): PickerEntry | undefined {
     return this.entries[this.selectedIndex];
   }
 
@@ -153,6 +186,7 @@ export class FilePicker implements Component {
     const selectedSgr = styleToAnsi(theme.styles.commandPaletteSelected);
     const hoverSgr = styleToAnsi(theme.styles.commandPaletteHover);
     const normalSgr = styleToAnsi(theme.styles.commandPaletteItem);
+    const dimSgr = styleToAnsi({ fg: theme.colors.textMuted });
 
     const visibleCount = Math.min(height, this.entries.length);
     let startIndex = 0;
@@ -167,15 +201,32 @@ export class FilePicker implements Component {
       const entryIndex = startIndex + i;
       const selected = entryIndex === this.selectedIndex;
       const hovered = entryIndex === this.hoveredIndex;
+      const rowStyle = selected ? selectedSgr : hovered ? hoverSgr : normalSgr;
       const prefix = selected ? '› ' : '  ';
-      const name = entry.isDir ? `${entry.path}/` : entry.path;
-      const plain = `${prefix}${name}`;
-      const padding = Math.max(0, width - visibleWidth(plain));
-      const fitted = visibleWidth(plain) > width
-        ? `${prefix}${truncateToWidth(name, width - 2)}`
-        : `${plain}${' '.repeat(padding)}`;
-      const style = selected ? selectedSgr : hovered ? hoverSgr : normalSgr;
-      return style ? `${style}${fitted}${RESET}` : fitted;
+
+      // Build plain text (for width math) and styled text (for output) in parallel.
+      // After every inline color override we re-emit `rowStyle` so the row's
+      // background and base foreground keep applying to the rest of the line.
+      let plainBody: string;
+      let styledBody: string;
+      if (entry.kind === 'agent') {
+        const labelText = `@${entry.name}`;
+        plainBody = entry.description ? `${labelText}  ${entry.description}` : labelText;
+        styledBody = plainBody;
+      } else {
+        const text = entry.isDir ? `${entry.path}/` : entry.path;
+        plainBody = text;
+        styledBody = text;
+      }
+
+      const plain = `${prefix}${plainBody}`;
+      if (visibleWidth(plain) > width) {
+        const truncated = truncateToWidth(plainBody, Math.max(0, width - visibleWidth(prefix)));
+        const out = `${rowStyle}${prefix}${truncated}${RESET}`;
+        return out;
+      }
+      const padding = ' '.repeat(Math.max(0, width - visibleWidth(plain)));
+      return `${rowStyle}${prefix}${styledBody}${rowStyle}${padding}${RESET}`;
     });
   }
 }

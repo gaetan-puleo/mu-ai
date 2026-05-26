@@ -1,6 +1,6 @@
 {
   "name": "coding-agent",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "type": "module",
   "bin": {
     "coding-agent": "./bin/coding-agent.ts"
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "mu-core": "workspace:*",
+    "mu-harness": "workspace:*",
     "mu-local-provider": "workspace:*",
     "mu-tools": "workspace:*",
     "mu-tui": "workspace:*"

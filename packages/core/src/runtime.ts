@@ -4,6 +4,7 @@ import type { LLMProvider, LLMProviderResult } from './provider';
 import { callTool } from './tools/callTool';
 import type { ToolHooks } from './types/Hook';
 import type { Message } from './types/Message';
+import type { Session } from './types/Session';
 import type { LLMResponse, LLMResponseContext, LLMStreamEvent, ToolCall, Tools } from './types/Tool';
 
 export type RuntimeState = 'idle' | 'running' | 'stopped';
@@ -29,6 +30,7 @@ export interface Runtime {
   start: () => Promise<void>;
   stop: () => Promise<void>;
   state: () => RuntimeState;
+  session: () => Session;
   steer: (message: Message) => void;
   followUp: (message: Message) => void;
   queueState: () => { steering: Message[]; followUp: Message[] };
@@ -38,18 +40,35 @@ export interface RuntimeConfig {
   tools?: Tools;
   plugins?: Plugin[];
   bus: EventBus<CoreEvent>;
+  /**
+   * The session this runtime operates on. The runtime mutates
+   * `session.messages`, `session.steeringQueue`, and `session.followUpQueue`
+   * in place — callers can observe progress by reading the same arrays.
+   */
+  session: Session;
   systemPrompt?: string | (() => string | undefined | Promise<string | undefined>);
   hooks?: ToolHooks;
   steeringMode?: QueueMode;
   followUpMode?: QueueMode;
+  /**
+   * Throws when the same `(tool, args)` pair is observed more than this many
+   * times within a single turn. Guards against runaway loops. Defaults to 5.
+   */
+  maxRepeatedToolCalls?: number;
+  /**
+   * Per-turn filter applied to the merged (base + plugin) tool map. Use this
+   * to hide tools entirely from a turn — the LLM won't see the schema and the
+   * filtered tools' system prompts won't be injected. Called before each
+   * provider call.
+   */
+  toolFilter?: (tools: Tools) => Tools;
 }
 
 function isAsyncIterable(value: LLMProviderResult): value is AsyncIterable<LLMStreamEvent> {
   return !!value && typeof value === 'object' && Symbol.asyncIterator in value;
 }
 
-const MAX_REPEATED_TOOL_CALLS = 5;
-const MAX_CONSECUTIVE_ERRORS = 3;
+const DEFAULT_MAX_REPEATED_TOOL_CALLS = 5;
 
 function mergePluginTools(baseTools: Tools, plugins: Plugin[]): Tools {
   const tools = { ...baseTools };
@@ -81,22 +100,24 @@ function resolveProvider(plugins: Plugin[]): LLMProvider {
 }
 
 export function createRuntime(config: RuntimeConfig): Runtime {
-  const { bus, hooks } = config;
+  const { bus, hooks, session } = config;
   const plugins = config.plugins ?? [];
   const provider = resolveProvider(plugins);
-  const tools = mergePluginTools(config.tools ?? {}, plugins);
+  const allTools = mergePluginTools(config.tools ?? {}, plugins);
+  const toolFilter = config.toolFilter;
+  const getTools = (): Tools => (toolFilter ? toolFilter(allTools) : allTools);
+  const maxRepeatedToolCalls = config.maxRepeatedToolCalls ?? DEFAULT_MAX_REPEATED_TOOL_CALLS;
 
-  const messages: Message[] = [];
+  const messages = session.messages;
   const queue: Message[] = [];
-  const steeringQueue: Message[] = [];
-  const followUpQueue: Message[] = [];
+  const steeringQueue = session.steeringQueue;
+  const followUpQueue = session.followUpQueue;
   const steeringMode = config.steeringMode ?? 'one-at-a-time';
   const followUpMode = config.followUpMode ?? 'one-at-a-time';
 
   let currentState: RuntimeState = 'idle';
   let unsubscribe: Unsubscribe | undefined;
   let processing = false;
-  let consecutiveErrors = 0;
 
   async function callOnStart(): Promise<void> {
     for (const plugin of plugins) {
@@ -163,14 +184,16 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     void processQueue();
   }
 
-  function enqueueSide(sideQueue: Message[], message: Message): void {
-    if (currentState === 'idle' && !processing) {
-      startTurn(message);
-      return;
-    }
-
+  function enqueueSide(sideQueue: Message[], message: Message, queueType: 'steering' | 'follow_up'): void {
     sideQueue.push(message);
     emitQueueUpdate();
+
+    if (currentState === 'idle' && !processing) {
+      sideQueue.shift();
+      emitQueueUpdate();
+      bus.publish({ type: 'queued_message', queue: queueType, message });
+      startTurn(message);
+    }
   }
 
   async function resolveSystemPrompt(
@@ -181,21 +204,17 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     return trimmed || undefined;
   }
 
-  async function buildProviderMessages(): Promise<Message[]> {
-    const prompts: string[] = [];
+  async function buildProviderMessages(_activeTools: Tools): Promise<Message[]> {
+    // Tool-level `systemPrompt` fields are deliberately NOT auto-injected here.
+    // The active set of tools is already advertised to the LLM via the JSON
+    // schemas passed alongside the messages. Hosts that want a tool-specific
+    // preamble should compose it into `config.systemPrompt` themselves.
     const runtimePrompt = await resolveSystemPrompt(config.systemPrompt);
-    if (runtimePrompt) prompts.push(runtimePrompt);
-
-    for (const tool of Object.values(tools)) {
-      const prompt = await resolveSystemPrompt(tool.systemPrompt);
-      if (prompt) prompts.push(prompt);
-    }
-
-    if (prompts.length === 0) return messages;
-    return [{ role: 'system', content: prompts.join('\n\n') }, ...messages];
+    if (!runtimePrompt) return messages;
+    return [{ role: 'system', content: runtimePrompt }, ...messages];
   }
 
-  function finalizeResponse(response: LLMResponse | undefined): void {
+  function finalizeResponse(response: LLMResponse | undefined, toolCalls: ToolCall[] = []): void {
     const reasoning = response?.reasoning?.trim();
     if (reasoning) {
       const message: Message = { role: 'reasoning', content: reasoning };
@@ -203,10 +222,15 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       bus.publish({ type: 'reasoning_message', message });
     }
 
-    if (response?.content) {
-      const message: Message = { role: 'assistant', content: response.content };
+    const content = response?.content ?? '';
+    if (content || toolCalls.length) {
+      const message: Message = toolCalls.length
+        ? { role: 'assistant', content, tool_calls: toolCalls }
+        : { role: 'assistant', content };
       messages.push(message);
-      bus.publish({ type: 'assistant_message', message });
+      if (content) {
+        bus.publish({ type: 'assistant_message', message });
+      }
     }
 
     if (response?.context) {
@@ -219,6 +243,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     let reasoning = '';
     let finalized = false;
     const streamedCalls: ToolCall[] = [];
+    const seenCallIds = new Set<string>();
     let doneCalls: ToolCall[] | undefined;
 
     bus.publish({ type: 'assistant_start' });
@@ -236,43 +261,47 @@ export function createRuntime(config: RuntimeConfig): Runtime {
         bus.publish({ type: 'reasoning_delta', content: event.content });
       } else if (event.type === 'tool_call') {
         streamedCalls.push(event.call);
+        seenCallIds.add(event.call.id);
         bus.publish({ type: 'tool_call', call: event.call });
       } else if (event.type === 'done') {
-        doneCalls = event.response?.tool_calls;
+        const responseCalls = event.response?.tool_calls ?? [];
+        for (const call of responseCalls) {
+          if (!seenCallIds.has(call.id)) {
+            seenCallIds.add(call.id);
+            bus.publish({ type: 'tool_call', call });
+          }
+        }
+        doneCalls = responseCalls.length ? responseCalls : undefined;
         finalizeResponse({
           reasoning: event.response?.reasoning ?? reasoning,
           content: event.response?.content ?? content,
           context: event.response?.context,
-        });
+        }, doneCalls ?? streamedCalls);
         finalized = true;
       }
     }
 
-    if (!finalized && content) {
-      finalizeResponse({ content });
+    if (!finalized && (content || streamedCalls.length)) {
+      finalizeResponse({ content }, streamedCalls);
     }
 
-    // Prefer the authoritative list from `done.response.tool_calls`; otherwise
-    // fall back to whatever was emitted via `tool_call` stream events.
+    // `done.response.tool_calls` is canonical when present; otherwise the calls
+    // emitted as `tool_call` stream events are the authoritative list.
     return doneCalls ?? streamedCalls;
   }
 
   async function consumeResult(result: LLMProviderResult): Promise<ToolCall[]> {
-    if (isAsyncIterable(result)) {
-      return await processStream(result);
-    }
-
-    finalizeResponse(result);
-    const calls = result.tool_calls ?? [];
-    for (const call of calls) {
-      bus.publish({ type: 'tool_call', call });
-    }
-    return calls;
+    const stream = isAsyncIterable(result)
+      ? result
+      : (async function* (): AsyncIterable<LLMStreamEvent> {
+        yield { type: 'done', response: result };
+      })();
+    return processStream(stream);
   }
 
-  async function executeToolCalls(calls: ToolCall[]): Promise<void> {
+  async function executeToolCalls(calls: ToolCall[], activeTools: Tools): Promise<void> {
     const executeSingle = async (call: ToolCall): Promise<Message> => {
-      const tool = tools[call.tool];
+      const tool = activeTools[call.tool];
       if (!tool) {
         throw new Error(`Unknown tool: ${call.tool}`);
       }
@@ -288,17 +317,12 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     }
   }
 
-  function appendAssistantToolCalls(calls: ToolCall[]): void {
-    const message: Message = { role: 'assistant', content: '', tool_calls: calls };
-    messages.push(message);
-  }
-
   function checkRepeatedToolCalls(repeatedToolCalls: Map<string, number>, calls: ToolCall[]): void {
     for (const call of calls) {
       const key = `${call.tool}:${call.args.slice(0, 500)}`;
       const count = (repeatedToolCalls.get(key) ?? 0) + 1;
       repeatedToolCalls.set(key, count);
-      if (count > MAX_REPEATED_TOOL_CALLS) {
+      if (count > maxRepeatedToolCalls) {
         throw new Error(`Tool call loop detected: ${call.tool} repeated ${count} times with the same arguments`);
       }
     }
@@ -322,16 +346,15 @@ export function createRuntime(config: RuntimeConfig): Runtime {
 
     try {
       while ((currentState as RuntimeState) !== 'stopped') {
-        const providerMessages = await buildProviderMessages();
-        const result = await provider(providerMessages, tools);
-        consecutiveErrors = 0;
+        const activeTools = getTools();
+        const providerMessages = await buildProviderMessages(activeTools);
+        const result = await provider(providerMessages, activeTools);
 
         const calls = await consumeResult(result);
 
         if (calls.length) {
           checkRepeatedToolCalls(repeatedToolCalls, calls);
-          appendAssistantToolCalls(calls);
-          await executeToolCalls(calls);
+          await executeToolCalls(calls, activeTools);
           drainIntoTranscript(steeringQueue, steeringMode, 'steering');
           continue;
         }
@@ -341,20 +364,11 @@ export function createRuntime(config: RuntimeConfig): Runtime {
         break;
       }
     } catch (error) {
-      consecutiveErrors++;
       bus.publish({ type: 'error', error });
       callOnError(error);
     } finally {
       processing = false;
-      if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-        queue.length = 0;
-        steeringQueue.length = 0;
-        followUpQueue.length = 0;
-        emitQueueUpdate();
-        currentState = 'idle';
-      } else {
-        void processQueue();
-      }
+      void processQueue();
     }
   }
 
@@ -372,12 +386,12 @@ export function createRuntime(config: RuntimeConfig): Runtime {
 
       unsubscribe = bus.subscribe((event) => {
         if (event.type === 'steer') {
-          enqueueSide(steeringQueue, event.message);
+          enqueueSide(steeringQueue, event.message, 'steering');
           return;
         }
 
         if (event.type === 'follow_up') {
-          enqueueSide(followUpQueue, event.message);
+          enqueueSide(followUpQueue, event.message, 'follow_up');
           return;
         }
 
@@ -402,12 +416,16 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       return currentState;
     },
 
+    session() {
+      return session;
+    },
+
     steer(message) {
-      enqueueSide(steeringQueue, message);
+      enqueueSide(steeringQueue, message, 'steering');
     },
 
     followUp(message) {
-      enqueueSide(followUpQueue, message);
+      enqueueSide(followUpQueue, message, 'follow_up');
     },
 
     queueState() {

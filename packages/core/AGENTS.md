@@ -1,6 +1,6 @@
 # mu-core Terms
 
-This package contains only the primitives required to build agent runtimes and provider plugins.
+This package (`packages/core/`) contains only the primitives required to build agent runtimes and provider plugins.
 It must not contain provider-specific implementations such as OpenAI, Ollama, LM Studio, llama-swap, HTTP clients, SDK clients, API keys, or model server defaults.
 
 ## Core
@@ -88,17 +88,37 @@ The bus is synchronous and minimal by default.
 
 A core event is a normalized runtime event.
 
-Expected events:
+Inputs the host can publish to the bus:
 
 ```ts
 type CoreEvent =
   | { type: 'user_message'; message: Message }
+  | { type: 'steer'; message: Message }
+  | { type: 'follow_up'; message: Message }
+```
+
+Outputs the runtime emits on the bus:
+
+```ts
+  | { type: 'queued_message'; queue: 'steering' | 'follow_up'; message: Message }
+  | { type: 'queue_update'; steering: Message[]; followUp: Message[] }
+  | { type: 'assistant_start' }
+  | { type: 'assistant_delta'; content: string }
   | { type: 'assistant_message'; message: Message }
+  | { type: 'reasoning_delta'; content: string }
   | { type: 'reasoning_message'; message: Message }
   | { type: 'tool_call'; call: ToolCall }
   | { type: 'tool_result'; message: Message }
+  | { type: 'context_update'; context: LLMResponseContext }
   | { type: 'error'; error: unknown };
 ```
+
+Notes:
+
+- `assistant_start` fires once per assistant turn, before any deltas or tool calls.
+- `assistant_message` fires only when the turn produced user-facing content. A turn with only `tool_calls` does not emit `assistant_message`.
+- For a turn that produces both content and tool calls, the order is `tool_call` events → `assistant_message`.
+- `tool_call` events are de-duplicated by `id`: a call declared in both a `tool_call` stream event and `done.response.tool_calls` is published once.
 
 ## Message
 
@@ -106,11 +126,16 @@ A message is an entry in the transcript.
 
 ```ts
 type Message = {
-  role: 'user' | 'assistant' | 'tool' | 'reasoning';
+  role: 'system' | 'user' | 'assistant' | 'tool' | 'reasoning';
   content: string;
   tool_id?: string;
+  tool_calls?: ToolCall[];
 };
 ```
+
+- `tool_id` is set on `role: 'tool'` messages and references the originating `ToolCall.id`.
+- `tool_calls` is set on `role: 'assistant'` messages that requested tool execution. A single assistant message may carry both `content` and `tool_calls`.
+- `role: 'system'` is constructed by the runtime when building the per-call provider input from `systemPrompt` + per-tool prompts. It is never pushed to the transcript.
 
 Provider packages are responsible for converting these messages into backend-specific formats.
 
@@ -204,6 +229,15 @@ It owns:
 - LM Studio defaults
 - llama-swap defaults
 - conversion between `mu-core` primitives and OpenAI-compatible API payloads
+
+To wire it into the runtime, the host wraps `createLocalProvider(...)` in a `Plugin` entry and passes it via `plugins`:
+
+```ts
+createRuntime({
+  bus,
+  plugins: [{ name: 'mu-local-provider', provider: createLocalProvider(config) }],
+});
+```
 
 ## Forbidden In mu-core
 

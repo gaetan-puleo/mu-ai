@@ -1,8 +1,34 @@
 import { loadState, saveState } from './config';
-import type { AgentRuntime } from './runtime';
+import type { AgentRuntime, SubAgent } from 'mu-harness';
+import type { CoreEvent } from 'mu-core';
 import { ChatApp } from './ui/ChatApp';
 
-export async function main(agent: AgentRuntime): Promise<void> {
+export interface MainOptions {
+  /** Switchable primary agents (Build, Plan, etc.). Empty when none defined. */
+  primaryAgents?: SubAgent[];
+  /** Returns the currently active primary (or undefined). */
+  getActivePrimary?: () => SubAgent | undefined;
+  /** Called by the TUI (Tab) to switch the active primary. */
+  setActivePrimary?: (next: SubAgent) => void;
+  /** Returns the one-shot override primary set by `@<name>` mentions. */
+  getOverridePrimary?: () => SubAgent | undefined;
+  /** Sets/clears the one-shot override; cleared by ChatApp when the runtime returns to idle. */
+  setOverridePrimary?: (next: SubAgent | undefined) => void;
+  /** Sub-agents surfaced in the @-mention dropdown. */
+  subAgents?: SubAgent[];
+  /**
+   * Invoke a sub-agent by name in an isolated runtime. Called when the user
+   * `@<sub-agent>`s a message. Returns the sub-agent's final answer (or error).
+   * `onEvent` streams every `CoreEvent` from the isolated runtime.
+   */
+  dispatchSubAgent?: (
+    name: string,
+    task: string,
+    onEvent?: (event: CoreEvent) => void,
+  ) => Promise<{ content: string; error?: string }>;
+}
+
+export async function main(agent: AgentRuntime, options: MainOptions = {}): Promise<void> {
   const state = loadState();
 
   const savePartialState = (patch: typeof state): void => {
@@ -17,9 +43,34 @@ export async function main(agent: AgentRuntime): Promise<void> {
 
   agent.setModel(state.model ?? agent.model);
 
+  const toDisplay = (a: SubAgent) => ({ name: a.name, color: a.color, description: a.description });
+  const primaryDisplays = options.primaryAgents?.map(toDisplay);
+  const subAgentDisplays = options.subAgents?.map(toDisplay);
+
   const app = new ChatApp(agent.runtime, agent.bus, agent, (code) => process.exit(code), {
     thinkingVisible: state.thinkingVisible,
     onThinkingVisibleChange: (thinkingVisible) => savePartialState({ thinkingVisible }),
+    primaryAgents: primaryDisplays,
+    getActivePrimary: () => {
+      const override = options.getOverridePrimary?.();
+      const base = options.getActivePrimary?.();
+      const eff = override ?? base;
+      return eff ? toDisplay(eff) : undefined;
+    },
+    setActivePrimary: (next) => {
+      const target = options.primaryAgents?.find((a) => a.name === next.name);
+      if (target) options.setActivePrimary?.(target);
+    },
+    setOverridePrimary: (next) => {
+      if (next === undefined) {
+        options.setOverridePrimary?.(undefined);
+        return;
+      }
+      const target = options.primaryAgents?.find((a) => a.name === next.name);
+      if (target) options.setOverridePrimary?.(target);
+    },
+    subAgents: subAgentDisplays,
+    dispatchSubAgent: options.dispatchSubAgent,
   });
 
   process.on('SIGINT', () => {

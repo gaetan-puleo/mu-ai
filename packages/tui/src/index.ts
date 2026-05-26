@@ -24,7 +24,7 @@ export type {
 } from './events';
 export type { FeatureContext, RuntimeEnv, TuiFeature } from './feature';
 export { type GlobalKeybinding, type KeyChord, keyMatches } from './keybinds';
-export { eventToMouseEvent, type KeyEvent, parseInput, probeKittyKeyboard } from './keyboard';
+export { eventToMouseEvent, parseInput, probeKittyKeyboard } from './keyboard';
 export type {
   BorderChars,
   BorderStyle,

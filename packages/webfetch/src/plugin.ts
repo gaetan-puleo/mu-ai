@@ -10,7 +10,7 @@
  *  - Cloudflare retry uses `User-Agent: mu` (vs. `opencode`).
  */
 
-import { definePlugin, type Plugin, type Tool } from 'mu-core';
+import { formatError, parseArgs, type Plugin, type Tool } from 'mu-core';
 import TurndownService from 'turndown';
 
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -114,12 +114,6 @@ async function extractTextFromHtml(html: string): Promise<string> {
   return text.trim();
 }
 
-function formatError(error: unknown): string {
-  if (error instanceof Error) return `Error: ${error.message}`;
-  const str = String(error);
-  return str.startsWith('Error:') ? str : `Error: ${str}`;
-}
-
 function isHttpUrl(url: string): boolean {
   return url.startsWith('http://') || url.startsWith('https://');
 }
@@ -221,15 +215,6 @@ async function renderBody(buf: ArrayBuffer, contentType: string, format: WebFetc
   return format === 'markdown' ? convertHtmlToMarkdown(body) : await extractTextFromHtml(body);
 }
 
-function parseArgs(args: string): Record<string, unknown> {
-  if (!args.trim()) return {};
-  const parsed = JSON.parse(args);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Tool arguments must be a JSON object');
-  }
-  return parsed as Record<string, unknown>;
-}
-
 async function runWebFetch(args: Record<string, unknown>): Promise<string> {
   const url = typeof args.url === 'string' ? args.url : '';
   if (!url) return formatError('url is required');
@@ -294,11 +279,9 @@ export function createWebFetchTool(): Tool {
   };
 }
 
-export const createWebFetchPlugin = definePlugin(
-  (): Plugin => ({
-    name: 'webfetch',
-    tools: { webfetch: createWebFetchTool() },
-  }),
-);
+const webFetchPlugin: Plugin = {
+  name: 'webfetch',
+  tools: { webfetch: createWebFetchTool() },
+};
 
-export default createWebFetchPlugin();
+export default webFetchPlugin;

@@ -28,8 +28,20 @@ export function detectTerminalProtocolSync(env: NodeJS.ProcessEnv = process.env)
   const isVscode = program === 'vscode';
   const isXtermLike = /xterm|screen|tmux|rxvt|alacritty|foot|ghostty|mintty/i.test(term);
 
+  const protocol: TerminalProtocol = isKitty
+    ? 'kitty'
+    : isIterm2
+    ? 'iterm2'
+    : isWezTerm
+    ? 'wezterm'
+    : isVscode
+    ? 'vscode'
+    : isXtermLike
+    ? 'xterm'
+    : 'basic';
+
   return {
-    protocol: selectProtocol({ isKitty, isIterm2, isWezTerm, isVscode, isXtermLike }),
+    protocol,
     kittyKeyboard: isKitty,
     kittyKeyRelease: isKitty,
     iterm2ShellIntegration: isIterm2,
@@ -37,21 +49,6 @@ export function detectTerminalProtocolSync(env: NodeJS.ProcessEnv = process.env)
     iterm2Buttons: isIterm2,
     inlineImages: isKitty || isIterm2 || isWezTerm,
   };
-}
-
-function selectProtocol(flags: {
-  isKitty: boolean;
-  isIterm2: boolean;
-  isWezTerm: boolean;
-  isVscode: boolean;
-  isXtermLike: boolean;
-}): TerminalProtocol {
-  if (flags.isKitty) return 'kitty';
-  if (flags.isIterm2) return 'iterm2';
-  if (flags.isWezTerm) return 'wezterm';
-  if (flags.isVscode) return 'vscode';
-  if (flags.isXtermLike) return 'xterm';
-  return 'basic';
 }
 
 export function supportsProtocol(result: ProtocolResult, protocol: TerminalProtocol): boolean {

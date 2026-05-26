@@ -16,12 +16,37 @@ export interface ToolCall {
   args: string;
 }
 
+export type ContextPartKind =
+  | 'system'
+  | 'tools'
+  | 'messages'
+  | 'tool_results'
+  | 'skills'
+  | 'mcp'
+  | 'other';
+
+export interface ContextPart {
+  kind: ContextPartKind;
+  label: string;
+  tokens: number;
+  estimated: boolean;
+}
+
+export interface ContextMap {
+  model?: string;
+  usedTokens?: number;
+  windowTokens?: number;
+  estimated: boolean;
+  parts: ContextPart[];
+}
+
 export interface LLMResponseContext {
   usage?: {
     promptTokens: number;
     completionTokens: number;
     totalTokens: number;
   };
+  contextMap?: ContextMap;
   timings?: Record<string, unknown>;
   raw?: Record<string, unknown>;
 }
