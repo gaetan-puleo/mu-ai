@@ -93,6 +93,20 @@ describe('CommandRegistry', () => {
     expect(result.error).toContain('Unknown command');
   });
 
+  it('throws when a new command name collides with an existing alias', () => {
+    const reg = createCommandRegistry();
+    reg.register({ ...dummy('a'), aliases: ['b'] });
+    expect(() => reg.register(dummy('b'))).toThrow(/collides with an existing alias/);
+    // Confirm that the first command remains resolvable via its alias.
+    expect(reg.get('b')?.name).toBe('a');
+  });
+
+  it('throws when a new alias collides with an existing command name', () => {
+    const reg = createCommandRegistry();
+    reg.register(dummy('b'));
+    expect(() => reg.register({ ...dummy('a'), aliases: ['b'] })).toThrow(/collides with an existing name or alias/);
+  });
+
   it('unregisters a command and clears its aliases', () => {
     const reg = createCommandRegistry();
     reg.register({ ...dummy('new'), aliases: ['n'] });

@@ -1,10 +1,9 @@
 export { createBus, type EventBus, type Unsubscribe } from './bus';
 export { type Plugin, type PluginHooks } from './plugin';
-export { type LLMProvider, type LLMProviderResult, type ProviderFactory } from './provider';
+export { type LLMProvider, type LLMProviderResult } from './provider';
 export {
   type CoreEvent,
   createRuntime,
-  type QueueMode,
   type Runtime,
   type RuntimeConfig,
   type RuntimeState,

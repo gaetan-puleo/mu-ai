@@ -47,7 +47,16 @@ export function createSchedulerPlugin(opts: SchedulerOptions): Plugin {
       onStart: () => {
         const tasks = opts.tasksDir ? loadTasks(opts.tasksDir) : [];
         for (const task of tasks) {
-          jobs.push(scheduleTask(task, opts.bus, opts.onEvent));
+          try {
+            jobs.push(scheduleTask(task, opts.bus, opts.onEvent));
+          } catch (err) {
+            opts.onEvent?.({
+              type: 'task_failed',
+              task,
+              at: Date.now(),
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
         }
       },
       onStop: () => {

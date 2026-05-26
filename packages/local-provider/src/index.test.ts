@@ -463,6 +463,116 @@ describe('createLocalProvider', () => {
     expect(contextMap.estimated).toBe(true);
     expect(contextMap.parts[0].estimated).toBe(true);
   });
+
+  it('retries backend detection after an initial failure', async () => {
+    const cleanupFail = mockFetch({
+      '/v1/models': { ok: false, json: () => ({}) },
+    });
+
+    const provider = createLocalProvider({
+      baseUrl: 'http://localhost:8080',
+      model: 'gemma-4-e2b',
+    });
+
+    await expect(provider([], {})).rejects.toThrow('Unsupported local backend');
+    cleanupFail();
+
+    cleanup = mockFetch({
+      '/v1/models': { ok: true, json: () => MOCK_MODELS_RESPONSE },
+      '/slots': { ok: true, json: () => MOCK_SLOTS_RESPONSE },
+      '/props': { ok: true, json: () => MOCK_PROPS_RESPONSE },
+    });
+
+    currentChatImpl = () =>
+      (async function* () {
+        yield { choices: [{ delta: { content: 'ok' } }] };
+      })();
+
+    const result = await provider([], {});
+    const events: unknown[] = [];
+    for await (const event of result as AsyncIterable<unknown>) events.push(event);
+    const done = events.at(-1) as { type: string; response: { content: string } };
+    expect(done.type).toBe('done');
+    expect(done.response.content).toBe('ok');
+  });
+
+  it('keeps concurrent tool-call deltas separate when no index is provided', async () => {
+    cleanup = mockFetch({
+      '/v1/models': { ok: true, json: () => MOCK_MODELS_RESPONSE },
+      '/slots': { ok: true, json: () => MOCK_SLOTS_RESPONSE },
+      '/props': { ok: true, json: () => MOCK_PROPS_RESPONSE },
+    });
+
+    currentChatImpl = () =>
+      (async function* () {
+        yield {
+          choices: [{
+            delta: {
+              tool_calls: [
+                { id: 'call_a', function: { name: 'foo', arguments: '{"x":1}' } },
+                { id: 'call_b', function: { name: 'bar', arguments: '{"y":2}' } },
+              ],
+            },
+          }],
+        };
+        yield { choices: [{ delta: {}, finish_reason: 'tool_calls' }] };
+      })();
+
+    const provider = createLocalProvider({
+      kind: 'llama-swap',
+      baseUrl: 'http://localhost:8080',
+      model: 'gemma-4-e2b',
+    });
+    type ToolCallEvent = { type: string; id: string; tool: string; args: string };
+    const result = await provider([], {});
+    const events: Array<{ type: string; call?: ToolCallEvent }> = [];
+    for await (const event of result as AsyncIterable<{ type: string; call?: ToolCallEvent }>) {
+      events.push(event);
+    }
+
+    const toolEvents = events.filter((e) => e.type === 'tool_call').map((e) => e.call);
+    expect(toolEvents).toHaveLength(2);
+    expect(toolEvents).toEqual([
+      { type: 'tool_call', id: 'call_a', tool: 'foo', args: '{"x":1}' },
+      { type: 'tool_call', id: 'call_b', tool: 'bar', args: '{"y":2}' },
+    ]);
+  });
+
+  it('discards partial tool-call buffer when finish_reason is stop', async () => {
+    cleanup = mockFetch({
+      '/v1/models': { ok: true, json: () => MOCK_MODELS_RESPONSE },
+      '/slots': { ok: true, json: () => MOCK_SLOTS_RESPONSE },
+      '/props': { ok: true, json: () => MOCK_PROPS_RESPONSE },
+    });
+
+    currentChatImpl = () =>
+      (async function* () {
+        yield {
+          choices: [{
+            delta: {
+              tool_calls: [{ index: 0, id: 'partial', function: { name: 'foo', arguments: '{"x":' } }],
+            },
+          }],
+        };
+        yield { choices: [{ delta: { content: 'sorry' }, finish_reason: 'stop' }] };
+      })();
+
+    const provider = createLocalProvider({
+      kind: 'llama-swap',
+      baseUrl: 'http://localhost:8080',
+      model: 'gemma-4-e2b',
+    });
+    const result = await provider([], {});
+    const events: Array<{ type: string; response?: { tool_calls?: unknown } }> = [];
+    for await (const event of result as AsyncIterable<{ type: string; response?: { tool_calls?: unknown } }>) {
+      events.push(event);
+    }
+
+    expect(events.some((e) => e.type === 'tool_call')).toBe(false);
+    const done = events.at(-1)!;
+    expect(done.type).toBe('done');
+    expect(done.response?.tool_calls).toBeUndefined();
+  });
 });
 
 describe('tokenizeLlamaSwap', () => {
@@ -484,6 +594,26 @@ describe('tokenizeLlamaSwap', () => {
     });
 
     expect(count).toBe(3);
+  });
+
+  it('url-encodes the model segment for slash-bearing ids', async () => {
+    let observedUrl: string | undefined;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      observedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      return { ok: true, status: 200, json: async () => ({ tokens: [1, 2] }), text: async () => '' } as Response;
+    }) as typeof globalThis.fetch;
+    cleanup = () => {
+      globalThis.fetch = originalFetch;
+    };
+
+    await tokenizeLlamaSwap({
+      baseUrl: 'http://localhost:8080',
+      model: 'org/model:tag',
+      content: 'hi',
+    });
+
+    expect(observedUrl).toBe('http://localhost:8080/upstream/org%2Fmodel%3Atag/tokenize');
   });
 
   it('returns 0 for empty content without hitting the network', async () => {

@@ -22,7 +22,6 @@ export type {
   TerminalResponseEvent,
   TextInputEvent,
 } from './events';
-export type { FeatureContext, RuntimeEnv, TuiFeature } from './feature';
 export { type GlobalKeybinding, type KeyChord, keyMatches } from './keybinds';
 export { eventToMouseEvent, parseInput, probeKittyKeyboard } from './keyboard';
 export type {
@@ -40,12 +39,6 @@ export type {
   SizeSpec,
 } from './layout/types';
 export { TerminalInputParser } from './parser';
-export {
-  detectTerminalProtocolSync,
-  type ProtocolResult,
-  supportsProtocol,
-  type TerminalProtocol,
-} from './protocol';
 export { ProcessTerminal } from './terminal';
 export { TUI, type TuiOptions } from './tui';
 export type { Component, Container, Focusable, FocusableNavigation } from './types/component';

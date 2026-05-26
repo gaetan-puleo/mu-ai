@@ -12,12 +12,10 @@ export {
 export { loadPlugins, type LoadPluginsOptions } from './plugin-loader';
 export { createHostConfig, type HostConfig } from './host-config';
 export { type Frontmatter, parseFrontmatter } from './markdown';
-export { createLogger, type Logger, type LogLevel } from './logger';
 export { bootstrap, type BootstrapOptions, type BootstrapResult } from './bootstrap';
 
 // ── paths ────────────────────────────────────────────────────────────
 export { createXdgPaths, type XdgPaths } from './paths/xdg';
-export { loadEnvFile, type LoadEnvResult, maskEnvValue } from './paths/env';
 
 // ── approvals ────────────────────────────────────────────────────────
 export {

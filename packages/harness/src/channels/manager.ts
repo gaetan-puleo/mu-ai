@@ -34,11 +34,12 @@ export function createChannelManager(): ChannelManager {
       if (channels.has(channel.id)) {
         throw new Error(`Channel "${channel.id}" is already registered`);
       }
-      channels.set(channel.id, channel);
+      // Only register the channel after a successful start; a failing start must not leave a half-started entry behind.
       await channel.start({
         channelId: channel.id,
         deliver: (event) => fanInputToListeners(channel.id, event),
       });
+      channels.set(channel.id, channel);
     },
 
     async remove(id) {

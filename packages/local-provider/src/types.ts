@@ -28,12 +28,9 @@ export interface LocalModel {
   ownedBy?: string;
 }
 
-export interface LocalBackendIdentity {
+export interface LocalBackendInfo {
   kind: LocalBackendKind;
   baseUrl: string;
-}
-
-export interface LocalBackendInfo extends LocalBackendIdentity {
   models: LocalModel[];
 }
 

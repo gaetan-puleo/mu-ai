@@ -37,7 +37,6 @@ import {
 } from './commands/defaults';
 import { type CommandRegistry, createCommandRegistry } from './commands/registry';
 import { createHostConfig, type HostConfig } from './host-config';
-import { loadEnvFile, type LoadEnvResult } from './paths/env';
 import { createXdgPaths, type XdgPaths } from './paths/xdg';
 import { createPermissionHook } from './permissions/hook';
 import { loadPermissions } from './permissions/loader';
@@ -106,7 +105,6 @@ export interface BootstrapResult {
   hostName: string;
   paths: XdgPaths;
   hostConfig: HostConfig;
-  envResult: LoadEnvResult;
   bus: EventBus<CoreEvent>;
   store: SessionStore;
   approvalQueue: ApprovalQueue;
@@ -138,10 +136,7 @@ export interface BootstrapResult {
 export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult> {
   const paths = opts.paths ?? createXdgPaths(opts.hostName);
 
-  // 1. .env
-  const envResult = loadEnvFile(paths.envFile);
-
-  // 2. HostConfig
+  // HostConfig
   const skillsDirs = uniqueExisting([paths.skillsDir, ...(opts.extraSkillsDirs ?? [])]);
   const subAgentsDirs = uniqueExisting([paths.agentsDir, ...(opts.extraAgentsDirs ?? [])]);
   const pluginsDirs = uniqueExisting([paths.pluginsDir, ...(opts.extraPluginsDirs ?? [])]);
@@ -278,7 +273,6 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
     hostName: opts.hostName,
     paths,
     hostConfig,
-    envResult,
     bus,
     store,
     approvalQueue,

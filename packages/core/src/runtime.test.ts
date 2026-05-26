@@ -1081,4 +1081,191 @@ describe('createRuntime', () => {
       })
     ).toThrow('Multiple plugins provide a provider');
   });
+
+  it('keeps the transcript valid when a tool-call loop is detected', async () => {
+    const errors: unknown[] = [];
+    const call = { type: 'tool_call' as const, id: 'loop-1', tool: 'spin', args: '{}' };
+    const provider: LLMProvider = async () => ({ tool_calls: [call] });
+    const bus = createBus<CoreEvent>();
+    const events = collectEvents(bus);
+    const session = newSession();
+    const runtime = createRuntime({
+      session,
+      plugins: [providerPlugin(provider), { name: 'errors', hooks: { onError: (e) => errors.push(e) } }],
+      tools: {
+        spin: {
+          name: 'spin',
+          description: 'Loops forever',
+          parameters: {},
+          execute: () => 'spun',
+          onError: () => 'spin failed',
+        },
+      },
+      maxRepeatedToolCalls: 2,
+      bus,
+    });
+
+    await runtime.start();
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'go' } });
+    for (let i = 0; i < 10; i++) await waitForAsync();
+
+    const errorEvents = events.filter((e) => e.type === 'error');
+    expect(errorEvents).toHaveLength(1);
+    expect((errors[0] as Error).message).toMatch(/Tool call loop detected/);
+
+    // Every assistant tool_call must be paired with a tool result so the
+    // session can be re-sent to a strict provider.
+    const last = session.messages[session.messages.length - 1];
+    expect(last.role).toBe('tool');
+    expect(last.tool_id).toBe('loop-1');
+    expect(last.content).toMatch(/Tool call loop detected/);
+
+    const assistantWithToolCalls = session.messages.filter(
+      (m) => m.role === 'assistant' && m.tool_calls?.length,
+    );
+    for (const msg of assistantWithToolCalls) {
+      for (const tc of msg.tool_calls ?? []) {
+        const paired = session.messages.find((m) => m.role === 'tool' && m.tool_id === tc.id);
+        expect(paired).toBeDefined();
+      }
+    }
+
+    // Runtime returns to idle rather than wedging.
+    expect(runtime.state()).toBe('idle');
+  });
+
+  it('preserves an existing side-queue head when a new steer arrives while idle', async () => {
+    // Pre-seed the steering queue with a stale message (mirrors a post-error
+    // state where the side queue was not drained). A new steer arriving while
+    // idle must not drop the stale head via blind shift().
+    const provider: LLMProvider = async () => ({ content: 'done' });
+
+    const bus = createBus<CoreEvent>();
+    const session = newSession();
+    session.steeringQueue.push({ role: 'user', content: 'stale' });
+
+    const runtime = createRuntime({
+      session,
+      plugins: [providerPlugin(provider)],
+      tools: {},
+      bus,
+    });
+
+    await runtime.start();
+    bus.publish({ type: 'steer', message: { role: 'user', content: 'fresh' } });
+    await waitForAsync();
+
+    expect(session.steeringQueue.map((m) => m.content)).toEqual(['stale', 'fresh']);
+  });
+
+  it('does not push a partial assistant message when stop arrives mid-stream', async () => {
+    let releaseStream: (() => void) | undefined;
+    const provider: LLMProvider = async () =>
+      (async function* () {
+        yield { type: 'delta', content: 'partial ' };
+        await new Promise<void>((resolve) => {
+          releaseStream = resolve;
+        });
+        yield { type: 'delta', content: 'more' };
+      })();
+
+    const bus = createBus<CoreEvent>();
+    const events = collectEvents(bus);
+    const session = newSession();
+    const runtime = createRuntime({
+      session,
+      plugins: [providerPlugin(provider)],
+      tools: {},
+      bus,
+    });
+
+    await runtime.start();
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'Hi' } });
+    await waitForAsync();
+    await waitForAsync();
+
+    await runtime.stop();
+    releaseStream?.();
+    await waitForAsync();
+    await waitForAsync();
+
+    expect(events.some((e) => e.type === 'assistant_message')).toBe(false);
+    expect(session.messages.some((m) => m.role === 'assistant')).toBe(false);
+  });
+
+  it('shares one subscription across parallel start() calls', async () => {
+    const provider: LLMProvider = async () => ({ content: 'ok' });
+    const bus = createBus<CoreEvent>();
+    let subscribeCount = 0;
+    const originalSubscribe = bus.subscribe;
+    bus.subscribe = (listener) => {
+      subscribeCount++;
+      return originalSubscribe(listener);
+    };
+
+    const runtime = createRuntime({
+      session: newSession(),
+      plugins: [providerPlugin(provider)],
+      tools: {},
+      bus,
+    });
+
+    const before = subscribeCount;
+    await Promise.all([runtime.start(), runtime.start()]);
+    const subscribesDuringStart = subscribeCount - before;
+
+    const events: CoreEvent[] = [];
+    originalSubscribe((event) => events.push(event));
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'Hi' } });
+    await waitForAsync();
+
+    expect(subscribesDuringStart).toBe(1);
+    expect(events.filter((e) => e.type === 'assistant_message')).toHaveLength(1);
+  });
+
+  it('does not leave a subscription if stop runs while start is awaiting onStart', async () => {
+    let releaseOnStart: (() => void) | undefined;
+    const provider: LLMProvider = async () => ({ content: 'ok' });
+    const bus = createBus<CoreEvent>();
+    let subscribeCount = 0;
+    const originalSubscribe = bus.subscribe;
+    bus.subscribe = (listener) => {
+      subscribeCount++;
+      return originalSubscribe(listener);
+    };
+
+    const runtime = createRuntime({
+      session: newSession(),
+      plugins: [
+        providerPlugin(provider),
+        {
+          name: 'slow-start',
+          hooks: {
+            onStart: () =>
+              new Promise<void>((resolve) => {
+                releaseOnStart = resolve;
+              }),
+          },
+        },
+      ],
+      tools: {},
+      bus,
+    });
+
+    const before = subscribeCount;
+    const startCall = runtime.start();
+    await waitForAsync();
+    await runtime.stop();
+    releaseOnStart?.();
+    await startCall;
+    const subscribesDuringStart = subscribeCount - before;
+
+    const events: CoreEvent[] = [];
+    originalSubscribe((event) => events.push(event));
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'ignored' } });
+    await waitForAsync();
+
+    expect(subscribesDuringStart).toBe(0);
+    expect(events.some((e) => e.type === 'assistant_message')).toBe(false);
+  });
 });

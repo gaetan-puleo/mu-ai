@@ -68,7 +68,7 @@ export async function getLlamaSwapProps(config: {
   const model = config.model ?? '';
 
   try {
-    const response = await fetch(`${baseUrl}/upstream/${model}/props`, {
+    const response = await fetch(`${baseUrl}/upstream/${encodeURIComponent(model)}/props`, {
       headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : undefined,
     });
 
@@ -91,7 +91,7 @@ export async function getLlamaSwapSlots(config: {
   const model = config.model ?? '';
 
   try {
-    const response = await fetch(`${baseUrl}/upstream/${model}/slots`, {
+    const response = await fetch(`${baseUrl}/upstream/${encodeURIComponent(model)}/slots`, {
       headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : undefined,
     });
 
@@ -200,7 +200,7 @@ export async function tokenizeLlamaSwap(config: {
   const baseUrl = normalizeLlamaSwapBaseUrl(config.baseUrl);
 
   try {
-    const response = await fetch(`${baseUrl}/upstream/${config.model}/tokenize`, {
+    const response = await fetch(`${baseUrl}/upstream/${encodeURIComponent(config.model)}/tokenize`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

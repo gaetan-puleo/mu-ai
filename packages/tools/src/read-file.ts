@@ -67,15 +67,9 @@ export function createReadFileTool(opts: ReadFileToolOptions): Tool {
       const end = parsed.end as number | undefined;
       const cwd = getCwd();
 
-      if (paths.length === 1) {
-        return executeReadFileSingle(paths[0], cwd, restrictToCwd, start, end);
-      }
-
-      const results: string[] = [];
-      for (const p of paths) {
-        results.push(executeReadFileSingle(p, cwd, restrictToCwd, start, end));
-      }
-      return results.join('\n\n');
+      return paths
+        .map((p) => executeReadFileSingle(p, cwd, restrictToCwd, start, end))
+        .join('\n\n');
     },
     onError: formatError,
   };

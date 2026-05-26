@@ -1,6 +1,27 @@
-import { isAbsolute, resolve } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 export { formatError, parseArgs } from 'mu-core';
+
+function isInside(child: string, parent: string): boolean {
+  if (child === parent) return true;
+  const rel = relative(parent, child);
+  if (rel === '' || rel === '.') return true;
+  if (rel.startsWith('..') || isAbsolute(rel)) return false;
+  // relative() may return ".." without separator on direct escape
+  return !rel.split(sep).includes('..');
+}
+
+// Walk parents until one exists, so write targets can still be validated.
+function closestExisting(p: string): string {
+  let current = p;
+  while (!existsSync(current)) {
+    const parent = dirname(current);
+    if (parent === current) return current;
+    current = parent;
+  }
+  return current;
+}
 
 /**
  * Sanitize a file path from LLM arguments.
@@ -11,8 +32,8 @@ export { formatError, parseArgs } from 'mu-core';
  * directory than the host process.
  *
  * `restrictToCwd` (opt-in) enforces that the resolved path stays inside
- * the cwd boundary. Returns `null` when the path escapes — callers must
- * surface a tool error.
+ * the cwd boundary, including after symlink resolution. Returns `null`
+ * when the path escapes — callers must surface a tool error.
  */
 export function sanitizePath(raw: string, cwd?: string, restrictToCwd = false): string | null {
   let p = raw.trim();
@@ -24,9 +45,29 @@ export function sanitizePath(raw: string, cwd?: string, restrictToCwd = false): 
   }
   if (restrictToCwd && cwd) {
     const normalizedCwd = resolve(cwd);
-    if (p !== normalizedCwd && !p.startsWith(`${normalizedCwd}/`)) {
+    if (!isInside(p, normalizedCwd)) {
       return null;
     }
+    // Resolve symlinks anywhere along the chain to defeat <cwd>/link -> /etc escapes.
+    let realCwd: string;
+    try {
+      realCwd = realpathSync(normalizedCwd);
+    } catch {
+      realCwd = normalizedCwd;
+    }
+    const anchor = closestExisting(p);
+    let realAnchor: string;
+    try {
+      realAnchor = realpathSync(anchor);
+    } catch {
+      return null;
+    }
+    const tail = relative(anchor, p);
+    const realPath = tail === '' ? realAnchor : resolve(realAnchor, tail);
+    if (!isInside(realAnchor, realCwd) || !isInside(realPath, realCwd)) {
+      return null;
+    }
+    return realPath;
   }
   return p;
 }

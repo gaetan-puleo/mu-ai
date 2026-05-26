@@ -18,7 +18,14 @@ export async function callTool(
   try {
     result = await tool.execute(args);
   } catch (error) {
-    result = tool.onError(error);
+    try {
+      result = tool.onError(error);
+    } catch {
+      // onError must never throw — fall back to a generic message so the
+      // turn keeps a paired tool result instead of poisoning the runtime.
+      const message = error instanceof Error ? error.message : String(error);
+      result = `Error: ${tool.name} failed: ${message}`;
+    }
   }
 
   const afterResult = await hooks?.afterTool?.({ tool, args, result });

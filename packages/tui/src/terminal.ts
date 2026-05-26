@@ -170,6 +170,13 @@ export class ProcessTerminal implements Terminal {
     process.once('SIGTERM', handleSigTerm);
     this.cleanupHandlers.push(() => process.removeListener('SIGTERM', handleSigTerm));
 
+    const handleSigHup = (): void => {
+      this.stop();
+      if (process.pid) process.kill(process.pid, 'SIGHUP');
+    };
+    process.once('SIGHUP', handleSigHup);
+    this.cleanupHandlers.push(() => process.removeListener('SIGHUP', handleSigHup));
+
     const handleExit = (): void => {
       this.stopNow();
     };

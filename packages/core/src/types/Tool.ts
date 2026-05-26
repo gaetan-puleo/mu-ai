@@ -47,8 +47,6 @@ export interface LLMResponseContext {
     totalTokens: number;
   };
   contextMap?: ContextMap;
-  timings?: Record<string, unknown>;
-  raw?: Record<string, unknown>;
 }
 
 export interface LLMResponse {

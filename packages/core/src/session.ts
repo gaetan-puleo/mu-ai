@@ -71,7 +71,7 @@ export function createInMemorySessionStore(options: InMemorySessionStoreOptions 
       const session: Session = {
         id: idGen(),
         title: init.title,
-        messages: init.messages ? [...init.messages] : [],
+        messages: init.messages ? structuredClone(init.messages) : [],
         steeringQueue: [],
         followUpQueue: [],
         createdAt: ts,
@@ -87,6 +87,9 @@ export function createInMemorySessionStore(options: InMemorySessionStoreOptions 
       if (!source) {
         throw new Error(`Cannot fork unknown session "${sourceId}"`);
       }
+      if (source.messages.length === 0) {
+        throw new Error(`Cannot fork session "${sourceId}": it has no messages`);
+      }
       if (atIndex < 0 || atIndex >= source.messages.length) {
         throw new Error(`Fork index ${atIndex} out of range (0..${source.messages.length - 1})`);
       }
@@ -98,7 +101,7 @@ export function createInMemorySessionStore(options: InMemorySessionStoreOptions 
       const fork: Session = {
         id: idGen(),
         title: init.title,
-        messages: source.messages.slice(0, atIndex + 1),
+        messages: structuredClone(source.messages.slice(0, atIndex + 1)),
         steeringQueue: [],
         followUpQueue: [],
         createdAt: ts,

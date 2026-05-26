@@ -8,7 +8,6 @@ import type { Session } from './types/Session';
 import type { LLMResponse, LLMResponseContext, LLMStreamEvent, ToolCall, Tools } from './types/Tool';
 
 export type RuntimeState = 'idle' | 'running' | 'stopped';
-export type QueueMode = 'one-at-a-time' | 'all';
 
 export type CoreEvent =
   | { type: 'user_message'; message: Message }
@@ -30,10 +29,8 @@ export interface Runtime {
   start: () => Promise<void>;
   stop: () => Promise<void>;
   state: () => RuntimeState;
-  session: () => Session;
   steer: (message: Message) => void;
   followUp: (message: Message) => void;
-  queueState: () => { steering: Message[]; followUp: Message[] };
 }
 
 export interface RuntimeConfig {
@@ -48,11 +45,10 @@ export interface RuntimeConfig {
   session: Session;
   systemPrompt?: string | (() => string | undefined | Promise<string | undefined>);
   hooks?: ToolHooks;
-  steeringMode?: QueueMode;
-  followUpMode?: QueueMode;
   /**
-   * Throws when the same `(tool, args)` pair is observed more than this many
-   * times within a single turn. Guards against runaway loops. Defaults to 5.
+   * Breaks the turn when the same `(tool, args)` pair is observed more than
+   * this many times within a single turn. Guards against runaway loops.
+   * Defaults to 5.
    */
   maxRepeatedToolCalls?: number;
   /**
@@ -112,12 +108,11 @@ export function createRuntime(config: RuntimeConfig): Runtime {
   const queue: Message[] = [];
   const steeringQueue = session.steeringQueue;
   const followUpQueue = session.followUpQueue;
-  const steeringMode = config.steeringMode ?? 'one-at-a-time';
-  const followUpMode = config.followUpMode ?? 'one-at-a-time';
 
   let currentState: RuntimeState = 'idle';
   let unsubscribe: Unsubscribe | undefined;
   let processing = false;
+  let startPromise: Promise<void> | undefined;
 
   async function callOnStart(): Promise<void> {
     for (const plugin of plugins) {
@@ -150,32 +145,19 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     }
   }
 
-  function drainQueue(source: Message[], mode: QueueMode): Message[] {
-    if (mode === 'all') {
-      const drained = source.slice();
-      source.length = 0;
-      return drained;
-    }
-
-    const first = source.shift();
-    return first ? [first] : [];
-  }
-
   function emitQueueUpdate(): void {
     bus.publish({ type: 'queue_update', steering: [...steeringQueue], followUp: [...followUpQueue] });
   }
 
-  function drainIntoTranscript(source: Message[], mode: QueueMode, queueType: 'steering' | 'follow_up'): boolean {
-    const drained = drainQueue(source, mode);
-    if (!drained.length) {
+  function drainIntoTranscript(source: Message[], queueType: 'steering' | 'follow_up'): boolean {
+    const message = source.shift();
+    if (!message) {
       return false;
     }
 
     emitQueueUpdate();
-    for (const message of drained) {
-      messages.push(message);
-      bus.publish({ type: 'queued_message', queue: queueType, message });
-    }
+    messages.push(message);
+    bus.publish({ type: 'queued_message', queue: queueType, message });
     return true;
   }
 
@@ -185,10 +167,11 @@ export function createRuntime(config: RuntimeConfig): Runtime {
   }
 
   function enqueueSide(sideQueue: Message[], message: Message, queueType: 'steering' | 'follow_up'): void {
+    const wasEmpty = sideQueue.length === 0;
     sideQueue.push(message);
     emitQueueUpdate();
 
-    if (currentState === 'idle' && !processing) {
+    if (wasEmpty && currentState === 'idle' && !processing) {
       sideQueue.shift();
       emitQueueUpdate();
       bus.publish({ type: 'queued_message', queue: queueType, message });
@@ -281,7 +264,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       }
     }
 
-    if (!finalized && (content || streamedCalls.length)) {
+    if (!finalized && (currentState as RuntimeState) !== 'stopped' && (content || streamedCalls.length)) {
       finalizeResponse({ content }, streamedCalls);
     }
 
@@ -299,11 +282,16 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     return processStream(stream);
   }
 
-  async function executeToolCalls(calls: ToolCall[], activeTools: Tools): Promise<void> {
+  async function executeToolCalls(calls: ToolCall[], activeTools: Tools): Promise<{ failed: boolean }> {
+    let failed = false;
     const executeSingle = async (call: ToolCall): Promise<Message> => {
       const tool = activeTools[call.tool];
       if (!tool) {
-        throw new Error(`Unknown tool: ${call.tool}`);
+        failed = true;
+        const error = new Error(`Unknown tool: ${call.tool}`);
+        bus.publish({ type: 'error', error });
+        callOnError(error);
+        return { role: 'tool', content: `Error: ${error.message}`, tool_id: call.id };
       }
 
       const toolResult = await callTool(tool, call.args, hooks);
@@ -315,17 +303,22 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       messages.push(message);
       bus.publish({ type: 'tool_result', message });
     }
+    return { failed };
   }
 
-  function checkRepeatedToolCalls(repeatedToolCalls: Map<string, number>, calls: ToolCall[]): void {
+  function checkRepeatedToolCalls(
+    repeatedToolCalls: Map<string, number>,
+    calls: ToolCall[],
+  ): ToolCall | undefined {
     for (const call of calls) {
       const key = `${call.tool}:${call.args.slice(0, 500)}`;
       const count = (repeatedToolCalls.get(key) ?? 0) + 1;
       repeatedToolCalls.set(key, count);
       if (count > maxRepeatedToolCalls) {
-        throw new Error(`Tool call loop detected: ${call.tool} repeated ${count} times with the same arguments`);
+        return call;
       }
     }
+    return undefined;
   }
 
   async function processQueue(): Promise<void> {
@@ -353,14 +346,34 @@ export function createRuntime(config: RuntimeConfig): Runtime {
         const calls = await consumeResult(result);
 
         if (calls.length) {
-          checkRepeatedToolCalls(repeatedToolCalls, calls);
-          await executeToolCalls(calls, activeTools);
-          drainIntoTranscript(steeringQueue, steeringMode, 'steering');
+          const repeated = checkRepeatedToolCalls(repeatedToolCalls, calls);
+          if (repeated) {
+            const error = new Error(
+              `Tool call loop detected: ${repeated.tool} repeated more than ${maxRepeatedToolCalls} times with the same arguments`,
+            );
+            // Pair every assistant tool_call with a tool result so the session
+            // remains valid for the next provider call.
+            for (const call of calls) {
+              const message: Message = {
+                role: 'tool',
+                content: `Error: ${error.message}`,
+                tool_id: call.id,
+              };
+              messages.push(message);
+              bus.publish({ type: 'tool_result', message });
+            }
+            bus.publish({ type: 'error', error });
+            callOnError(error);
+            break;
+          }
+          const { failed } = await executeToolCalls(calls, activeTools);
+          if (failed) break;
+          drainIntoTranscript(steeringQueue, 'steering');
           continue;
         }
 
-        if (drainIntoTranscript(steeringQueue, steeringMode, 'steering')) continue;
-        if (drainIntoTranscript(followUpQueue, followUpMode, 'follow_up')) continue;
+        if (drainIntoTranscript(steeringQueue, 'steering')) continue;
+        if (drainIntoTranscript(followUpQueue, 'follow_up')) continue;
         break;
       }
     } catch (error) {
@@ -380,25 +393,37 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       if (unsubscribe) {
         return;
       }
+      if (startPromise) {
+        return startPromise;
+      }
 
       currentState = 'idle';
-      await callLifecycleHook(callOnStart);
+      startPromise = (async () => {
+        try {
+          await callLifecycleHook(callOnStart);
+          if ((currentState as RuntimeState) === 'stopped') {
+            return;
+          }
+          unsubscribe = bus.subscribe((event) => {
+            if (event.type === 'steer') {
+              enqueueSide(steeringQueue, event.message, 'steering');
+              return;
+            }
 
-      unsubscribe = bus.subscribe((event) => {
-        if (event.type === 'steer') {
-          enqueueSide(steeringQueue, event.message, 'steering');
-          return;
-        }
+            if (event.type === 'follow_up') {
+              enqueueSide(followUpQueue, event.message, 'follow_up');
+              return;
+            }
 
-        if (event.type === 'follow_up') {
-          enqueueSide(followUpQueue, event.message, 'follow_up');
-          return;
+            if (event.type === 'user_message') {
+              startTurn(event.message);
+            }
+          });
+        } finally {
+          startPromise = undefined;
         }
-
-        if (event.type === 'user_message') {
-          startTurn(event.message);
-        }
-      });
+      })();
+      return startPromise;
     },
 
     async stop() {
@@ -416,20 +441,12 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       return currentState;
     },
 
-    session() {
-      return session;
-    },
-
     steer(message) {
       enqueueSide(steeringQueue, message, 'steering');
     },
 
     followUp(message) {
       enqueueSide(followUpQueue, message, 'follow_up');
-    },
-
-    queueState() {
-      return { steering: [...steeringQueue], followUp: [...followUpQueue] };
     },
   };
 }

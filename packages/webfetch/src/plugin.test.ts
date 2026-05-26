@@ -6,6 +6,7 @@
 import { expect } from '@std/expect';
 import { afterEach, beforeEach, describe, it } from '@std/testing/bdd';
 import type { Tool } from 'mu-core';
+import TurndownService from 'turndown';
 import { createWebFetchTool } from './plugin';
 
 type FetchStub = (input: string, init?: RequestInit) => Promise<Response>;
@@ -168,8 +169,39 @@ describe('mu-webfetch — abort + timeout', () => {
         });
       });
     });
-    const out = await run({ url: 'https://example.com/x', timeout: 0.05 });
+    const out = await run({ url: 'https://example.com/x', timeout: 0.1 });
     expect(out).toContain('timed out');
+  });
+
+  it('rejects sub-floor timeout values up-front', async () => {
+    setFetch(() => Promise.reject(new Error('fetch should not run')));
+    const out = await run({ url: 'https://example.com/x', timeout: 0 });
+    expect(out).toContain('Error:');
+    expect(out).toContain('timeout');
+  });
+});
+
+describe('mu-webfetch — turndown failure (#217)', () => {
+  let originalTurndown: typeof TurndownService.prototype.turndown;
+
+  beforeEach(() => {
+    originalTurndown = TurndownService.prototype.turndown;
+    TurndownService.prototype.turndown = function () {
+      throw new Error('boom from turndown');
+    };
+  });
+
+  afterEach(() => {
+    TurndownService.prototype.turndown = originalTurndown;
+  });
+
+  it('returns an error string instead of throwing when turndown fails', async () => {
+    const html = '<html><body><p>doomed</p></body></html>';
+    setFetch(async () => new Response(html, { headers: { 'content-type': 'text/html' } }));
+    const out = await run({ url: 'https://example.com/x' });
+    expect(out).toContain('Error:');
+    expect(out).toContain('failed to convert HTML to markdown');
+    expect(out).toContain('boom from turndown');
   });
 });
 

@@ -8,8 +8,7 @@ import { type Component, type InputEvent, ProcessTerminal, TUI } from 'mu-tui';
 import { Box, Input, type InputHighlight, Modal, ScrollView, SelectList, Text } from 'mu-tui/components';
 import { AssistantMessage } from './components/AssistantMessage';
 import { CommandPalette, type CommandPaletteItem } from './components/CommandPalette';
-import { ContextMap } from './components/ContextMap';
-import { type FilePickerEntry, FilePicker } from './components/FilePicker';
+import { FilePicker, type PickerEntry } from './components/FilePicker';
 import { CommandLine, CommandResultLine, ErrorLine, ErrorToast, HiddenThinkingLine } from './components/SimpleLines';
 import { OutputBlock } from './components/OutputBlock';
 import { ReasoningBlock } from './components/ReasoningBlock';
@@ -78,8 +77,6 @@ interface ChatAppOptions {
   ) => Promise<{ content: string; error?: string }>;
 }
 
-type ModalMode = 'model';
-
 const SPINNER_INTERVAL_MS = 100;
 
 export class ChatApp {
@@ -109,7 +106,6 @@ export class ChatApp {
   private commandCursor = 0;
   private dismissedPaletteFor = '';
   private modal: Modal | undefined;
-  private modalMode: ModalMode | undefined;
   private models: Model[] = [];
   private modelCursor = 0;
   private unsubscribe: Unsubscribe | undefined;
@@ -914,7 +910,6 @@ export class ChatApp {
     return [
       { name: 'new', description: 'start a new session', run: () => this.startNewSession() },
       { name: 'model', description: 'switch the active model', run: () => this.openModelModal() },
-      // { name: 'context', description: 'show context map', deferWhenBusy: true, run: () => this.showContextMap() },
       { name: 'context-export', description: 'export context map to a file', deferWhenBusy: true, run: (args) => void this.exportContext(args) },
       { name: 'thinking', description: 'toggle thinking blocks', deferWhenBusy: true, run: () => this.handleToggleThinking() },
       { name: 'expand', description: 'toggle output block expansion', deferWhenBusy: true, run: () => this.toggleOutputBlocks() },
@@ -1126,7 +1121,7 @@ export class ChatApp {
     }
   }
 
-  private selectFilePickerEntry(entry: FilePickerEntry): void {
+  private selectFilePickerEntry(entry: PickerEntry): void {
     const value = this.input.value;
     const cursor = this.input.cursor;
     const anchor = this.filePickerAnchor;
@@ -1272,12 +1267,6 @@ export class ChatApp {
     this.renderTranscript();
   }
 
-  private showContextMap(): void {
-    this.transcript.lines.push({ role: 'command', content: '/context' });
-    this.transcript.lines.push({ role: 'context', roundtrip: this.roundtrips.latest() });
-    this.renderTranscript();
-  }
-
   private async exportContext(args: string): Promise<void> {
     const history = this.roundtrips.all();
     if (history.length === 0) {
@@ -1325,7 +1314,7 @@ export class ChatApp {
 
   private openModelModal(): void {
     if (!this.modelController) {
-      this.openModal('model', {
+      this.openModal({
         title: 'Model Picker',
         body: 'No model controller is configured.',
         footer: 'Esc or Enter to close',
@@ -1335,7 +1324,7 @@ export class ChatApp {
     }
 
     if (this.runtime.state() !== 'idle') {
-      this.openModal('model', {
+      this.openModal({
         title: 'Model Picker',
         body: 'Cannot switch model while a response is running.',
         footer: 'Esc or Enter to close',
@@ -1344,7 +1333,7 @@ export class ChatApp {
       return;
     }
 
-    this.openModal('model', {
+    this.openModal({
       title: 'Model Picker',
       body: `Loading models...\nCurrent: ${this.modelController.model || 'unknown'}`,
       footer: 'Up/Down to move, Enter to select, Esc to close',
@@ -1356,7 +1345,7 @@ export class ChatApp {
   }
 
   private async loadModelsForModal(): Promise<void> {
-    if (!(this.modelController && this.modal) || this.modalMode !== 'model') return;
+    if (!(this.modelController && this.modal)) return;
     try {
       this.models = await this.modelController.listModels();
       const current = this.modelController.model;
@@ -1375,7 +1364,7 @@ export class ChatApp {
   }
 
   private mountModelSelectList(): void {
-    if (!this.modal || this.modalMode !== 'model') return;
+    if (!this.modal) return;
     const current = this.modelController?.model ?? '';
 
     if (this.models.length === 0) {
@@ -1435,19 +1424,10 @@ export class ChatApp {
   }
 
   private interceptModalInput(event: Extract<InputEvent, { type: 'key' }>): boolean {
-    if (this.modalMode === 'model') {
-      if (event.key === 'escape' || event.key === 'esc') {
-        this.closeModal();
-        return true;
-      }
-      return false;
-    }
-
-    if (event.key === 'escape' || event.key === 'esc' || event.key === 'enter') {
+    if (event.key === 'escape' || event.key === 'esc') {
       this.closeModal();
       return true;
     }
-
     return false;
   }
 
@@ -1461,9 +1441,8 @@ export class ChatApp {
     this.closeModal();
   }
 
-  private openModal(mode: ModalMode, props: ConstructorParameters<typeof Modal>[0]): void {
+  private openModal(props: ConstructorParameters<typeof Modal>[0]): void {
     if (this.modal) this.root.removeChild(this.modal);
-    this.modalMode = mode;
     this.modal = new Modal(props);
     this.root.addChild(this.modal);
     this.tui.setFocus(this.modal);
@@ -1474,7 +1453,6 @@ export class ChatApp {
     if (!this.modal) return;
     this.root.removeChild(this.modal);
     this.modal = undefined;
-    this.modalMode = undefined;
     this.tui.setFocus(this.input);
     this.tui.requestRender(true);
   }
@@ -1562,9 +1540,6 @@ export class ChatApp {
           break;
         case 'output_block':
           components.push(entry.component);
-          break;
-        case 'context':
-          components.push(new ContextMap({ roundtrip: entry.roundtrip, model: this.modelController?.model }));
           break;
         case 'reasoning':
           if (entry.closed) {

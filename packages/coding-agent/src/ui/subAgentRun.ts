@@ -1,4 +1,4 @@
-import type { CoreEvent, Message, ToolCall } from 'mu-core';
+import type { CoreEvent, ToolCall } from 'mu-core';
 
 export type SubAgentRunStatus = 'running' | 'completed' | 'error';
 
@@ -153,9 +153,4 @@ function previewLine(text: string): string {
 function formatActivityFromToolCall(call: ToolCall): string {
   const args = call.args.length > 60 ? `${call.args.slice(0, 60)}…` : call.args;
   return `${call.tool}(${args})`;
-}
-
-/** Convenience used by the detail view. */
-export function summariseMessage(_message: Message): string {
-  return '';
 }

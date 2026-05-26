@@ -19,10 +19,20 @@ export interface ApprovalRequest {
 
 export type ApprovalDecision = 'allow' | 'deny';
 
+const APPROVAL_DECISIONS: ReadonlySet<ApprovalDecision> = new Set(['allow', 'deny']);
+
+/** Narrow an untrusted value to a valid `ApprovalDecision` or throw. */
+export function assertApprovalDecision(value: unknown): ApprovalDecision {
+  if (typeof value === 'string' && (APPROVAL_DECISIONS as ReadonlySet<string>).has(value)) {
+    return value as ApprovalDecision;
+  }
+  throw new TypeError(`Invalid approval decision: ${JSON.stringify(value)}`);
+}
+
 export interface ApprovalQueue {
   /** Called by the permission hook when the registry decision is `ask`. */
   request(toolName: string, args: string, matchedRule?: PermissionRule): Promise<ApprovalDecision>;
-  /** Called by the transport when the user has decided. */
+  /** Called by the transport when the user has decided. Throws on unrecognized decisions. */
   resolve(id: string, decision: ApprovalDecision): void;
   /** Snapshot of all pending requests (e.g. for a freshly connected client). */
   pending(): ApprovalRequest[];
@@ -51,10 +61,11 @@ export function createApprovalQueue(): ApprovalQueue {
     },
 
     resolve(id, decision) {
+      const validated = assertApprovalDecision(decision);
       const entry = pendingMap.get(id);
       if (!entry) return;
       pendingMap.delete(id);
-      entry.resolve(decision);
+      entry.resolve(validated);
     },
 
     pending() {

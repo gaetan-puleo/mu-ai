@@ -16,6 +16,7 @@ import TurndownService from 'turndown';
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5 MB
 const DEFAULT_TIMEOUT_MS = 30_000; // 30 s
 const MAX_TIMEOUT_MS = 120_000; // 2 min
+const MIN_TIMEOUT_MS = 100; // below this an AbortController can fire before fetch starts
 const UA_BROWSER =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36';
 const UA_RETRY = 'mu';
@@ -72,7 +73,12 @@ function convertHtmlToMarkdown(html: string): string {
     emDelimiter: '*',
   });
   td.remove(['script', 'style', 'meta', 'link']);
-  return td.turndown(html);
+  try {
+    return td.turndown(html);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return formatError(`failed to convert HTML to markdown: ${message}`);
+  }
 }
 
 const SKIP_TAGS = ['script', 'style', 'noscript', 'iframe', 'object', 'embed'] as const;
@@ -122,9 +128,15 @@ function pickFormat(value: unknown): WebFetchFormat {
   return value === 'text' || value === 'html' || value === 'markdown' ? value : 'markdown';
 }
 
-function pickTimeoutMs(value: unknown): number {
+type TimeoutPick = { ok: true; ms: number } | { ok: false; error: string };
+
+function pickTimeoutMs(value: unknown): TimeoutPick {
   const seconds = typeof value === 'number' ? value : DEFAULT_TIMEOUT_MS / 1000;
-  return Math.min(Math.max(seconds, 0) * 1000, MAX_TIMEOUT_MS);
+  const requestedMs = seconds * 1000;
+  if (!Number.isFinite(requestedMs) || requestedMs < MIN_TIMEOUT_MS) {
+    return { ok: false, error: formatError(`timeout must be at least ${MIN_TIMEOUT_MS / 1000}s`) };
+  }
+  return { ok: true, ms: Math.min(requestedMs, MAX_TIMEOUT_MS) };
 }
 
 type FetchAttempt = { ok: true; response: Response } | { ok: false; error: string };
@@ -151,6 +163,8 @@ async function fetchWithCloudflareRetry(
   }
 
   if (response.status === 403 && response.headers.get('cf-mitigated') === 'challenge') {
+    // Drain the prior body so undici/Bun release the socket before the retry.
+    await response.body?.cancel().catch(() => {});
     try {
       response = await fetch(url, {
         signal: fetchSignal,
@@ -221,7 +235,11 @@ async function runWebFetch(args: Record<string, unknown>): Promise<string> {
   if (!isHttpUrl(url)) return formatError('URL must start with http:// or https://');
 
   const format = pickFormat(args.format);
-  const timeoutMs = pickTimeoutMs(args.timeout);
+  const timeoutPick = pickTimeoutMs(args.timeout);
+  if (!timeoutPick.ok) return timeoutPick.error;
+  const timeoutMs = timeoutPick.ms;
+  // TODO: mu-core's Tool.execute signature doesn't pass an AbortSignal yet — when
+  // it does, combine the executor signal with this timeout via AbortSignal.any().
   const { controller, timerId } = createTimeoutSignal(timeoutMs);
 
   try {
@@ -229,6 +247,8 @@ async function runWebFetch(args: Record<string, unknown>): Promise<string> {
     if ('error' in attempt) return attempt.error;
     const { response } = attempt;
     if (!response.ok) {
+      // Drain the body so undici/Bun release the socket instead of waiting for GC.
+      await response.body?.cancel().catch(() => {});
       return formatError(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
     }
 

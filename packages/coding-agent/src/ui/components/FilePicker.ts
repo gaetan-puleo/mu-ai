@@ -15,9 +15,6 @@ export type PickerEntry =
   | { kind: 'agent'; name: string; description?: string; color?: string }
   | { kind: 'file'; path: string; isDir: boolean };
 
-/** Back-compat alias: existing callers used `FilePickerEntry`. */
-export type FilePickerEntry = PickerEntry;
-
 export interface FilePickerProps {
   cwd: string;
   query: string;
@@ -72,11 +69,6 @@ export function getProjectTree(cwd: string): Array<{ path: string; isDir: boolea
   return cachedTree;
 }
 
-export function invalidateTreeCache(): void {
-  cachedCwd = '';
-  cachedTree = [];
-}
-
 function fuzzyScore(text: string, query: string): number {
   const lower = text.toLowerCase();
   const q = query.toLowerCase();
@@ -117,11 +109,6 @@ function fuzzyFilterAgents(agents: AgentPickerInfo[], query: string) {
   }
   scored.sort((a, b) => b.score - a.score);
   return scored.map((s) => s.entry);
-}
-
-/** Back-compat: legacy callers that filtered just files. */
-export function fuzzyFilter(entries: Array<{ path: string; isDir: boolean }>, query: string): Array<{ path: string; isDir: boolean }> {
-  return fuzzyFilterFiles(entries, query, 50);
 }
 
 export class FilePicker implements Component {

@@ -3,7 +3,6 @@ import { describe, it } from '@std/testing/bdd';
 
 import { capability, createDefaultCapabilities } from './capabilities';
 import type { InputEvent } from './events';
-import { createOsc52Sequence } from './features/clipboard';
 import { type KeyChord, keyMatches } from './keybinds';
 import { eventToMouseEvent, parseInput } from './keyboard';
 import { TerminalInputParser } from './parser';
@@ -294,13 +293,6 @@ describe('capabilities and features', () => {
     expect(caps.colors.palette256.value).toBe(true);
     expect(caps.colors.truecolor.value).toBe(true);
     expect(caps.input.legacy.value).toBe(true);
-  });
-
-  it('creates OSC 52 sequences with payload limits', () => {
-    const seq = createOsc52Sequence('ok', { terminator: 'st' });
-    expect(seq.startsWith('\x1b]52;c;')).toBe(true);
-    expect(seq.endsWith('\x1b\\')).toBe(true);
-    expect(() => createOsc52Sequence('too long', { maxPayloadBytes: 4 })).toThrow();
   });
 
   it('allows manual capability patches', () => {

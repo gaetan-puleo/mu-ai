@@ -25,6 +25,9 @@ export function createCommandRegistry(): CommandRegistry {
       if (commands.has(command.name)) {
         throw new Error(`Command "${command.name}" is already registered`);
       }
+      if (aliasToName.has(command.name)) {
+        throw new Error(`Command name "${command.name}" collides with an existing alias`);
+      }
       for (const alias of command.aliases ?? []) {
         if (commands.has(alias) || aliasToName.has(alias)) {
           throw new Error(`Command alias "${alias}" collides with an existing name or alias`);

@@ -32,7 +32,6 @@ import type {
 export type {
   LLMResponseContextProps,
   LLMResponseContextSlot,
-  LocalBackendIdentity,
   LocalBackendInfo,
   LocalBackendKind,
   LocalLLMResponseContext,
@@ -47,8 +46,6 @@ export function setOpenAIClientForTesting(client: typeof OpenAI): void {
   OpenAIClient = client;
 }
 
-const backendDetectors = [{ kind: LLAMA_SWAP_KIND, detect: detectLlamaSwap }] as const;
-
 export async function detectLocalBackend(config: {
   kind?: LocalProviderConfig['kind'];
   baseUrl?: string;
@@ -56,27 +53,18 @@ export async function detectLocalBackend(config: {
 }): Promise<LocalBackendInfo> {
   const baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
 
-  if (config.kind) {
-    for (const detector of backendDetectors) {
-      if (detector.kind === config.kind) {
-        const result = await detector.detect({ baseUrl, apiKey: config.apiKey });
-        if (result) {
-          return result;
-        }
-        throw new Error(`Cannot detect ${config.kind} backend at ${baseUrl}`);
-      }
-    }
+  if (config.kind && config.kind !== LLAMA_SWAP_KIND) {
     throw new Error(`Unknown backend kind: ${config.kind}`);
   }
 
-  for (const detector of backendDetectors) {
-    const result = await detector.detect({ baseUrl, apiKey: config.apiKey });
-    if (result) {
-      return result;
-    }
+  const result = await detectLlamaSwap({ baseUrl, apiKey: config.apiKey });
+  if (result) {
+    return result;
   }
 
-  throw new Error(`Unsupported local backend at ${baseUrl}`);
+  throw new Error(
+    config.kind ? `Cannot detect ${config.kind} backend at ${baseUrl}` : `Unsupported local backend at ${baseUrl}`,
+  );
 }
 
 export async function listLocalModels(config: {
@@ -137,10 +125,6 @@ function estimateTokens(value: string): number {
   const trimmed = value.trim();
   if (!trimmed) return 0;
   return Math.max(1, Math.ceil(trimmed.length / 4));
-}
-
-function estimateJsonTokens(value: unknown): number {
-  return estimateTokens(JSON.stringify(value));
 }
 
 function toolContextKind(tool: Tool): ContextPartKind {
@@ -256,11 +240,16 @@ export const createLocalProvider = (config: LocalProviderConfig): LLMProvider =>
   let client: OpenAI | undefined;
 
   return async (messages, tools): Promise<LLMProviderResult> => {
-    backendPromise ??= detectLocalBackend({
-      kind: config.kind,
-      baseUrl: config.baseUrl ?? DEFAULT_BASE_URL,
-      apiKey: config.apiKey,
-    });
+    if (!backendPromise) {
+      backendPromise = detectLocalBackend({
+        kind: config.kind,
+        baseUrl: config.baseUrl ?? DEFAULT_BASE_URL,
+        apiKey: config.apiKey,
+      }).catch((err) => {
+        backendPromise = undefined;
+        throw err;
+      });
+    }
     const backend = await backendPromise;
 
     if (!config.model) {
@@ -276,6 +265,7 @@ export const createLocalProvider = (config: LocalProviderConfig): LLMProvider =>
       baseURL: getLlamaSwapOpenAIBaseUrl(backend.baseUrl),
       apiKey: config.apiKey ?? 'local',
     });
+    const activeClient = client;
 
     const convertedTools = convertTools(tools);
     const requestOptions: Record<string, unknown> = {
@@ -303,9 +293,11 @@ export const createLocalProvider = (config: LocalProviderConfig): LLMProvider =>
     async function* streamCompletion(): AsyncIterable<LLMStreamEvent> {
       let content = '';
       let usage: LocalLLMResponseContext['usage'] | undefined;
-      const toolCallBuffers = new Map<number, { id: string; name: string; args: string; emitted: boolean }>();
+      const toolCallBuffers = new Map<string, { id: string; name: string; args: string; emitted: boolean }>();
+      let finishReason: string | undefined;
+      let syntheticKeyCounter = 0;
 
-      const stream = await client?.chat.completions.create(requestOptions as any);
+      const stream = await activeClient.chat.completions.create(requestOptions as any);
 
       for await (const chunk of stream as any) {
         if (chunk.usage) {
@@ -338,13 +330,22 @@ export const createLocalProvider = (config: LocalProviderConfig): LLMProvider =>
           | undefined;
         if (toolCallDeltas) {
           for (const tc of toolCallDeltas) {
-            const idx = tc.index ?? 0;
-            const buf = toolCallBuffers.get(idx) ?? { id: '', name: '', args: '', emitted: false };
+            // Key by index when present, else by id, else by a synthetic per-stream key.
+            const key = tc.index !== undefined
+              ? `i:${tc.index}`
+              : tc.id
+              ? `id:${tc.id}`
+              : `s:${syntheticKeyCounter++}`;
+            const buf = toolCallBuffers.get(key) ?? { id: '', name: '', args: '', emitted: false };
             if (tc.id) buf.id = tc.id;
             if (tc.function?.name) buf.name = tc.function.name;
             if (tc.function?.arguments) buf.args += tc.function.arguments;
-            toolCallBuffers.set(idx, buf);
+            toolCallBuffers.set(key, buf);
           }
+        }
+
+        if (choice?.finish_reason) {
+          finishReason = choice.finish_reason;
         }
 
         if (choice?.finish_reason === 'tool_calls') {
@@ -359,14 +360,18 @@ export const createLocalProvider = (config: LocalProviderConfig): LLMProvider =>
         }
       }
 
-      // Fallback: emit any buffered tool calls that never saw a finish_reason chunk.
-      for (const buf of toolCallBuffers.values()) {
-        if (buf.emitted || !buf.name) continue;
-        buf.emitted = true;
-        yield {
-          type: 'tool_call',
-          call: { type: 'tool_call', id: buf.id, tool: buf.name, args: buf.args },
-        };
+      // Fallback only when the stream actually finished with tool_calls (or never set a
+      // finish_reason at all). On 'stop' or other terminal reasons, discard partial buffer.
+      const shouldEmitBuffered = finishReason === undefined || finishReason === 'tool_calls';
+      if (shouldEmitBuffered) {
+        for (const buf of toolCallBuffers.values()) {
+          if (buf.emitted || !buf.name) continue;
+          buf.emitted = true;
+          yield {
+            type: 'tool_call',
+            call: { type: 'tool_call', id: buf.id, tool: buf.name, args: buf.args },
+          };
+        }
       }
 
       let backendContext: LocalLLMResponseContext | undefined;
@@ -381,14 +386,16 @@ export const createLocalProvider = (config: LocalProviderConfig): LLMProvider =>
       }
 
       const collectedToolCalls: ToolCall[] = [];
-      for (const buf of toolCallBuffers.values()) {
-        if (!buf.name) continue;
-        collectedToolCalls.push({
-          type: 'tool_call',
-          id: buf.id,
-          tool: buf.name,
-          args: buf.args,
-        });
+      if (shouldEmitBuffered) {
+        for (const buf of toolCallBuffers.values()) {
+          if (!buf.name) continue;
+          collectedToolCalls.push({
+            type: 'tool_call',
+            id: buf.id,
+            tool: buf.name,
+            args: buf.args,
+          });
+        }
       }
 
       const tokenize: TokenizeFn | undefined = backend.kind === 'llama-swap'

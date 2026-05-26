@@ -36,7 +36,8 @@ export function createPermissionHook({ registry, prompt }: PermissionHookOptions
       return { block: true, reason: `permission required for ${tool.name} (no prompt handler configured)` };
     }
     const userDecision = await prompt({ tool: tool.name, args }, result.matched);
-    if (userDecision === 'deny') {
+    // Treat anything that is not an explicit `allow` as a denial to fail closed.
+    if (userDecision !== 'allow') {
       return { block: true, reason: `user denied ${tool.name}` };
     }
     return undefined;

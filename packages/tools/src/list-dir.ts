@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Tool } from 'mu-core';
 import { formatError, parseArgs, sanitizePath } from './utils';
@@ -9,7 +9,12 @@ interface ListDirToolOptions {
 }
 
 function listDirRecursive(dir: string, prefix: string, depth: number, maxDepth: number, recursive: boolean): string {
-  const entries = readdirSync(dir).sort();
+  let entries: string[];
+  try {
+    entries = readdirSync(dir).sort();
+  } catch {
+    return `${prefix}[permission denied]`;
+  }
   const lines: string[] = [];
 
   for (let i = 0; i < entries.length; i++) {
@@ -18,16 +23,20 @@ function listDirRecursive(dir: string, prefix: string, depth: number, maxDepth: 
     const connector = isLast ? '└── ' : '├── ';
     const fullPath = join(dir, entry);
     let isDir: boolean;
+    let isSymlink: boolean;
     try {
-      isDir = statSync(fullPath).isDirectory();
+      const st = lstatSync(fullPath);
+      isSymlink = st.isSymbolicLink();
+      isDir = isSymlink ? false : st.isDirectory();
     } catch {
       lines.push(`${prefix}${connector}⚠ ${entry}`);
       continue;
     }
-    const icon = isDir ? '📁' : '📄';
+    const icon = isSymlink ? '🔗' : isDir ? '📁' : '📄';
     lines.push(`${prefix}${connector}${icon} ${entry}`);
 
-    if (recursive && isDir && depth < maxDepth) {
+    // Skip symlinks to avoid infinite loops on circular references.
+    if (recursive && isDir && !isSymlink && depth < maxDepth) {
       const extension = isLast ? '    ' : '│   ';
       lines.push(listDirRecursive(fullPath, prefix + extension, depth + 1, maxDepth, recursive));
     }

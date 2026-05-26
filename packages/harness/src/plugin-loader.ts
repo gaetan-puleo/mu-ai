@@ -47,8 +47,12 @@ function take(mod: unknown, source: string): Plugin {
   return validatePlugin(candidate, source);
 }
 
+// Allow only safe package identifiers; trailing `@<semver>` is permitted on either form.
+const SCOPED_SPEC = /^@[\w-]+\/[\w.-]+(?:@[\w.\-+]+)?$/;
+const NPM_PREFIXED_SPEC = /^npm:(?:@[\w-]+\/)?[\w.-]+(?:@[\w.\-+]+)?$/;
+
 function isAllowedSpec(spec: string): boolean {
-  return spec.startsWith('npm:') || /^@[\w-]+\/[\w.-]+/.test(spec);
+  return NPM_PREFIXED_SPEC.test(spec) || SCOPED_SPEC.test(spec);
 }
 
 export async function loadPlugins(opts: LoadPluginsOptions = {}): Promise<Plugin[]> {

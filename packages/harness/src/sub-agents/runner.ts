@@ -58,7 +58,10 @@ export interface RunSubAgentOptions {
 export interface SubAgentRunResult {
   agentName: string;
   content: string;
+  /** First error (if any) — kept for backward compatibility with single-error consumers. */
   error?: string;
+  /** Every error emitted during the sub-agent run, in order. */
+  errors?: string[];
 }
 
 /**
@@ -92,7 +95,7 @@ export async function runSubAgent(opts: RunSubAgentOptions): Promise<SubAgentRun
   });
 
   let lastContent = '';
-  let runError: unknown;
+  const runErrors: unknown[] = [];
   const onEvent = opts.onEvent;
   const unsubscribe = bus.subscribe((event) => {
     if (onEvent) {
@@ -105,7 +108,7 @@ export async function runSubAgent(opts: RunSubAgentOptions): Promise<SubAgentRun
     if (event.type === 'assistant_message') {
       lastContent = event.message.content;
     } else if (event.type === 'error') {
-      runError = event.error;
+      runErrors.push(event.error);
     }
   });
 
@@ -122,9 +125,9 @@ export async function runSubAgent(opts: RunSubAgentOptions): Promise<SubAgentRun
     await runtime.stop();
   }
 
-  if (runError !== undefined) {
-    const message = runError instanceof Error ? runError.message : String(runError);
-    return { agentName: subAgent.name, content: lastContent, error: message };
+  if (runErrors.length > 0) {
+    const messages = runErrors.map((e) => (e instanceof Error ? e.message : String(e)));
+    return { agentName: subAgent.name, content: lastContent, error: messages[0], errors: messages };
   }
   return { agentName: subAgent.name, content: lastContent };
 }

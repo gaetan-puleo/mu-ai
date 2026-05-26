@@ -14,6 +14,7 @@ export class TerminalInputParser {
   private buffer = '';
   private paste = '';
   private inPaste = false;
+  private pasteOverflowed = false;
 
   constructor(private readonly options: TerminalInputParserOptions = {}) {}
 
@@ -25,21 +26,28 @@ export class TerminalInputParser {
       if (this.inPaste) {
         const end = this.buffer.indexOf(PASTE_END);
         if (end === -1) {
-          this.paste += this.buffer;
-          this.buffer = '';
-          if (this.paste.length > this.maxPasteBytes) {
-            events.push({ type: 'paste', text: this.paste.slice(0, this.maxPasteBytes), raw: this.paste });
-            this.paste = '';
-            this.inPaste = false;
+          if (!this.pasteOverflowed) {
+            this.paste += this.buffer;
+            if (this.paste.length > this.maxPasteBytes) {
+              this.paste = this.paste.slice(0, this.maxPasteBytes);
+              this.pasteOverflowed = true;
+            }
           }
+          this.buffer = '';
           break;
         }
 
-        this.paste += this.buffer.slice(0, end);
+        if (!this.pasteOverflowed) {
+          this.paste += this.buffer.slice(0, end);
+          if (this.paste.length > this.maxPasteBytes) {
+            this.paste = this.paste.slice(0, this.maxPasteBytes);
+          }
+        }
         this.buffer = this.buffer.slice(end + PASTE_END.length);
         events.push({ type: 'paste', text: this.paste, raw: `${PASTE_START}${this.paste}${PASTE_END}` });
         this.paste = '';
         this.inPaste = false;
+        this.pasteOverflowed = false;
         continue;
       }
 
@@ -114,7 +122,7 @@ function takeToken(input: string): string | null {
 
 function takeTextOrControl(input: string): string {
   const first = input.codePointAt(0) ?? 0;
-  if (first < 0x20 || first === 0x7f) return input.slice(0, first > 0xffff ? 2 : 1);
+  if (first < 0x20 || first === 0x7f) return input.slice(0, 1);
 
   let end = 0;
   for (const ch of input) {

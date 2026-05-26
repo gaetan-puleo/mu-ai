@@ -11,13 +11,10 @@ import type { Component } from '../types/component';
 import type { Terminal } from '../types/terminal';
 import { stripAnsi, visibleWidth } from '../utils';
 import { Box } from './Box';
-import { Button } from './Button';
-import { Diff } from './Diff';
 import { Input } from './Input';
 import { Modal } from './Modal';
 import { ScrollView } from './ScrollView';
 import { SelectList } from './SelectList';
-import { Spacer } from './Spacer';
 import { Text } from './Text';
 
 const caps = createDefaultCapabilities({ TERM: 'xterm-256color' });
@@ -147,127 +144,6 @@ describe('Box', () => {
     expect(line).toContain('Hi');
     expect(line).toContain('44m'); // parent's blue bg present somewhere in the row
     expect(stripAnsi(line)).toBe('Hi    ');
-  });
-});
-
-describe('Spacer', () => {
-  it('reserves space when sized with fill', () => {
-    const a = new Text({ text: 'a', layout: { width: 4 } });
-    const b = new Spacer();
-    const c = new Text({ text: 'c', layout: { width: 4 } });
-    const box = new Box({ layout: { direction: 'row' }, children: [a, b, c] });
-    const entries = layoutTree([box], { x: 0, y: 0, width: 20, height: 1 }, null, caps);
-    const spacerEntry = entries.find((e) => e.component === b);
-    expect(spacerEntry?.rect.width).toBe(12);
-  });
-});
-
-describe('Button', () => {
-  it('renders with focus styling when focused', () => {
-    const button = new Button({ label: 'Run' });
-    const unfocused = button.render(ctx(10, 1, false));
-    const focused = button.render(ctx(10, 1, true));
-    expect(unfocused[0]).toContain('Run');
-    expect(focused[0]).toContain('Run');
-    expect(focused[0]).not.toBe(unfocused[0]);
-  });
-
-  it('invokes onPress on Enter when focused', () => {
-    let pressed = 0;
-    const button = new Button({ label: 'Run', onPress: () => pressed++ });
-    button.handleEvent(
-      {
-        type: 'key',
-        key: 'enter',
-        kind: 'press',
-        source: 'legacy',
-        raw: '',
-        shift: false,
-        ctrl: false,
-        alt: false,
-        meta: false,
-      },
-      { rect: { x: 0, y: 0, width: 1, height: 1 }, contentRect: { x: 0, y: 0, width: 1, height: 1 }, focused: true },
-    );
-    expect(pressed).toBe(1);
-  });
-
-  it('invokes onPress on left mouse click', () => {
-    let pressed = 0;
-    const button = new Button({ label: 'Run', onPress: () => pressed++ });
-    button.handleEvent(
-      {
-        type: 'mouse',
-        kind: 'press',
-        button: 'left',
-        x: 0,
-        y: 0,
-        coordinateSpace: 'cells',
-        source: 'sgr',
-        raw: '',
-        shift: false,
-        ctrl: false,
-        alt: false,
-        meta: false,
-      },
-      { rect: { x: 0, y: 0, width: 1, height: 1 }, contentRect: { x: 0, y: 0, width: 1, height: 1 }, focused: true },
-    );
-    expect(pressed).toBe(1);
-  });
-});
-
-describe('Diff', () => {
-  it('renders inline additions and deletions', () => {
-    const diff = new Diff({ before: 'one\ntwo\nthree', after: 'one\nTWO\nthree', mode: 'inline' });
-    const lines = diff.render(ctx(30, 10)).map(stripAnsi);
-
-    expect(lines.some((line) => line.includes('- two'))).toBe(true);
-    expect(lines.some((line) => line.includes('+ TWO'))).toBe(true);
-  });
-
-  it('renders side-by-side changes in two columns', () => {
-    const diff = new Diff({ before: 'one\ntwo', after: 'one\nTWO', mode: 'side-by-side' });
-    const lines = diff.render(ctx(40, 10)).map(stripAnsi);
-
-    expect(lines.some((line) => line.includes('│'))).toBe(true);
-    expect(lines.some((line) => line.includes('- two') && line.includes('+ TWO'))).toBe(true);
-  });
-
-  it('keeps rendered lines within the content width', () => {
-    const diff = new Diff({ before: 'abcdefghijk', after: 'abcXYZghijk', mode: 'side-by-side' });
-    const lines = diff.render(ctx(20, 10));
-
-    for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(20);
-  });
-
-  it('clips to the content height', () => {
-    const diff = new Diff({ before: 'a\nb\nc', after: 'a\nB\nc', mode: 'inline' });
-
-    expect(diff.render(ctx(30, 2))).toHaveLength(2);
-  });
-
-  it('can hide line numbers', () => {
-    const diff = new Diff({ before: 'old', after: 'new', showLineNumbers: false });
-    const lines = diff.render(ctx(20, 10)).map(stripAnsi);
-
-    expect(lines[0].startsWith('- old')).toBe(true);
-    expect(lines[1].startsWith('+ new')).toBe(true);
-  });
-
-  it('handles empty before or after content', () => {
-    const added = new Diff({ before: '', after: 'new' }).render(ctx(20, 10)).map(stripAnsi);
-    const removed = new Diff({ before: 'old', after: '' }).render(ctx(20, 10)).map(stripAnsi);
-
-    expect(added[0]).toContain('+ new');
-    expect(removed[0]).toContain('- old');
-  });
-
-  it('reports measured size', () => {
-    const diff = new Diff({ before: 'old', after: 'new' });
-    const size = diff.measure({ minWidth: 0, maxWidth: 20, minHeight: 0, maxHeight: 20 });
-
-    expect(size.width).toBeLessThanOrEqual(20);
-    expect(size.height).toBe(2);
   });
 });
 

@@ -8,7 +8,6 @@ import {
   type PartialCapabilities,
 } from './capabilities';
 import type { InputEvent } from './events';
-import { createRuntimeEnv, type FeatureContext, type TuiFeature } from './feature';
 import type { GlobalKeybinding } from './keybinds';
 import { keyMatches } from './keybinds';
 import { type CellBuffer, cellBufferToLines, createCellBuffer, setBackdropColor } from './layout/cellbuffer';
@@ -30,7 +29,6 @@ interface StartableTerminal extends Terminal {
 
 export interface TuiOptions {
   capabilities?: PartialCapabilities;
-  features?: TuiFeature[];
   synchronizedOutput?: boolean;
   escapeTimeoutMs?: number;
   maxInputBufferBytes?: number;
@@ -70,19 +68,14 @@ export class TUI {
   private confirmBuffer: { chord: GlobalKeybinding; timestamp: number } | null = null;
   private readonly confirmTimeoutMs = 500;
   private readonly parser: TerminalInputParser;
-  private readonly features: TuiFeature[];
-  private readonly featureCleanups: Array<() => void> = [];
   private readonly useSynchronizedOutput: boolean;
   private readonly escapeTimeoutMs: number;
   private started = false;
   private userContext: unknown;
   private backdropColor: Rgba = OPAQUE_BLACK;
 
-  onDebug?: () => void;
-
   constructor(terminal: Terminal, options: TuiOptions = {}) {
     this.terminal = terminal;
-    this.features = options.features ?? [];
     this.useSynchronizedOutput = options.synchronizedOutput ?? true;
     this.escapeTimeoutMs = options.escapeTimeoutMs ?? 25;
     this.userContext = options.userContext;
@@ -93,7 +86,6 @@ export class TUI {
 
     const terminalCaps = (terminal as { capabilities?: Capabilities }).capabilities;
     this.capabilities = mergeCapabilities(terminalCaps ?? createDefaultCapabilities(), options.capabilities);
-    this.detectFeatureCapabilities();
   }
 
   getCapabilities(): Capabilities {
@@ -220,7 +212,6 @@ export class TUI {
       (data: string) => this.handleRawInput(data),
       () => this.handleResize(),
     );
-    this.setupFeatures();
     this.terminal.hideCursor();
     this.requestRender();
   }
@@ -238,7 +229,6 @@ export class TUI {
       this.pendingEscapeTimer = undefined;
     }
 
-    this.cleanupFeatures();
     this.moveCursorAfterRenderedContent();
 
     const t = this.terminal as StartableTerminal;
@@ -368,7 +358,7 @@ export class TUI {
   }
 
   private handleRawInput(data: string): void {
-    for (const listener of this.rawInputListeners) {
+    for (const listener of this.rawInputListeners.slice()) {
       try {
         listener(data);
       } catch {
@@ -404,7 +394,7 @@ export class TUI {
   }
 
   private dispatchEvent(event: InputEvent): void {
-    for (const interceptor of this.inputInterceptors) {
+    for (const interceptor of this.inputInterceptors.slice()) {
       try {
         if (interceptor(event)) {
           this.requestRender();
@@ -415,16 +405,12 @@ export class TUI {
       }
     }
 
-    for (const listener of this.inputListeners) {
+    for (const listener of this.inputListeners.slice()) {
       try {
         listener(event);
       } catch {
         /* listener errors must not break input handling */
       }
-    }
-
-    for (const feature of this.features) {
-      feature.handleEvent?.(event, this.createFeatureContext());
     }
 
     if (event.type === 'mouse') {
@@ -441,11 +427,6 @@ export class TUI {
     }
 
     if (event.type === 'key' && this.handleGlobalKeybinding(event)) {
-      return;
-    }
-
-    if (event.type === 'key' && event.raw === '\x1b[22;32u' && this.onDebug) {
-      this.onDebug();
       return;
     }
 
@@ -700,42 +681,6 @@ export class TUI {
 
   private frameEnd(): string {
     return this.useSynchronizedOutput ? '\x1b[?2026l' : '';
-  }
-
-  private detectFeatureCapabilities(): void {
-    const env = createRuntimeEnv(this.terminal);
-    for (const feature of this.features) {
-      const patch = feature.detect?.(env);
-      if (patch) this.updateCapabilities(patch);
-    }
-  }
-
-  private setupFeatures(): void {
-    for (const feature of this.features) {
-      feature.setup?.(this.createFeatureContext());
-    }
-  }
-
-  private cleanupFeatures(): void {
-    for (let i = this.features.length - 1; i >= 0; i--) {
-      this.features[i].cleanup?.(this.createFeatureContext());
-    }
-    for (let i = this.featureCleanups.length - 1; i >= 0; i--) {
-      this.featureCleanups[i]();
-    }
-    this.featureCleanups.length = 0;
-  }
-
-  private createFeatureContext(): FeatureContext {
-    return {
-      terminal: this.terminal,
-      capabilities: this.capabilities,
-      write: (data: string) => this.terminal.write(data),
-      enableMode: (mode) => this.terminal.enableMode?.(mode),
-      disableMode: (mode) => this.terminal.disableMode?.(mode),
-      updateCapabilities: (patch) => this.updateCapabilities(patch),
-      addCleanup: (cleanup) => this.featureCleanups.push(cleanup),
-    };
   }
 
   private assertLinesFit(lines: string[], width: number): void {

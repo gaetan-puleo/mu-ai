@@ -42,12 +42,20 @@ export function createEditFileTool(opts: EditFileToolOptions): Tool {
       }
       try {
         const content = readFileSync(path, 'utf-8');
-        const count = content.split(oldString).length - 1;
+        // Count occurrences without materializing N+1 substrings; bail at 2.
+        let count = 0;
+        let searchFrom = 0;
+        while (count < 2) {
+          const idx = content.indexOf(oldString, searchFrom);
+          if (idx === -1) break;
+          count++;
+          searchFrom = idx + oldString.length;
+        }
         if (count === 0) {
           return 'Error: "from" not found in file';
         }
         if (count > 1) {
-          return `Error: "from" found ${count} times, must be unique`;
+          return 'Error: "from" found multiple times, must be unique';
         }
         writeFileSync(path, content.replace(oldString, newString), 'utf-8');
         return `File edited: ${path}`;

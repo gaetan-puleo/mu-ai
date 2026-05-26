@@ -1,7 +1,6 @@
 import type { CoreEvent, Message } from 'mu-core';
 import { formatToolCallArgs } from './components/ToolLine';
 import type { OutputBlock } from './components/OutputBlock';
-import type { Roundtrip } from 'mu-harness';
 
 export type ChatLine =
   | { role: 'user'; content: string; label?: 'queued steering' | 'follow-up' }
@@ -9,7 +8,6 @@ export type ChatLine =
   | { role: 'command'; content: string }
   | { role: 'command_result'; content: string }
   | { role: 'output_block'; component: OutputBlock }
-  | { role: 'context'; roundtrip?: Roundtrip }
   | { role: 'reasoning'; content: string; closed?: boolean }
   | { role: 'tool'; callId: string; name: string; argsPreview: string }
   | { role: 'subagent_preview'; runId: string };
