@@ -4,7 +4,9 @@
  * Provides `read`, `write`, `edit`, `bash`, and `list_dir` as a `Tools` map
  * compatible with the `mu-core` runtime.
  *
- * `restrictToCwd` (opt-in) enables containment checks for path arguments.
+ * `restrictToCwd` (opt-in) enables containment checks for path arguments and,
+ * for `bash`, prefixes the command with `cd "$CWD" && …` so relative paths
+ * stay anchored to the contained directory.
  */
 
 import type { Tools } from 'mu-core';
@@ -15,10 +17,14 @@ import { createReadFileTool } from './read-file';
 import { createWriteFileTool } from './write-file';
 
 export interface MuToolsOptions {
-  /** Working directory accessor. Defaults to `process.cwd()`. */
+  /** Working directory accessor. Defaults to `process.cwd()`. Validated lazily on first tool use. */
   getCwd?: () => string;
   /** Enforce that path-accepting tools stay inside the cwd. Default `false`. */
   restrictToCwd?: boolean;
+  /** Cap on combined stdout/stderr bytes for `bash`. Default 10 MiB. */
+  bashMaxOutputBytes?: number;
+  /** Per-call abort hook for `bash` — read once at execute time. */
+  getBashAbortSignal?: () => AbortSignal | undefined;
 }
 
 /**
@@ -34,7 +40,12 @@ export function createMuTools(options: MuToolsOptions = {}): Tools {
       createReadFileTool({ getCwd, restrictToCwd }),
       createWriteFileTool({ getCwd, restrictToCwd }),
       createEditFileTool({ getCwd, restrictToCwd }),
-      createBashTool({ getCwd }),
+      createBashTool({
+        getCwd,
+        restrictToCwd,
+        maxOutputBytes: options.bashMaxOutputBytes,
+        getAbortSignal: options.getBashAbortSignal,
+      }),
       createListDirTool({ getCwd, restrictToCwd }),
     ]
   ) {

@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import type { Tool } from 'mu-core';
-import { formatError, parseArgs, sanitizePath } from './utils';
+import { formatError, looksBinary, parseArgs, sanitizePath, validatedCwd, writeAtomic } from './utils';
 
 interface EditFileToolOptions {
   getCwd: () => string;
@@ -8,7 +8,8 @@ interface EditFileToolOptions {
 }
 
 export function createEditFileTool(opts: EditFileToolOptions): Tool {
-  const { getCwd, restrictToCwd = false } = opts;
+  const { restrictToCwd = false } = opts;
+  const getCwd = validatedCwd(opts.getCwd);
   return {
     name: 'edit',
     description:
@@ -41,6 +42,9 @@ export function createEditFileTool(opts: EditFileToolOptions): Tool {
         return `Error: File not found: ${path}`;
       }
       try {
+        if (looksBinary(path)) {
+          return `Error: Refusing to edit binary file: ${path}`;
+        }
         const content = readFileSync(path, 'utf-8');
         // Count occurrences without materializing N+1 substrings; bail at 2.
         let count = 0;
@@ -57,7 +61,11 @@ export function createEditFileTool(opts: EditFileToolOptions): Tool {
         if (count > 1) {
           return 'Error: "from" found multiple times, must be unique';
         }
-        writeFileSync(path, content.replace(oldString, newString), 'utf-8');
+        // Atomic temp+rename: readers either see the old or new contents, never a partial file.
+        // Note: TOCTOU is still possible between the read above and the rename below — a concurrent
+        // writer could clobber our edit, or be clobbered by it. Atomic write at least guarantees
+        // no torn writes on crash.
+        writeAtomic(path, content.replace(oldString, newString));
         return `File edited: ${path}`;
       } catch (err) {
         return formatError(err);

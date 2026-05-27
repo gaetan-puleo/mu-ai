@@ -1,7 +1,6 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync } from 'node:fs';
 import type { Tool } from 'mu-core';
-import { formatError, parseArgs, sanitizePath } from './utils';
+import { formatError, looksBinary, parseArgs, sanitizePath, validatedCwd, writeAtomic } from './utils';
 
 interface WriteFileToolOptions {
   getCwd: () => string;
@@ -9,7 +8,8 @@ interface WriteFileToolOptions {
 }
 
 export function createWriteFileTool(opts: WriteFileToolOptions): Tool {
-  const { getCwd, restrictToCwd = false } = opts;
+  const { restrictToCwd = false } = opts;
+  const getCwd = validatedCwd(opts.getCwd);
   return {
     name: 'write',
     description: 'Create or overwrite a file. Use `edit` for partial changes to existing files.',
@@ -31,11 +31,12 @@ export function createWriteFileTool(opts: WriteFileToolOptions): Tool {
       }
       const content = parsed.content as string;
       try {
-        const parentDir = dirname(path);
-        if (!existsSync(parentDir)) {
-          mkdirSync(parentDir, { recursive: true });
+        // Refuse to overwrite an existing binary file: doing so silently turns
+        // its bytes into UTF-8-encoded text and destroys the original.
+        if (existsSync(path) && looksBinary(path)) {
+          return `Error: Refusing to overwrite binary file: ${path}`;
         }
-        writeFileSync(path, content, 'utf-8');
+        writeAtomic(path, content);
         return `File written: ${path}`;
       } catch (err) {
         return formatError(err);

@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import type { Tool } from 'mu-core';
-import { formatError, parseArgs, sanitizePath } from './utils';
+import { formatError, looksBinary, parseArgs, readLineRange, sanitizePath, validatedCwd } from './utils';
 
 interface ReadFileToolOptions {
   getCwd: () => string;
@@ -22,21 +22,35 @@ function executeReadFileSingle(
     return `Error: File not found: ${path}`;
   }
   try {
-    const content = readFileSync(path, 'utf-8');
-    const allLines = content.split('\n');
-    const totalLines = allLines.length;
-
-    const clampedStart = Math.max(1, Math.min(start ?? 1, totalLines));
-    const clampedEnd = Math.min(end ?? totalLines, totalLines);
-
-    if (clampedStart > clampedEnd) {
-      return `Error: start (${clampedStart}) > end (${clampedEnd})`;
+    if (looksBinary(path)) {
+      return `Error: Refusing to read binary file: ${path}`;
     }
 
-    const lines = allLines.slice(clampedStart - 1, clampedEnd);
-    const gutterWidth = String(clampedEnd).length;
-    const numbered = lines.map((line, i) => `${String(clampedStart + i).padStart(gutterWidth)} │ ${line}`).join('\n');
-    const rangeLabel = start ? ` (lines ${clampedStart}-${clampedEnd})` : '';
+    // Stream the requested range only; never load the whole file into memory.
+    const requestedStart = Math.max(1, start ?? 1);
+    const requestedEnd = end ?? Number.MAX_SAFE_INTEGER;
+    if (requestedStart > requestedEnd) {
+      return `Error: start (${requestedStart}) > end (${requestedEnd})`;
+    }
+
+    const { lines, firstLine, lastLine, totalKnown, totalLines } = readLineRange(
+      path,
+      requestedStart,
+      requestedEnd,
+    );
+
+    if (lines.length === 0) {
+      const note = totalKnown ? ` (file has ${totalLines} lines)` : '';
+      return `── ${path} ──\n(no lines in range ${requestedStart}-${
+        requestedEnd === Number.MAX_SAFE_INTEGER ? 'end' : requestedEnd
+      })${note}`;
+    }
+
+    const gutterWidth = String(lastLine).length;
+    const numbered = lines
+      .map((line, i) => `${String(firstLine + i).padStart(gutterWidth)} │ ${line}`)
+      .join('\n');
+    const rangeLabel = start ? ` (lines ${firstLine}-${lastLine})` : '';
     const header = `── ${path}${rangeLabel} (${lines.length} lines) ──`;
     return `${header}\n${numbered}`;
   } catch (err) {
@@ -45,7 +59,8 @@ function executeReadFileSingle(
 }
 
 export function createReadFileTool(opts: ReadFileToolOptions): Tool {
-  const { getCwd, restrictToCwd = false } = opts;
+  const { restrictToCwd = false } = opts;
+  const getCwd = validatedCwd(opts.getCwd);
   return {
     name: 'read',
     description: 'Read text file(s) with line numbers. `path` may be a single path or array.',

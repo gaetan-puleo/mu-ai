@@ -172,6 +172,79 @@ describe('mu-webfetch — abort + timeout', () => {
   });
 });
 
+describe('mu-webfetch — charset detection (#216)', () => {
+  it('decodes windows-1252 from Content-Type header', async () => {
+    // 0x91/0x92 = curly single quotes in windows-1252; would render as U+FFFD in UTF-8.
+    const bytes = new Uint8Array([0x91, 0x68, 0x69, 0x92]); // 'hi'
+    setFetch(async () =>
+      new Response(bytes, { headers: { 'content-type': 'text/plain; charset=windows-1252' } })
+    );
+    const out = await run({ url: 'https://example.com/x' });
+    expect(out).toContain('‘hi’'); // U+2018/U+2019 curly quotes
+    expect(out).not.toContain('�');
+  });
+
+  it('decodes shift_jis from Content-Type header', async () => {
+    // "こんにちは" in shift_jis.
+    const bytes = new Uint8Array([0x82, 0xb1, 0x82, 0xf1, 0x82, 0xc9, 0x82, 0xbf, 0x82, 0xcd]);
+    setFetch(async () =>
+      new Response(bytes, { headers: { 'content-type': 'text/plain; charset=shift_jis' } })
+    );
+    const out = await run({ url: 'https://example.com/x' });
+    expect(out).toBe('こんにちは');
+  });
+
+  it('falls back to <meta charset> when header lacks charset', async () => {
+    // "Ñoño" encoded in windows-1252 is [0xD1, 0x6F, 0xF1, 0x6F].
+    const head = new TextEncoder().encode(
+      '<html><head><meta charset="windows-1252"></head><body><p>',
+    );
+    const payload = new Uint8Array([0xd1, 0x6f, 0xf1, 0x6f]); // Ñoño
+    const tail = new TextEncoder().encode('</p></body></html>');
+    const bytes = new Uint8Array(head.length + payload.length + tail.length);
+    bytes.set(head, 0);
+    bytes.set(payload, head.length);
+    bytes.set(tail, head.length + payload.length);
+    setFetch(async () => new Response(bytes, { headers: { 'content-type': 'text/html' } }));
+    const out = await run({ url: 'https://example.com/x' });
+    expect(out).toContain('Ñoño');
+    expect(out).not.toContain('�');
+  });
+
+  it('falls back to <meta http-equiv="Content-Type"> when header lacks charset', async () => {
+    const head = new TextEncoder().encode(
+      '<html><head><meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1"></head><body><p>',
+    );
+    const payload = new Uint8Array([0xe9]); // é in iso-8859-1
+    const tail = new TextEncoder().encode('</p></body></html>');
+    const bytes = new Uint8Array(head.length + payload.length + tail.length);
+    bytes.set(head, 0);
+    bytes.set(payload, head.length);
+    bytes.set(tail, head.length + payload.length);
+    setFetch(async () => new Response(bytes, { headers: { 'content-type': 'text/html' } }));
+    const out = await run({ url: 'https://example.com/x' });
+    expect(out).toContain('é');
+    expect(out).not.toContain('�');
+  });
+
+  it('falls back to UTF-8 when charset label is unknown', async () => {
+    const bytes = new TextEncoder().encode('hello UTF-8');
+    setFetch(async () =>
+      new Response(bytes, { headers: { 'content-type': 'text/plain; charset=bogus-encoding-xyz' } })
+    );
+    const out = await run({ url: 'https://example.com/x' });
+    expect(out).toBe('hello UTF-8');
+  });
+
+  it('defaults to UTF-8 when no charset is declared anywhere', async () => {
+    // "héllo" in UTF-8 is [0x68, 0xc3, 0xa9, 0x6c, 0x6c, 0x6f]
+    const bytes = new Uint8Array([0x68, 0xc3, 0xa9, 0x6c, 0x6c, 0x6f]);
+    setFetch(async () => new Response(bytes, { headers: { 'content-type': 'text/plain' } }));
+    const out = await run({ url: 'https://example.com/x' });
+    expect(out).toBe('héllo');
+  });
+});
+
 describe('mu-webfetch — turndown failure (#217)', () => {
   let originalTurndown: typeof TurndownService.prototype.turndown;
 

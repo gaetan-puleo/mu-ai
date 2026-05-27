@@ -5,16 +5,41 @@ import {
   approvalQueueToPrompt,
   bootstrap as harnessBootstrap,
   createAgentRuntime,
+  createJsonlSessionStore,
   createXdgPaths,
+  type PersistedSessionStore,
   runSubAgent,
   type SubAgent,
 } from 'mu-harness';
+import type { Session, SessionInit } from 'mu-core';
 import { getConfigPath, loadConfig, loadState, saveState } from '../src/config';
 import { install, uninstall } from '../src/install';
 import { main } from '../src/main';
 
+/**
+ * Wrap a persisted store so the first `create()` call returns the given
+ * session instead of allocating a new one. Used by `-c` to resume the latest
+ * session: the harness internally creates a session at construction time, so
+ * we hijack that first allocation rather than orphan a fresh empty session.
+ */
+function resumingStore(inner: PersistedSessionStore, resumeId: string): PersistedSessionStore {
+  let consumed = false;
+  return {
+    ...inner,
+    create(init?: SessionInit): Session {
+      if (!consumed) {
+        consumed = true;
+        const existing = inner.get(resumeId);
+        if (existing) return existing;
+      }
+      return inner.create(init);
+    },
+  };
+}
+
 async function run(): Promise<void> {
-  const [cmd, arg] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const [cmd, arg] = args;
   if (cmd === 'install') {
     if (!arg) throw new Error('usage: mu install <npm:spec | path.ts>');
     await install(arg);
@@ -25,6 +50,8 @@ async function run(): Promise<void> {
     uninstall(arg);
     return;
   }
+
+  const wantContinue = args.includes('-c') || args.includes('--continue');
 
   const config = loadConfig();
   const state = loadState();
@@ -37,6 +64,18 @@ async function run(): Promise<void> {
 
   const paths = createXdgPaths('mu');
   const projectLocal = `${process.cwd()}/.mu`;
+
+  // ── Single state writer ───────────────────────────────────────────────
+  // All `state` mutations go through this helper. `main.ts` no longer loads
+  // or saves state of its own — otherwise two writers (each with their own
+  // in-memory copy) would silently clobber each other on flush.
+  const persistState = (): void => {
+    try {
+      saveState(state);
+    } catch {
+      /* ignore */
+    }
+  };
 
   // Determine whether the local provider will be used (true unless a user plugin
   // provides one). We can decide later — after harness bootstrap has loaded
@@ -58,6 +97,20 @@ async function run(): Promise<void> {
   // returns to idle so the next user turn uses `activePrimary` again.
   let overridePrimary: SubAgent | undefined;
 
+  // ── Session store ─────────────────────────────────────────────────────
+  // Always use the jsonl-backed store so transcripts survive process exits;
+  // `mu -c` then resumes the most recently-updated one.
+  const baseStore = createJsonlSessionStore(paths.sessionsDir);
+  let resumeId: string | undefined;
+  if (wantContinue) {
+    const summaries = baseStore.summaries();
+    resumeId = summaries[0]?.id;
+    if (!resumeId) {
+      process.stderr.write('[coding-agent] no previous session to resume; starting a new one\n');
+    }
+  }
+  const store: PersistedSessionStore = resumeId ? resumingStore(baseStore, resumeId) : baseStore;
+
   // ── Harness bootstrap — loads plugins, sub-agents, skills, permissions, etc.
   const result = await harnessBootstrap({
     hostName: 'mu',
@@ -67,7 +120,7 @@ async function run(): Promise<void> {
     extraPermissionsFiles: [`${projectLocal}/permissions.json`],
     npmPlugins: config.plugins,
     baseTools: createMuTools(),
-    sessionStore: 'memory',
+    sessionStore: store,
     // Default to permissions-file (coding-agent's traditional model). Switches
     // automatically to per-agent rules if a primary agent is defined.
     permissionSource: undefined,
@@ -108,27 +161,37 @@ async function run(): Promise<void> {
     onModelChange: (next: string) => {
       if (useLocal) providerConfig.model = next;
       state.model = next;
-      try {
-        saveState(state);
-      } catch {
-        /* ignore */
-      }
+      persistState();
     },
     store: result.store,
     bus: result.bus,
   });
 
+  // ── Persist messages to disk ──────────────────────────────────────────
+  // Subscribe `persistOnBus` to the active session's id. Re-subscribe whenever
+  // the store reports a new "created" session (`/new` makes one).
+  let persistUnsubscribe: (() => void) | undefined;
+  const subscribePersist = (sessionId: string): void => {
+    persistUnsubscribe?.();
+    persistUnsubscribe = baseStore.persistOnBus(agent.bus, sessionId);
+  };
+  subscribePersist(agent.currentSession().id);
+  baseStore.subscribe((event) => {
+    if (event.type === 'created') subscribePersist(event.session.id);
+  });
+
   await main(agent, {
+    thinkingVisible: state.thinkingVisible,
+    onThinkingVisibleChange: (visible) => {
+      state.thinkingVisible = visible;
+      persistState();
+    },
     primaryAgents: result.primaryAgents,
     getActivePrimary: () => activePrimary,
     setActivePrimary: (next) => {
       activePrimary = next;
       state.activeAgent = next.name;
-      try {
-        saveState(state);
-      } catch {
-        /* ignore */
-      }
+      persistState();
     },
     getOverridePrimary: () => overridePrimary,
     setOverridePrimary: (next) => {

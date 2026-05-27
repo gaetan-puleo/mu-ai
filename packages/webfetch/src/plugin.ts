@@ -122,6 +122,42 @@ const WEBFETCH_SYSTEM_PROMPT = [
   '- Image URLs return `data:<mime>;base64,…` — fetch sparingly; large images bloat context.',
 ].join('\n');
 
+// Extract `charset=...` from a Content-Type header value. Returns the raw,
+// possibly-quoted token (e.g. `utf-8`, `"GB2312"`) or undefined.
+function parseCharsetFromContentType(contentType: string): string | undefined {
+  const m = /charset\s*=\s*("([^"]+)"|'([^']+)'|([^;\s]+))/i.exec(contentType);
+  if (!m) return undefined;
+  return (m[2] ?? m[3] ?? m[4])?.trim();
+}
+
+// Sniff `<meta charset="...">` or `<meta http-equiv="Content-Type" content="...; charset=...">`
+// from the first ~1024 bytes of an HTML response. We decode as ASCII (safe for
+// the meta tag itself) so we don't need a working decoder before we know the
+// charset.
+function sniffCharsetFromHtmlMeta(buf: ArrayBuffer): string | undefined {
+  const head = new TextDecoder('latin1').decode(new Uint8Array(buf, 0, Math.min(buf.byteLength, 1024)));
+  // <meta charset="...">
+  const direct = /<meta[^>]+charset\s*=\s*["']?([a-z0-9_:.\-]+)/i.exec(head);
+  if (direct?.[1]) return direct[1].trim();
+  // <meta http-equiv="Content-Type" content="...; charset=...">
+  const httpEquiv = /<meta[^>]+http-equiv\s*=\s*["']?content-type["']?[^>]+content\s*=\s*["']([^"']+)["']/i.exec(head);
+  if (httpEquiv?.[1]) return parseCharsetFromContentType(httpEquiv[1]);
+  return undefined;
+}
+
+// TextDecoder accepts many labels (utf-8, utf8, UTF_8, etc.) but throws on
+// unknown ones. Try the candidate, then fall back to UTF-8.
+function decodeWithCharset(buf: ArrayBuffer, label: string | undefined): string {
+  if (label) {
+    try {
+      return new TextDecoder(label).decode(buf);
+    } catch {
+      // Unknown label — fall through to UTF-8.
+    }
+  }
+  return new TextDecoder('utf-8').decode(buf);
+}
+
 function convertHtmlToMarkdown(html: string): string {
   const td = new TurndownService({
     headingStyle: 'atx',
@@ -286,8 +322,13 @@ async function runWebFetch(args: Record<string, unknown>): Promise<string> {
         const base64 = Buffer.from(buf).toString('base64');
         return `[image: ${mime}, ${buf.byteLength} bytes from ${currentUrl}]\ndata:${mime};base64,${base64}`;
       }
-      const body = new TextDecoder().decode(buf);
-      return contentType.includes('text/html') ? convertHtmlToMarkdown(body) : body;
+      // Charset: prefer the `Content-Type` header, fall back to `<meta charset>`
+      // for HTML, then UTF-8. Unknown labels also fall back to UTF-8.
+      const isHtml = contentType.includes('text/html');
+      const headerCharset = parseCharsetFromContentType(contentType);
+      const charset = headerCharset ?? (isHtml ? sniffCharsetFromHtmlMeta(buf) : undefined);
+      const body = decodeWithCharset(buf, charset);
+      return isHtml ? convertHtmlToMarkdown(body) : body;
     }
     return formatError(`Too many redirects (>${MAX_REDIRECTS}) starting from ${url}`);
   } finally {

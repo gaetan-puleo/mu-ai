@@ -39,6 +39,7 @@ export type {
 } from './types';
 
 const DEFAULT_BASE_URL = 'http://localhost:8080';
+const DEFAULT_STREAM_TIMEOUT_MS = 30000;
 let OpenAIClient = OpenAI;
 
 export function setOpenAIClientForTesting(client: typeof OpenAI): void {
@@ -289,6 +290,9 @@ const createLocalProvider = (config: LocalProviderConfig): LLMProvider => {
       }
     }
 
+    const streamTimeoutMs = config.streamTimeoutMs ?? DEFAULT_STREAM_TIMEOUT_MS;
+    const hostSignal = config.getAbortSignal?.();
+
     async function* streamCompletion(): AsyncIterable<LLMStreamEvent> {
       let content = '';
       let usage: LocalLLMResponseContext['usage'] | undefined;
@@ -296,68 +300,116 @@ const createLocalProvider = (config: LocalProviderConfig): LLMProvider => {
       let finishReason: string | undefined;
       let syntheticKeyCounter = 0;
 
-      const stream = await activeClient.chat.completions.create(requestOptions as any);
+      // Compose the abort signal: idle-timeout + optional host-provided signal.
+      const controller = new AbortController();
+      let idleTimer: ReturnType<typeof setTimeout> | undefined;
+      let timedOut = false;
 
-      for await (const chunk of stream as any) {
-        if (chunk.usage) {
-          usage = {
-            promptTokens: chunk.usage.prompt_tokens ?? 0,
-            completionTokens: chunk.usage.completion_tokens ?? 0,
-            totalTokens: chunk.usage.total_tokens ?? 0,
-          };
+      const armIdleTimer = () => {
+        if (streamTimeoutMs <= 0) return;
+        clearIdleTimer();
+        idleTimer = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, streamTimeoutMs);
+      };
+      const clearIdleTimer = () => {
+        if (idleTimer !== undefined) {
+          clearTimeout(idleTimer);
+          idleTimer = undefined;
         }
+      };
 
-        const choice = chunk.choices?.[0];
-        const choiceDelta = choice?.delta;
-        const reasoningDelta = extractReasoningDelta(choiceDelta);
-        if (reasoningDelta) {
-          yield { type: 'reasoning_delta', content: reasoningDelta };
-        }
-
-        const delta = choiceDelta?.content;
-        if (delta) {
-          content += delta;
-          yield { type: 'delta', content: delta };
-        }
-
-        const toolCallDeltas = choiceDelta?.tool_calls as
-          | Array<{
-            index?: number;
-            id?: string;
-            function?: { name?: string; arguments?: string };
-          }>
-          | undefined;
-        if (toolCallDeltas) {
-          for (const tc of toolCallDeltas) {
-            // Key by index when present, else by id, else by a synthetic per-stream key.
-            const key = tc.index !== undefined
-              ? `i:${tc.index}`
-              : tc.id
-              ? `id:${tc.id}`
-              : `s:${syntheticKeyCounter++}`;
-            const buf = toolCallBuffers.get(key) ?? { id: '', name: '', args: '', emitted: false };
-            if (tc.id) buf.id = tc.id;
-            if (tc.function?.name) buf.name = tc.function.name;
-            if (tc.function?.arguments) buf.args += tc.function.arguments;
-            toolCallBuffers.set(key, buf);
-          }
-        }
-
-        if (choice?.finish_reason) {
-          finishReason = choice.finish_reason;
-        }
-
-        if (choice?.finish_reason === 'tool_calls') {
-          for (const buf of toolCallBuffers.values()) {
-            if (buf.emitted || !buf.name) continue;
-            buf.emitted = true;
-            yield {
-              type: 'tool_call',
-              call: { type: 'tool_call', id: buf.id, tool: buf.name, args: buf.args },
-            };
-          }
+      const onHostAbort = () => controller.abort();
+      if (hostSignal) {
+        if (hostSignal.aborted) {
+          controller.abort();
+        } else {
+          hostSignal.addEventListener('abort', onHostAbort, { once: true });
         }
       }
+
+      armIdleTimer();
+      const stream = await activeClient.chat.completions.create(
+        requestOptions as any,
+        { signal: controller.signal } as any,
+      );
+
+      try {
+        for await (const chunk of stream as any) {
+          armIdleTimer();
+          if (chunk.usage) {
+            usage = {
+              promptTokens: chunk.usage.prompt_tokens ?? 0,
+              completionTokens: chunk.usage.completion_tokens ?? 0,
+              totalTokens: chunk.usage.total_tokens ?? 0,
+            };
+          }
+
+          const choice = chunk.choices?.[0];
+          const choiceDelta = choice?.delta;
+          const reasoningDelta = extractReasoningDelta(choiceDelta);
+          if (reasoningDelta) {
+            yield { type: 'reasoning_delta', content: reasoningDelta };
+          }
+
+          const delta = choiceDelta?.content;
+          if (delta) {
+            content += delta;
+            yield { type: 'delta', content: delta };
+          }
+
+          const toolCallDeltas = choiceDelta?.tool_calls as
+            | Array<{
+              index?: number;
+              id?: string;
+              function?: { name?: string; arguments?: string };
+            }>
+            | undefined;
+          if (toolCallDeltas) {
+            for (const tc of toolCallDeltas) {
+              // Key by index when present, else by id, else by a synthetic per-stream key.
+              const key = tc.index !== undefined
+                ? `i:${tc.index}`
+                : tc.id
+                ? `id:${tc.id}`
+                : `s:${syntheticKeyCounter++}`;
+              const buf = toolCallBuffers.get(key) ?? { id: '', name: '', args: '', emitted: false };
+              if (tc.id) buf.id = tc.id;
+              if (tc.function?.name) buf.name = tc.function.name;
+              if (tc.function?.arguments) buf.args += tc.function.arguments;
+              toolCallBuffers.set(key, buf);
+            }
+          }
+
+          if (choice?.finish_reason) {
+            finishReason = choice.finish_reason;
+          }
+
+          if (choice?.finish_reason === 'tool_calls') {
+            for (const buf of toolCallBuffers.values()) {
+              if (buf.emitted || !buf.name) continue;
+              buf.emitted = true;
+              yield {
+                type: 'tool_call',
+                call: { type: 'tool_call', id: buf.id, tool: buf.name, args: buf.args },
+              };
+            }
+          }
+        }
+      } catch (err) {
+        clearIdleTimer();
+        hostSignal?.removeEventListener('abort', onHostAbort);
+        if (timedOut) {
+          throw new Error(`Local provider stream timed out after ${streamTimeoutMs}ms of inactivity`);
+        }
+        if (hostSignal?.aborted) {
+          throw new Error('Local provider stream aborted by host');
+        }
+        throw err;
+      }
+      clearIdleTimer();
+      hostSignal?.removeEventListener('abort', onHostAbort);
 
       // Fallback only when the stream actually finished with tool_calls (or never set a
       // finish_reason at all). On 'stop' or other terminal reasons, discard partial buffer.

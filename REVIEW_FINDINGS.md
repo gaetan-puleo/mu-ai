@@ -378,7 +378,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P2
 - Detail: `'\x1b[22;32u'` is terminal-specific. Other terminals won't produce this exact byte sequence.
 
-**68. `Diff` type narrowing loses `gap` variant**
+**68. `Diff` type narrowing loses `gap` variant — DONE**
 - File: `src/components/Diff.ts:320-321`
 - Dimension: Bug — Severity: P2
 - Detail: `applyContext` types `parts: DiffPart[]` but returns `Array<DiffPart | { type: 'gap' }>`. Type system can't enforce.
@@ -690,42 +690,42 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P2
 - Detail: Only matches `${normalizedCwd}/` (POSIX `/`). On Windows the check never triggers.
 
-**127. Unbounded read into memory**
+**127. Unbounded read into memory — DONE**
 - File: `src/read-file.ts:25`
 - Dimension: Bug — Severity: P1
 - Detail: `readFileSync(path, 'utf-8')` then `.split('\n')` on entire file regardless of `start`/`end`. Reading a 5 GB log to print "lines 1-10" OOMs the host.
 
-**128. Binary/non-UTF-8 corruption**
+**128. Binary/non-UTF-8 corruption — DONE**
 - File: `src/read-file.ts:25`, `src/edit-file.ts:44`, `src/write-file.ts:38`
 - Dimension: Bug — Severity: P1
 - Detail: Forcing `'utf-8'` decode on binary files silently replaces invalid bytes with U+FFFD, then `writeFileSync(..., 'utf-8')` (edit) persists the corrupted version, destroying the original. UTF-8 BOM also preserved and re-emitted.
 
-**129. Read/modify/write race (edit)**
+**129. Read/modify/write race (edit) — DONE**
 - File: `src/edit-file.ts:43-52`
 - Dimension: Bug — Severity: P2
 - Detail: TOCTOU between `readFileSync` and `writeFileSync`. Another writer can change the file; edit overwrites concurrent changes with no detection. Crash mid-`writeFileSync` leaves partial file (no atomic temp+rename).
 
-**130. Non-atomic write**
+**130. Non-atomic write — DONE**
 - File: `src/write-file.ts:38`
 - Dimension: Bug — Severity: P2
 - Detail: Plain `writeFileSync` truncates first; crash mid-write leaves zero/partial file.
 
-**131. `bash` no abort wiring + detached without unref**
+**131. `bash` no abort wiring + detached without unref — DONE**
 - File: `src/bash.ts:9-12`
 - Dimension: Bug — Severity: P1
 - Detail: `detached: true` without `proc.unref()`. AbortSignal from runtime is ignored entirely — no signal parameter; a model-cancelled tool call still runs to completion or 120s timeout.
 
-**132. `bash` unbounded stdout/stderr OOM**
+**132. `bash` unbounded stdout/stderr OOM — DONE**
 - File: `src/bash.ts:30-35`
 - Dimension: Bug — Severity: P1
 - Detail: A command like `yes` accumulates gigabytes of `stdout` in JS strings until OOM or 120s timeout. No max-buffer guard.
 
-**133. `bash` resolve race**
+**133. `bash` resolve race — DONE**
 - File: `src/bash.ts:37`
 - Dimension: Bug — Severity: P2
 - Detail: Promise resolves on `close`. If `proc.on('error')` fires after, `clearTimeout` runs twice; if SIGKILL is blocked by D-state child, promise never resolves.
 
-**134. `bash` bypasses `restrictToCwd` contract**
+**134. `bash` bypasses `restrictToCwd` contract — DONE**
 - File: `src/bash.ts`, `src/index.ts`
 - Dimension: Bug — Severity: P1
 - Detail: Documented as "run a shell command," but `cmd` passed to `bash -c` verbatim with no allow/deny list. A sandboxed agent that thinks paths are constrained can still `bash -c 'cat /etc/shadow'`.
@@ -745,7 +745,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P2
 - Detail: `content.split(oldString).length - 1` materializes N+1 substrings. Correctness OK; perf only.
 
-**138. `getCwd()` not validated**
+**138. `getCwd()` not validated — DONE**
 - File: All tools
 - Dimension: Bug — Severity: P2
 - Detail: If `getCwd()` returns a non-existent path, `spawn` rejects with `ENOENT` but `existsSync` checks don't validate cwd itself.
@@ -942,12 +942,12 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P1
 - Detail: Fallback emits any buffered tool-call regardless of finish reason. If model streams partial `tool_calls` deltas but ends with `stop`, incomplete tool call gets emitted to runtime and executed downstream.
 
-**174. No stream-idle timeout, no abort plumbing**
+**174. No stream-idle timeout, no abort plumbing — DONE**
 - File: `src/index.ts:303-360`
 - Dimension: Bug — Severity: P1
 - Detail: README mentions `streamTimeoutMs` but OpenAI SDK ignores it. Wedged local server (Ollama hang, llama-swap stuck loading) causes `for await` to block indefinitely.
 
-**175. `response.json()` unguarded shape access**
+**175. `response.json()` unguarded shape access — DONE**
 - File: `src/backends/llama-swap.ts:29, 79, 102, 171, 214`
 - Dimension: Bug — Severity: P2
 - Detail: Calls `.json()` then accesses `.data.map(...)` / `.default_generation_settings.n_ctx` without verifying shape. A misbehaving server crashes mid-stream.
@@ -1167,7 +1167,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P1
 - Detail: Returns immediately on `!response.ok` without consuming `response.body`. Retries on `cf-mitigated` 403 without draining prior body. Under undici/Bun this keeps sockets alive until GC.
 
-**216. Charset hardcoded UTF-8**
+**216. Charset hardcoded UTF-8 — DONE**
 - File: `src/plugin.ts:211`
 - Dimension: Bug — Severity: P2
 - Detail: `new TextDecoder().decode(buf)`. Ignores `content-type: text/html; charset=...` and `<meta charset>`. Non-UTF-8 pages become mojibake.
@@ -1177,7 +1177,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P2
 - Detail: `td.turndown(html)` not wrapped. Malformed HTML throws out of `execute`.
 
-**218. No max-redirect / no manual redirect**
+**218. No max-redirect / no manual redirect — DONE**
 - File: `src/plugin.ts:141, 155`
 - Dimension: Bug — Severity: P2
 - Detail: Default redirect handling, intermediate hops unvalidated.
@@ -1187,7 +1187,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P2
 - Detail: `pickTimeoutMs` lower-clamps to 0; AbortController fires before fetch starts.
 
-**220. HTMLRewriter skip-state stickiness**
+**220. HTMLRewriter skip-state stickiness — DONE**
 - File: `src/plugin.ts:103-110`
 - Dimension: Bug — Severity: P2
 - Detail: `skip` only resets when non-skip element entered; text between `</script>` and next element opening is gated by stale `skip=true`.
@@ -1349,13 +1349,13 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Bugs
 
-**250. `mu -c` session resume silently broken**
+**250. `mu -c` session resume silently broken — DONE**
 - File: `bin/coding-agent.ts:71`
 - Dimension: Bug — Severity: P1
 - Detail: `sessionStore: 'memory'` hard-coded; only `install`/`uninstall` handled. Passing `-c` falls through to normal startup. No help text.
 - Impact: Documented feature is a no-op.
 
-**251. Dual state writers clobber**
+**251. Dual state writers clobber — DONE**
 - File: `bin/coding-agent.ts:31`, `src/main.ts:32`
 - Dimension: Bug — Severity: P1
 - Detail: `run()` loads state and writes via `setActivePrimary`/`onModelChange`; `main()` re-loads its own state and writes `thinkingVisible`. Each writer can clobber the other.
@@ -1711,15 +1711,17 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: P1
 - Detail: `channels/`, `mentions/`, `scheduler/`, `roundtrips.ts` have zero consumers outside the harness package.
 
-**319. `bootstrap()` not called by coding-agent**
+**319. `bootstrap()` not called by coding-agent — REFRAMED (wiring gap, not dead code)**
 - File: `src/bootstrap.ts`
 - Dimension: Architecture — Severity: P1
 - Detail: 300-line orchestrator with no caller in this monorepo (coding-agent uses pieces individually).
+- Direction: harness is the intended base for channels/mentions/scheduler. Port coding-agent onto `bootstrap()` rather than treat the orphan status as evidence to delete. See [[feedback-harness-role]].
 
 **320. `channels/tui.ts` reimplements slash detection**
 - File: `src/channels/tui.ts:62-66`, `src/commands/registry.ts:51-55`
 - Dimension: Architecture — Severity: P2
 - Detail: Both own slash-detection logic.
+- Direction: dedupe internally in harness; coding-agent should consume the Channel-side slash detection rather than building its own. See [[feedback-harness-role]].
 
 **321. `bootstrap.ts` is 300-line god function**
 - File: `src/bootstrap.ts`
@@ -1730,6 +1732,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - File: `src/sub-agents/runner.ts:82-92`
 - Dimension: Architecture — Severity: P2
 - Detail: Calls `createBus`, `createInMemorySessionStore`, `createRuntime` directly instead of using `createAgentRuntime`. Two runtime construction paths.
+- Direction: collapse onto `createAgentRuntime` so sub-agent and primary share the same harness wiring.
 
 **323. Two session-store contracts side-by-side**
 - File: `src/sessions/types.ts`, `src/bootstrap.ts:111`
@@ -1753,10 +1756,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Responsibilities — Severity: (info)
 - Detail: bootstrap+permissions+approvals+skills+sub-agents+sessions+plugin-loader work together; permissions↔approvals coupling justifies bundling.
 
-**327. `channels/mentions/scheduler/` should move out**
+**327. `channels/mentions/scheduler/` should move out — REJECTED**
 - File: `src/channels/`, `src/mentions/`, `src/scheduler/`
 - Dimension: Responsibilities — Severity: P1
 - Detail: Zero in-repo consumers; arya bypasses channels with its own WS layer.
+- Decision: KEEP in harness. These are the intended shared base for both coding-agent and arya. The lack of consumers is the wiring gap to close (#319, #320, #322, #409), not evidence of dead code. See [[feedback-harness-role]].
 
 **328. `plugins/installer.ts` could move**
 - File: `src/plugins/installer.ts`
@@ -1947,20 +1951,23 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Simplifications
 
-**365. Delete `channels/` entirely**
+**365. Delete `channels/` entirely — REJECTED**
 - File: `src/channels/`
 - Dimension: Simplification — Severity: P1
 - Detail: ~400 LOC. No external imports. `channels/types.ts`, `manager.ts`, `tui.ts` plus tests.
+- Decision: KEEP. Channels are the intended shared abstraction for coding-agent (TUI) and arya (WS). Action is to wire consumers, not delete. See [[feedback-harness-role]].
 
-**366. Delete `mentions/` entirely**
+**366. Delete `mentions/` entirely — REJECTED**
 - File: `src/mentions/`
 - Dimension: Simplification — Severity: P1
 - Detail: No consumers outside its own test.
+- Decision: KEEP. Mentions are the intended shared mechanism — coding-agent and arya should both consume it. See [[feedback-harness-role]].
 
-**367. Delete `scheduler/` entirely**
+**367. Delete `scheduler/` entirely — REJECTED**
 - File: `src/scheduler/plugin.ts:1-116`
 - Dimension: Simplification — Severity: P1
 - Detail: No in-repo consumer; pulls `croner` + `@std/yaml`. Only `SchedulerEvent` referenced from index.
+- Decision: KEEP in harness. Scheduler is foundational; consumers (coding-agent, arya) should plug into it rather than the package fragmenting. See [[feedback-harness-role]].
 
 **368. Delete `logger.ts` — DONE**
 - File: `src/logger.ts:1-56`
@@ -2052,10 +2059,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: "Exactly one agent → it's primary" fallback adds magic. Require `type: primary`.
 
-**386. Package shrinks 4344 → ~1500 LOC**
+**386. Package shrinks 4344 → ~1500 LOC — REJECTED**
 - File: package overall
 - Dimension: Simplification — Severity: P1
 - Detail: 11 subfolders → 3-4 (sub-agents, permissions, skills, sub-agents, sessions, plugin-loader).
+- Decision: target retracted. Channels/mentions/scheduler stay, so the shrink premise no longer holds. The package may still slim via other dead-code cleanup (logger, env, etc. already done) but not via removing the shared base. See [[feedback-harness-role]].
 
 ---
 
@@ -2063,59 +2071,59 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Bugs
 
-**387. Scheduler/ws ordering issue**
+**387. Scheduler/ws ordering issue — DONE**
 - File: `src/bootstrap.ts:130-149`
 - Dimension: Bug — Severity: P1
 - Detail: `createSchedulerPlugin({ onEvent: (event) => ws.push(...) })` constructed on line 130; `ws` declared on line 149. Scheduler is pushed into `result.plugins` AFTER `createAgentRuntime` already snapshotted.
 - Impact: Scheduler may not be installed in runtime.
 
-**388. Empty authToken disables auth**
+**388. Empty authToken disables auth — DONE**
 - File: `src/init.ts:16-26`, `src/bootstrap.ts:151,244`, `src/ws.ts:244`
 - Dimension: Bug — Severity: P1
 - Detail: Template writes `authToken: ''`. `if (opts.authToken && token !== opts.authToken)` — empty string is falsy, so any client (no token at all) is accepted.
 - Impact: Fresh installs ship wide-open.
 
-**389. WebSocketServer binds to all interfaces**
+**389. WebSocketServer binds to all interfaces — DONE**
 - File: `src/ws.ts:279`
 - Dimension: Bug — Severity: P1
 - Detail: `WebSocketServer({ port })` no `host` option → reachable on LAN. Combined with empty token: anyone on network can drive the agent and approve tool calls.
 
-**390. `stop()` doesn't await `wss.close()`**
+**390. `stop()` doesn't await `wss.close()` — DONE**
 - File: `src/ws.ts:296-308`
 - Dimension: Bug — Severity: P2
 - Detail: `wss?.close()` fire-and-forget. Returns before server releases port.
 
-**391. `watchForIdle` interval leaks**
+**391. `watchForIdle` interval leaks — DONE**
 - File: `src/ws.ts:225-230`
 - Dimension: Bug — Severity: P2
 - Detail: `setInterval` cleared only when `runtime.state() === 'idle'`. If session switched mid-turn (`teardownActive` → `runtime.stop()`), interval polls stopped runtime forever.
 
-**392. Approval response no ownership check**
+**392. Approval response no ownership check — DONE**
 - File: `src/ws.ts:176-182`
 - Dimension: Bug — Severity: P2
 - Detail: Any connected client can `approval_response` any `requestId`. No check that requestId belongs to current session or that client originated tool call.
 
-**393. Approval replay stamped wrong session**
+**393. Approval replay stamped wrong session — DONE**
 - File: `src/ws.ts:255-264`
 - Dimension: Bug — Severity: P2
 - Detail: Pending approvals re-broadcast on reconnect with `sessionId: activeSessionId`, even if raised under different session.
 
-**394. No message size cap**
+**394. No message size cap — DONE**
 - File: `src/ws.ts:266-272`
 - Dimension: Bug — Severity: P2
 - Detail: `ws` library default `maxPayload` is 100 MiB. Oversized message OOMs.
 
-**395. No port validation**
+**395. No port validation — DONE**
 - File: `src/bootstrap.ts:41-72`
 - Dimension: Bug — Severity: P2
 - Detail: `loadConfig` doesn't validate `wsPort`. Accepts string, 0, negative.
 
-**396. `sessions:delete` doesn't notify client**
+**396. `sessions:delete` doesn't notify client — DONE**
 - File: `src/ws.ts:189-199`
 - Dimension: Bug — Severity: P2
 - Detail: If deleted session was active, `teardownActive()` runs but client never gets signal; next `chat` creates fresh session under same `defaultSessionId`.
 
-**397. SIGINT not idempotent**
+**397. SIGINT not idempotent — DONE**
 - File: `src/index.ts:81-90`
 - Dimension: Bug — Severity: P2
 - Detail: Second SIGINT during shutdown re-enters `handle.shutdown()` concurrently. No timeout/force-exit.
@@ -2179,10 +2187,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Responsibilities — Severity: P1
 - Detail: Mentions `createAryaToolsPlugin (fs, shell, http)` — doesn't exist in code.
 
-**409. ws.ts bypasses Channel abstraction**
+**409. ws.ts bypasses Channel abstraction — LOAD-BEARING**
 - File: `src/ws.ts`
 - Dimension: Responsibilities — Severity: P1
 - Detail: Re-implements bus→client bridging, session activation, approval surfacing inline. Should be a `WsChannel` registered via `createChannelManager`.
+- Direction: this is the canonical example of the wiring direction. Converting `ws.ts` to a Channel implementation removes the WS-protocol drift between arya and companion (#418, #467) and the need for a shared protocol package (#455). See [[feedback-harness-role]].
 
 **410. Mobile protocol envelope arya-specific**
 - File: `src/ws.ts`
@@ -2230,6 +2239,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - File: `src/ws.ts` vs `arya-companion/src/types/wire.ts`
 - Dimension: Types — Severity: P1
 - Detail: Companion has strict discriminated union; server has no shared types. Drift: server emits `activity` (not in companion union); companion expects `turn_start`/`active_agent`/`set_active_agent`/`sub_agent_event`/`scheduler_event`.
+- Direction: resolved by #409 — once arya's WS is a harness Channel, the wire shape is defined once in harness, not duplicated on both sides. See [[feedback-harness-role]].
 
 ### Entities
 
@@ -2321,58 +2331,58 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Bugs
 
-**435. Approvals & sub-agent runs never render in transcript**
+**435. Approvals & sub-agent runs never render in transcript — DONE**
 - File: `src/services/aryaClient.ts:315-317, 309-313`, `src/components/chat/ChatMessageList.tsx:43-52, 166-203`
 - Dimension: Bug — Severity: P1
 - Detail: `approval_request` and `sub_agent_event` only call `upsertApproval` / `upsertSubAgentRun`. No code appends a `{id: "approval-<id>", ...}` row to any session transcript. ChatMessageList reads prefixes but nothing produces such ids.
 - Impact: Users can't see/respond to approvals in chat.
 
-**436. Concurrent `start()` spawns ghost sockets**
+**436. Concurrent `start()` spawns ghost sockets — DONE**
 - File: `src/services/aryaClient.ts:47-109`
 - Dimension: Bug — Severity: P1
 - Detail: Awaits two AsyncStorage calls between `disposeTransport?.()` and reassigning. Second `start()` (Save twice, foreground race) sees stale dispose, creates second reconnecting socket, orphans first.
 
-**437. Open-event race window**
+**437. Open-event race window — DONE**
 - File: `src/services/wsTransport.ts:33-35`, `src/services/aryaClient.ts:64-78`
 - Dimension: Bug — Severity: P1
 - Detail: `onSocket(socket)` runs synchronously during `new WebSocket()` but `addEventListener("open", ...)` attached after. If polyfill dispatches `open` synchronously, handshake handlers miss, connect-time bursts never send.
 
-**438. No exponential backoff**
+**438. No exponential backoff — DONE**
 - File: `src/services/wsTransport.ts:39-43`
 - Dimension: Bug — Severity: P2
 - Detail: Hard-coded 3s. After ~20 cellular flips: write-amplified server, no jitter, no cap.
 
-**439. Optimistic id collision**
+**439. Optimistic id collision — DONE**
 - File: `src/services/aryaClient.ts:193, 211`
 - Dimension: Bug — Severity: P2
 - Detail: `id: 'local-${Date.now()}'`. Two rapid sends in same ms yield duplicate keys → FlashList warning.
 
-**440. Optimistic rows even when send failed**
+**440. Optimistic rows even when send failed — DONE**
 - File: `src/services/aryaClient.ts:196-199, 213-215`
 - Dimension: Bug — Severity: P2
 - Detail: Rows appended before `send()`. If returns false, user sees phantom message + never-ending typing placeholder.
 
-**441. Approval token replay**
+**441. Approval token replay — DONE**
 - File: `src/services/aryaClient.ts:315-317`
 - Dimension: Bug — Severity: P2
 - Detail: `upsertApproval(snapshotFromApprovalRequest(msg))` unconditionally overwrites. Duplicate approval_request (server retry, reconnect) resets to pending — user can re-approve.
 
-**442. `respond()` race with disconnect**
+**442. `respond()` race with disconnect — DONE**
 - File: `src/services/aryaClient.ts:226-231`
 - Dimension: Bug — Severity: P2
 - Detail: If `send()` returns false, function returns silently and snapshot stays `pending`. UI looks responsive but nothing was sent.
 
-**443. `useTranscript` new array every render**
+**443. `useTranscript` new array every render — DONE**
 - File: `src/hooks/useTranscript.ts:30-42`
 - Dimension: Bug — Severity: P2
 - Detail: Placeholder changes on every delta, rebuilding messages array; `contentSignature` recomputes (reduce) on every render. Perf cliff on long sessions.
 
-**444. `set_active_agent` no rollback on rejection**
+**444. `set_active_agent` no rollback on rejection — DONE**
 - File: `src/services/aryaClient.ts:151-160`
 - Dimension: Bug — Severity: P3
 - Detail: `setActiveAgentId(agentId)` set on successful send. If server rejects, client never reverts.
 
-**445. Stale closure on socket ref**
+**445. Stale closure on socket ref — DONE**
 - File: `src/services/aryaClient.ts:67-92`
 - Dimension: Bug — Severity: P3
 - Detail: Each handler closes over `socket`. `setConnection(socket, …)` in close listener writes now-closed socket back to store, flipping `connected` to false on new socket after fast reconnect.
@@ -2426,10 +2436,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Responsibilities — Severity: P1
 - Detail: Companion sends, expects echo. Server has no handler.
 
-**455. Needs shared protocol package**
+**455. Needs shared protocol package — SUPERSEDED**
 - File: `src/types/wire.ts:33`
 - Dimension: Responsibilities — Severity: P1
 - Detail: Comment literally says "Mirrors mu-core's `Message`". Drift inevitable.
+- Direction: a separate shared-protocol package isn't needed — the harness Channel API plays that role once arya's WS is ported (#409). Companion talks to a Channel; the wire shape lives in harness. See [[feedback-harness-role]].
 
 **456. Server commands/agents responses UI-shaped**
 - File: `src/types/wire.ts`
@@ -2492,6 +2503,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - File: `src/types/wire.ts` vs `arya/src/ws.ts`
 - Dimension: Types — Severity: P1
 - Detail: Server is `Record<string, unknown>`; companion strict. Server's `activity` absent from `WsInboundMessage`. Server's `ApprovalRequest.sessionId: string | null` vs client's `string`. Server has no handler for `active_agent`/`set_active_agent`/`sub_agent_event`/`scheduler_event` despite client declaring them.
+- Direction: resolved by #409. Once arya's WS is a harness `WsChannel`, both server and companion derive the wire shape from the harness Channel API — drift goes away. See [[feedback-harness-role]].
 
 ### Entities
 
@@ -2650,11 +2662,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Severity: P1
 - Fix: Choose — update docs OR ship the missing features.
 
-**497. Pattern: Dead channels/mentions/scheduler in harness while arya reinvents**
+**497. Pattern: Dead channels/mentions/scheduler in harness while arya reinvents — REFRAMED (wiring gap)**
 - Packages: mu-harness (channels, mentions, scheduler, roundtrips — zero in-repo consumers), arya/server (built own WS bridging)
 - Detail: Worst-of-both-worlds: ~1000+ LOC of channel/mention/scheduler infra that arya re-implements ad-hoc.
 - Severity: P1
-- Fix: Delete; move scheduler to standalone plugin.
+- Fix: harness is the intended base. Wire coding-agent and arya through it — `bootstrap()` from coding-agent (#319, #320, #322), `WsChannel` for arya (#409). Do NOT delete the harness infra; that is the design's load-bearing layer. See [[feedback-harness-role]].
 
 **498. Pattern: God-class anti-pattern (6 places, same pathology)**
 - Packages: ChatApp.ts 1608, tui.ts 750, runtime.ts 435, bootstrap.ts 300, ws.ts ~300, aryaClient.ts 338

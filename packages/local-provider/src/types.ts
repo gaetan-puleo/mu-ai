@@ -37,4 +37,15 @@ export interface LocalProviderConfig {
   baseUrl?: string;
   model?: string;
   apiKey?: string;
+  /**
+   * Idle timeout in milliseconds. If no chunk arrives from the stream within this
+   * window the request is aborted. Defaults to 30000. Set to 0 to disable.
+   */
+  streamTimeoutMs?: number;
+  /**
+   * Optional host-supplied abort signal source. Called for each request; the
+   * returned signal is composed with the idle-timeout signal so either can
+   * cancel the in-flight stream.
+   */
+  getAbortSignal?: () => AbortSignal | undefined;
 }

@@ -16,8 +16,9 @@ export function getLlamaSwapOpenAIBaseUrl(baseUrl: string): string {
 
 export async function listLlamaSwapModels(config: { baseUrl: string; apiKey?: string }): Promise<LocalModel[]> {
   const baseUrl = normalizeLlamaSwapBaseUrl(config.baseUrl);
+  const endpoint = `${baseUrl}/v1/models`;
 
-  const response = await fetch(`${baseUrl}/v1/models`, {
+  const response = await fetch(endpoint, {
     headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : undefined,
   });
 
@@ -25,9 +26,18 @@ export async function listLlamaSwapModels(config: { baseUrl: string; apiKey?: st
     throw new Error(`Failed to list llama-swap models: ${response.status} ${await response.text()}`);
   }
 
-  const data = await response.json();
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch (err) {
+    throw new Error(`Failed to parse JSON from ${endpoint}: ${(err as Error).message}`);
+  }
+  const items = (data as { data?: unknown })?.data;
+  if (!Array.isArray(items)) {
+    throw new Error(`Malformed response from ${endpoint}: expected array at "data"`);
+  }
 
-  return data.data.map((model: { id: string; name?: string; description?: string; owned_by?: string }) => ({
+  return items.map((model: { id: string; name?: string; description?: string; owned_by?: string }) => ({
     id: model.id,
     name: model.name,
     description: model.description,
@@ -65,9 +75,10 @@ export async function getLlamaSwapProps(config: {
 }): Promise<LlamaSwapProps | undefined> {
   const baseUrl = normalizeLlamaSwapBaseUrl(config.baseUrl);
   const model = config.model ?? '';
+  const endpoint = `${baseUrl}/upstream/${encodeURIComponent(model)}/props`;
 
   try {
-    const response = await fetch(`${baseUrl}/upstream/${encodeURIComponent(model)}/props`, {
+    const response = await fetch(endpoint, {
       headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : undefined,
     });
 
@@ -75,7 +86,18 @@ export async function getLlamaSwapProps(config: {
       return undefined;
     }
 
-    return response.json();
+    const data = await response.json() as Partial<LlamaSwapProps> | null;
+    const ctx = data?.default_generation_settings?.n_ctx;
+    if (
+      !data ||
+      typeof ctx !== 'number' ||
+      typeof data.total_slots !== 'number' ||
+      typeof data.model_path !== 'string' ||
+      typeof data.model_alias !== 'string'
+    ) {
+      throw new Error(`Malformed response from ${endpoint}: missing or invalid props fields`);
+    }
+    return data as LlamaSwapProps;
   } catch {
     return undefined;
   }
@@ -88,9 +110,10 @@ export async function getLlamaSwapSlots(config: {
 }): Promise<LlamaSwapSlotInfo[] | undefined> {
   const baseUrl = normalizeLlamaSwapBaseUrl(config.baseUrl);
   const model = config.model ?? '';
+  const endpoint = `${baseUrl}/upstream/${encodeURIComponent(model)}/slots`;
 
   try {
-    const response = await fetch(`${baseUrl}/upstream/${encodeURIComponent(model)}/slots`, {
+    const response = await fetch(endpoint, {
       headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : undefined,
     });
 
@@ -98,7 +121,21 @@ export async function getLlamaSwapSlots(config: {
       return undefined;
     }
 
-    return response.json();
+    const data = await response.json();
+    if (!Array.isArray(data)) {
+      throw new Error(`Malformed response from ${endpoint}: expected array of slots`);
+    }
+    for (const slot of data) {
+      if (
+        !slot ||
+        typeof slot.id !== 'number' ||
+        typeof slot.n_ctx !== 'number' ||
+        typeof slot.is_processing !== 'boolean'
+      ) {
+        throw new Error(`Malformed response from ${endpoint}: invalid slot entry`);
+      }
+    }
+    return data as LlamaSwapSlotInfo[];
   } catch {
     return undefined;
   }
@@ -181,9 +218,10 @@ export async function tokenizeLlamaSwap(config: {
 }): Promise<number | undefined> {
   if (!config.content) return 0;
   const baseUrl = normalizeLlamaSwapBaseUrl(config.baseUrl);
+  const endpoint = `${baseUrl}/upstream/${encodeURIComponent(config.model)}/tokenize`;
 
   try {
-    const response = await fetch(`${baseUrl}/upstream/${encodeURIComponent(config.model)}/tokenize`, {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -195,7 +233,10 @@ export async function tokenizeLlamaSwap(config: {
     if (!response.ok) return undefined;
 
     const data = await response.json();
-    return Array.isArray(data?.tokens) ? data.tokens.length : undefined;
+    if (!Array.isArray(data?.tokens)) {
+      throw new Error(`Malformed response from ${endpoint}: expected array at "tokens"`);
+    }
+    return data.tokens.length;
   } catch {
     return undefined;
   }

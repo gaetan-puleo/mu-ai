@@ -1,9 +1,12 @@
-import { loadState, saveState } from './config';
 import type { AgentRuntime, SubAgent } from 'mu-harness';
 import type { CoreEvent } from 'mu-core';
 import { ChatApp } from './ui/ChatApp';
 
 export interface MainOptions {
+  /** Initial value for the "show reasoning" toggle. Owned by the caller. */
+  thinkingVisible?: boolean;
+  /** Notified when the user toggles thinking visibility. Caller persists. */
+  onThinkingVisibleChange?: (visible: boolean) => void;
   /** Switchable primary agents (Build, Plan, etc.). Empty when none defined. */
   primaryAgents?: SubAgent[];
   /** Returns the currently active primary (or undefined). */
@@ -29,27 +32,17 @@ export interface MainOptions {
 }
 
 export async function main(agent: AgentRuntime, options: MainOptions = {}): Promise<void> {
-  const state = loadState();
-
-  const savePartialState = (patch: typeof state): void => {
-    Object.assign(state, patch);
-    try {
-      saveState(state);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[coding-agent] failed to save state: ${msg}\n`);
-    }
-  };
-
-  agent.setModel(state.model ?? agent.model);
+  // State (model, thinkingVisible, activeAgent) is owned by the caller (bin).
+  // `main` is purely a UI wiring layer — it must not read or write state files
+  // independently, or it will clobber the caller's writes.
 
   const toDisplay = (a: SubAgent) => ({ name: a.name, color: a.color, description: a.description });
   const primaryDisplays = options.primaryAgents?.map(toDisplay);
   const subAgentDisplays = options.subAgents?.map(toDisplay);
 
   const app = new ChatApp(agent.runtime, agent.bus, agent, (code) => process.exit(code), {
-    thinkingVisible: state.thinkingVisible,
-    onThinkingVisibleChange: (thinkingVisible) => savePartialState({ thinkingVisible }),
+    thinkingVisible: options.thinkingVisible,
+    onThinkingVisibleChange: options.onThinkingVisibleChange,
     primaryAgents: primaryDisplays,
     getActivePrimary: () => {
       const override = options.getOverridePrimary?.();

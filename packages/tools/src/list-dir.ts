@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Tool } from 'mu-core';
-import { formatError, parseArgs, sanitizePath } from './utils';
+import { formatError, parseArgs, sanitizePath, validatedCwd } from './utils';
 
 interface ListDirToolOptions {
   getCwd: () => string;
@@ -46,7 +46,8 @@ function listDirRecursive(dir: string, prefix: string, depth: number, maxDepth: 
 }
 
 export function createListDirTool(opts: ListDirToolOptions): Tool {
-  const { getCwd, restrictToCwd = false } = opts;
+  const { restrictToCwd = false } = opts;
+  const getCwd = validatedCwd(opts.getCwd);
   return {
     name: 'list_dir',
     description: 'List the contents of a directory. Optionally recurse with a depth limit.',
