@@ -21,12 +21,21 @@ export interface SubAgentToolDeps {
   getSystemPromptPrefix?: () => string | undefined;
 }
 
+interface SubAgentArgs {
+  agent?: unknown;
+  task?: unknown;
+}
+
+interface SubAgentParallelArgs {
+  runs?: unknown;
+}
+
 /**
  * The single-call delegation tool. The model calls
  *   `subagent({ agent: "explorer", task: "find all usages of X" })`
  * to fire off one isolated sub-run and get its final answer back.
  */
-export function createSubAgentTool(deps: SubAgentToolDeps): Tool {
+export function createSubAgentTool(deps: SubAgentToolDeps): Tool<SubAgentArgs, string> {
   return {
     name: 'subagent',
     description: 'Delegate an isolated task to a named sub-agent. Returns the sub-agent\'s final answer.',
@@ -39,12 +48,9 @@ export function createSubAgentTool(deps: SubAgentToolDeps): Tool {
       required: ['agent', 'task'],
       additionalProperties: false,
     },
-    execute: async (rawArgs) => {
-      const parsed = parseArgs(rawArgs);
-      if (!parsed.ok) {
-        return `Error: subagent could not parse arguments (${parsed.reason}).`;
-      }
-      const { agent: agentName, task } = parsed.value;
+    execute: async (args) => {
+      const agentName = typeof args.agent === 'string' ? args.agent : '';
+      const task = typeof args.task === 'string' ? args.task : '';
       if (!(agentName && task)) {
         return 'Error: subagent requires both `agent` and `task`.';
       }
@@ -77,7 +83,7 @@ export function createSubAgentTool(deps: SubAgentToolDeps): Tool {
  *   `subagent_parallel({ runs: [{ agent: "a", task: "..." }, { agent: "b", task: "..." }] })`
  * and gets a Markdown-separated aggregate of every sub-run's result.
  */
-export function createSubAgentParallelTool(deps: SubAgentToolDeps): Tool {
+export function createSubAgentParallelTool(deps: SubAgentToolDeps): Tool<SubAgentParallelArgs, string> {
   return {
     name: 'subagent_parallel',
     description: 'Fan out N sub-agents in parallel. Returns every result aggregated.',
@@ -101,12 +107,17 @@ export function createSubAgentParallelTool(deps: SubAgentToolDeps): Tool {
       required: ['runs'],
       additionalProperties: false,
     },
-    execute: async (rawArgs) => {
-      const parsed = parseParallelArgs(rawArgs);
-      if (!parsed.ok) {
-        return `Error: subagent_parallel could not parse arguments (${parsed.reason}).`;
+    execute: async (args) => {
+      if (!Array.isArray(args.runs)) {
+        return 'Error: subagent_parallel could not parse arguments (missing or non-array `runs`).';
       }
-      const { runs } = parsed.value;
+      const runs = args.runs.map((r) => {
+        const item = r as { agent?: unknown; task?: unknown };
+        return {
+          agent: typeof item.agent === 'string' ? item.agent : '',
+          task: typeof item.task === 'string' ? item.task : '',
+        };
+      });
       if (runs.length === 0) {
         return 'Error: subagent_parallel requires at least one run.';
       }
@@ -152,44 +163,6 @@ export function createSubAgentParallelTool(deps: SubAgentToolDeps): Tool {
     },
     onError: (error) => `subagent_parallel failed: ${error instanceof Error ? error.message : String(error)}`,
   };
-}
-
-type ParseResult<T> = { ok: true; value: T } | { ok: false; reason: string };
-
-function parseArgs(raw: string): ParseResult<{ agent: string; task: string }> {
-  let obj: { agent?: unknown; task?: unknown };
-  try {
-    obj = JSON.parse(raw) as { agent?: unknown; task?: unknown };
-  } catch (err) {
-    return { ok: false, reason: `invalid JSON: ${err instanceof Error ? err.message : String(err)}` };
-  }
-  return {
-    ok: true,
-    value: {
-      agent: typeof obj.agent === 'string' ? obj.agent : '',
-      task: typeof obj.task === 'string' ? obj.task : '',
-    },
-  };
-}
-
-function parseParallelArgs(
-  raw: string,
-): ParseResult<{ runs: Array<{ agent: string; task: string }> }> {
-  let obj: { runs?: unknown };
-  try {
-    obj = JSON.parse(raw) as { runs?: unknown };
-  } catch (err) {
-    return { ok: false, reason: `invalid JSON: ${err instanceof Error ? err.message : String(err)}` };
-  }
-  if (!Array.isArray(obj.runs)) return { ok: false, reason: 'missing or non-array `runs`' };
-  const runs = obj.runs.map((r) => {
-    const item = r as { agent?: unknown; task?: unknown };
-    return {
-      agent: typeof item.agent === 'string' ? item.agent : '',
-      task: typeof item.task === 'string' ? item.task : '',
-    };
-  });
-  return { ok: true, value: { runs } };
 }
 
 /**

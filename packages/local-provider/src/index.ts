@@ -111,7 +111,7 @@ function convertMessages(messages: Message[]): ChatCompletionMessageParam[] {
             id: call.id,
             type: 'function',
             function: {
-              name: call.tool,
+              name: call.name,
               arguments: call.args,
             },
           })),
@@ -125,12 +125,30 @@ function convertMessages(messages: Message[]): ChatCompletionMessageParam[] {
     });
 }
 
+// `Tool.description` is now a `Resolvable<string | undefined>`. The OpenAI
+// schema we ship in the request body needs a plain string, so we resolve it
+// synchronously: if the host wired a lazy function, we invoke it once and
+// take the synchronous return; we don't await a Promise here because building
+// the request payload is itself sync. Async resolvers degrade to no
+// description, which is the spec-allowed `undefined` value.
+function resolveDescriptionSync(value: Tool['description']): string | undefined {
+  if (typeof value === 'function') {
+    try {
+      const out = (value as () => unknown)();
+      return typeof out === 'string' ? out : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return value;
+}
+
 function convertTools(tools: Record<string, Tool>): ChatCompletionTool[] {
   return Object.values(tools).map((tool) => ({
     type: 'function',
     function: {
       name: tool.name,
-      description: tool.description,
+      description: resolveDescriptionSync(tool.description),
       parameters: tool.parameters,
     },
   }));
@@ -408,7 +426,7 @@ const createLocalProvider = (config: LocalProviderConfig): LLMProvider => {
               buf.emitted = true;
               yield {
                 type: 'tool_call',
-                call: { type: 'tool_call', id: buf.id, tool: buf.name, args: buf.args },
+                call: { id: buf.id, name: buf.name, args: buf.args },
               };
             }
           }
@@ -436,7 +454,7 @@ const createLocalProvider = (config: LocalProviderConfig): LLMProvider => {
           buf.emitted = true;
           yield {
             type: 'tool_call',
-            call: { type: 'tool_call', id: buf.id, tool: buf.name, args: buf.args },
+            call: { id: buf.id, name: buf.name, args: buf.args },
           };
         }
       }
@@ -457,9 +475,8 @@ const createLocalProvider = (config: LocalProviderConfig): LLMProvider => {
         for (const buf of toolCallBuffers.values()) {
           if (!buf.name) continue;
           collectedToolCalls.push({
-            type: 'tool_call',
             id: buf.id,
-            tool: buf.name,
+            name: buf.name,
             args: buf.args,
           });
         }

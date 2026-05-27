@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { formatError, parseArgs, type Tool } from 'mu-core';
+import { formatError, type Tool } from 'mu-core';
 import { looksBinary, sanitizePath, validatedCwd, writeAtomic } from './utils';
 
 interface EditFileToolOptions {
@@ -7,7 +7,13 @@ interface EditFileToolOptions {
   restrictToCwd?: boolean;
 }
 
-export function createEditFileTool(opts: EditFileToolOptions): Tool {
+interface EditFileArgs {
+  path?: unknown;
+  from?: unknown;
+  to?: unknown;
+}
+
+export function createEditFileTool(opts: EditFileToolOptions): Tool<EditFileArgs, string> {
   const { restrictToCwd = false } = opts;
   const getCwd = validatedCwd(opts.getCwd);
   return {
@@ -29,14 +35,22 @@ export function createEditFileTool(opts: EditFileToolOptions): Tool {
       additionalProperties: false,
     },
     execute(args) {
-      const parsed = parseArgs(args);
-      const rawPath = parsed.path as string;
+      if (typeof args.path !== 'string') {
+        return 'Error: edit requires a string `path`';
+      }
+      if (typeof args.from !== 'string') {
+        return 'Error: edit requires a string `from`';
+      }
+      if (typeof args.to !== 'string') {
+        return 'Error: edit requires a string `to`';
+      }
+      const rawPath = args.path;
       const path = sanitizePath(rawPath, getCwd(), restrictToCwd);
       if (path === null) {
         return `Error: Invalid or disallowed path: ${rawPath}`;
       }
-      const oldString = parsed.from as string;
-      const newString = parsed.to as string;
+      const oldString = args.from;
+      const newString = args.to;
 
       if (!existsSync(path)) {
         return `Error: File not found: ${path}`;

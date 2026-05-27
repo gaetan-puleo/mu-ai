@@ -1,11 +1,17 @@
 import { existsSync, lstatSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { formatError, parseArgs, type Tool } from 'mu-core';
+import { formatError, type Tool } from 'mu-core';
 import { sanitizePath, validatedCwd } from './utils';
 
 interface ListDirToolOptions {
   getCwd: () => string;
   restrictToCwd?: boolean;
+}
+
+interface ListDirArgs {
+  path?: unknown;
+  recursive?: unknown;
+  depth?: unknown;
 }
 
 function listDirRecursive(dir: string, prefix: string, depth: number, maxDepth: number, recursive: boolean): string {
@@ -45,7 +51,7 @@ function listDirRecursive(dir: string, prefix: string, depth: number, maxDepth: 
   return lines.join('\n');
 }
 
-export function createListDirTool(opts: ListDirToolOptions): Tool {
+export function createListDirTool(opts: ListDirToolOptions): Tool<ListDirArgs, string> {
   const { restrictToCwd = false } = opts;
   const getCwd = validatedCwd(opts.getCwd);
   return {
@@ -62,8 +68,10 @@ export function createListDirTool(opts: ListDirToolOptions): Tool {
       additionalProperties: false,
     },
     execute(args) {
-      const parsed = parseArgs(args);
-      const rawPath = parsed.path as string;
+      if (typeof args.path !== 'string') {
+        return 'Error: list_dir requires a string `path`';
+      }
+      const rawPath = args.path;
       const cwd = getCwd();
       const path = sanitizePath(rawPath, cwd, restrictToCwd);
       if (path === null) {
@@ -76,8 +84,8 @@ export function createListDirTool(opts: ListDirToolOptions): Tool {
         return `Error: Path is not a directory: ${path}`;
       }
       try {
-        const recursive = (parsed.recursive as boolean) ?? false;
-        const maxDepth = (parsed.depth as number) ?? 2;
+        const recursive = typeof args.recursive === 'boolean' ? args.recursive : false;
+        const maxDepth = typeof args.depth === 'number' ? args.depth : 2;
         const lines = listDirRecursive(path, '', 0, maxDepth, recursive);
         return lines || '(empty directory)';
       } catch (err) {

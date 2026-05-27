@@ -1,10 +1,17 @@
 import { existsSync } from 'node:fs';
-import { formatError, parseArgs, type Tool } from 'mu-core';
+import { formatError, type Tool } from 'mu-core';
 import { looksBinary, readLineRange, sanitizePath, validatedCwd } from './utils';
 
 interface ReadFileToolOptions {
   getCwd: () => string;
   restrictToCwd?: boolean;
+}
+
+/** Wire-level shape declared in `parameters` below. Narrowed at the boundary. */
+interface ReadFileArgs {
+  path?: unknown;
+  start?: unknown;
+  end?: unknown;
 }
 
 function executeReadFileSingle(
@@ -58,7 +65,7 @@ function executeReadFileSingle(
   }
 }
 
-export function createReadFileTool(opts: ReadFileToolOptions): Tool {
+export function createReadFileTool(opts: ReadFileToolOptions): Tool<ReadFileArgs, string> {
   const { restrictToCwd = false } = opts;
   const getCwd = validatedCwd(opts.getCwd);
   return {
@@ -75,11 +82,20 @@ export function createReadFileTool(opts: ReadFileToolOptions): Tool {
       additionalProperties: false,
     },
     execute(args) {
-      const parsed = parseArgs(args);
-      const rawPath = parsed.path;
-      const paths = Array.isArray(rawPath) ? (rawPath as string[]) : [rawPath as string];
-      const start = parsed.start as number | undefined;
-      const end = parsed.end as number | undefined;
+      // Narrow at the boundary — finding #148 calls out the prior `as string`
+      // cast pattern. Schema-as-types is best-effort; the runtime trusts but
+      // verifies before doing work.
+      const rawPath = args.path;
+      const paths: string[] = Array.isArray(rawPath)
+        ? rawPath.filter((p): p is string => typeof p === 'string')
+        : typeof rawPath === 'string'
+        ? [rawPath]
+        : [];
+      if (paths.length === 0) {
+        return 'Error: read requires `path` (string or array of strings)';
+      }
+      const start = typeof args.start === 'number' ? args.start : undefined;
+      const end = typeof args.end === 'number' ? args.end : undefined;
       const cwd = getCwd();
 
       return paths

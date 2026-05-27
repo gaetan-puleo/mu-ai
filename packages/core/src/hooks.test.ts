@@ -26,7 +26,7 @@ describe('tool hooks', () => {
     const provider: LLMProvider = async (_messages) => {
       callCount++;
       if (callCount === 1) {
-        return { tool_calls: [{ type: 'tool_call', id: '1', tool: 'sum', args: '1 2' }] };
+        return { tool_calls: [{ id: '1', name: 'sum', args: '{"a":1,"b":2}' }] };
       }
       return { content: 'Done' };
     };
@@ -64,7 +64,7 @@ describe('tool hooks', () => {
 
   it('should block tool call with beforeTool hook', async () => {
     const provider: LLMProvider = async () => ({
-      tool_calls: [{ type: 'tool_call', id: '1', tool: 'sum', args: '1 2' }],
+      tool_calls: [{ id: '1', name: 'sum', args: '{"a":1,"b":2}' }],
     });
 
     const bus = createBus<CoreEvent>();
@@ -110,7 +110,7 @@ describe('tool hooks', () => {
     const provider: LLMProvider = async (_messages) => {
       callCount++;
       if (callCount === 1) {
-        return { tool_calls: [{ type: 'tool_call', id: '1', tool: 'sum', args: '1 2' }] };
+        return { tool_calls: [{ id: '1', name: 'sum', args: '{"a":1,"b":2}' }] };
       }
       return { content: 'Done' };
     };
@@ -156,7 +156,7 @@ describe('tool hooks', () => {
     const provider: LLMProvider = async (_messages) => {
       callCount++;
       if (callCount === 1) {
-        return { tool_calls: [{ type: 'tool_call', id: '1', tool: 'sum', args: '1 2' }] };
+        return { tool_calls: [{ id: '1', name: 'sum', args: '{"a":1,"b":2}' }] };
       }
       return { content: 'Done' };
     };

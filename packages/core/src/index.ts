@@ -37,5 +37,6 @@ export type {
   Resolvable,
   Tool,
   ToolCall,
+  ToolContext,
   Tools,
 } from './types/Tool';

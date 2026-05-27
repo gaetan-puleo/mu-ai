@@ -153,13 +153,13 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Types
 
-**26. `Tool` not generic**
+**26. `Tool` not generic — DONE**
 - File: `src/types/Tool.ts:1-8`
 - Dimension: Types — Severity: P1
 - Detail: `parameters: Record<string, unknown>` plus `execute: (args: string) => …` means tool authors can never get a typed `args` payload at compile time. Every tool re-parses JSON string and re-asserts shape.
 - Fix: `interface Tool<TParams = unknown, TResult = string> { parameters: JSONSchema; execute(args: TParams): TResult | Promise<TResult> }`.
 
-**27. `Tool.execute` returns string only**
+**27. `Tool.execute` returns string only — PARTIAL (TResult typed generic; default still string, ToolResult union deferred)**
 - File: `src/types/Tool.ts:6`
 - Dimension: Types — Severity: P1
 - Detail: Returns `string | Promise<string>`. Forces every structured result to be re-serialized.
@@ -174,7 +174,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: `timings?: Record<string, unknown>; raw?: Record<string, unknown>` are pure escape hatches.
 
-**30. `ToolCall.args: string` stringly-typed**
+**30. `ToolCall.args: string` stringly-typed — PARTIAL (wire stays string; runtime now parses before execute, tools receive typed args)**
 - File: `src/types/Tool.ts:12-17`
 - Dimension: Types — Severity: P1
 - Detail: Locks the entire pipeline into JSON-string passing.
@@ -801,17 +801,17 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Types
 
-**148. Per-tool `as T` casts without runtime guards**
+**148. Per-tool `as T` casts without runtime guards — DONE**
 - File: `src/read-file.ts:62-67`, `src/edit-file.ts:32-38`, `src/write-file.ts:27-32`, `src/list-dir.ts:56-70`, `src/bash.ts:81`
 - Dimension: Types — Severity: P1
 - Detail: `parsed.x as T` everywhere. Each tool re-asserts schema invariants in TS without runtime check.
 
-**149. `bash` no runtime guard on `cmd`**
+**149. `bash` no runtime guard on `cmd` — DONE**
 - File: `src/bash.ts:81`
 - Dimension: Types — Severity: P1
 - Detail: `parsed.cmd as string`. If LLM sends `{ cmd: 123 }`, cast silently lies and downstream `spawn` coerces.
 
-**150. JSON schemas inline + untyped**
+**150. JSON schemas inline + untyped — PARTIAL (execute is typed; schemas still inline)**
 - File: All factories
 - Dimension: Types — Severity: P1
 - Detail: `parameters: Record<string, unknown>` from core. Schema authors get zero IDE feedback; typos like `type: 'intger'` compile.
@@ -1157,7 +1157,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P1
 - Detail: `isHttpUrl` validates only scheme. `http://localhost`, `http://127.0.0.1`, `http://169.254.169.254/latest/meta-data/`, `http://[::1]`, RFC1918 addrs all pass. Combined with default `redirect: 'follow'`, an external URL can also 302 to internal host.
 
-**214. Runtime AbortSignal not threaded — PARTIAL (timeout AbortController properly wired; full executor-signal threading awaits `Tool.execute` signature change in mu-core)**
+**214. Runtime AbortSignal not threaded — DONE (Tool.execute now receives ctx.signal; mu-core change shipped)**
 - File: `src/plugin.ts:218, 275`
 - Dimension: Bug — Severity: P1
 - Detail: `runWebFetch(args)` accepts only `args`; `ToolExecutor` provides a `signal?: AbortSignal`. README claims Ctrl-C cancels — directly false.

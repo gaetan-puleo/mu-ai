@@ -7,6 +7,10 @@
  * `restrictToCwd` (opt-in) enables containment checks for path arguments and,
  * for `bash`, prefixes the command with `cd "$CWD" && …` so relative paths
  * stay anchored to the contained directory.
+ *
+ * Each tool now declares a typed `args` interface and uses `ctx.signal` from
+ * the runtime for cancellation. The legacy `getBashAbortSignal` factory option
+ * is preserved for hosts that haven't migrated to context-supplied signals.
  */
 
 import type { Tools } from 'mu-core';
@@ -23,7 +27,11 @@ export interface MuToolsOptions {
   restrictToCwd?: boolean;
   /** Cap on combined stdout/stderr bytes for `bash`. Default 10 MiB. */
   bashMaxOutputBytes?: number;
-  /** Per-call abort hook for `bash` — read once at execute time. */
+  /**
+   * Per-call abort hook for `bash`. Now optional — the runtime's per-turn
+   * `AbortSignal` arrives via `ToolContext.signal`. Retain this only when
+   * threading a host-controlled signal in addition to the runtime's.
+   */
   getBashAbortSignal?: () => AbortSignal | undefined;
 }
 

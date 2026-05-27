@@ -19,7 +19,9 @@ function getTool(): Tool {
 
 async function run(args: Record<string, unknown>): Promise<string> {
   const tool = getTool();
-  return await tool.execute(JSON.stringify(args));
+  // mu-core now parses wire-format JSON args at the runtime boundary; tests
+  // hand the parsed object directly so we mirror the in-process call path.
+  return await tool.execute(args);
 }
 
 function setFetch(stub: FetchStub) {

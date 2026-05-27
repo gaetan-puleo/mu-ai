@@ -1097,7 +1097,7 @@ export class ChatApp {
       case 'tool_call':
         this.transcript.activateNextQueuedUserMessage();
         this.transcript.appendToolCall(event.call);
-        this.setStatus(`tool: ${event.call.tool}`);
+        this.setStatus(`tool: ${event.call.name}`);
         break;
       case 'tool_result':
         this.setStatus('ready');

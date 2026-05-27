@@ -12,7 +12,7 @@ describe('callTool', () => {
       onError: () => 'error',
     };
 
-    const result = await callTool(tool, '1 2');
+    const result = await callTool(tool, '{"a":1,"b":2}');
 
     expect(result).toBe('3');
   });
@@ -28,7 +28,7 @@ describe('callTool', () => {
       onError: (error: unknown) => `Tool error: ${error}`,
     };
 
-    const result = await callTool(tool, '1 2');
+    const result = await callTool(tool, '{}');
 
     expect(result).toBe('Tool error: Error: calculation failed');
   });
@@ -44,8 +44,50 @@ describe('callTool', () => {
       onError: (error: unknown) => `Async error: ${error}`,
     };
 
-    const result = await callTool(tool, 'http://example.com');
+    const result = await callTool(tool, '{"url":"http://example.com"}');
 
     expect(result).toBe('Async error: Error: network error');
+  });
+
+  it('routes invalid JSON args through onError', async () => {
+    const tool = {
+      name: 'sum',
+      description: 'sum',
+      parameters: {},
+      execute: () => 'ok',
+      onError: (error: unknown) => `bad args: ${(error as Error).message}`,
+    };
+    const result = await callTool(tool, 'not json');
+    expect(result.startsWith('bad args: ')).toBe(true);
+  });
+
+  it('passes ctx.signal through to execute', async () => {
+    let seen: AbortSignal | undefined;
+    const tool = {
+      name: 'spy',
+      description: 'spy',
+      parameters: {},
+      execute: (_args: unknown, ctx?: { signal?: AbortSignal }) => {
+        seen = ctx?.signal;
+        return 'ok';
+      },
+    };
+    const ctrl = new AbortController();
+    const result = await callTool(tool, '{}', { signal: ctrl.signal });
+    expect(result).toBe('ok');
+    expect(seen).toBe(ctrl.signal);
+  });
+
+  it('falls back to a generic error when onError is omitted', async () => {
+    const tool = {
+      name: 'kaboom',
+      description: 'kaboom',
+      parameters: {},
+      execute: () => {
+        throw new Error('went sideways');
+      },
+    };
+    const result = await callTool(tool, '{}');
+    expect(result).toBe('Error: kaboom failed: went sideways');
   });
 });

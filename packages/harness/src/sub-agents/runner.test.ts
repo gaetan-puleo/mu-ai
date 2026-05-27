@@ -125,7 +125,7 @@ describe('runSubAgent', () => {
 
   it('tags approval prompts with the sub-agent name', async () => {
     let seenMeta: { agent?: string } | undefined;
-    const toolCall: ToolCall = { type: 'tool_call', id: 'c1', tool: 'echo', args: '{}' };
+    const toolCall: ToolCall = { id: 'c1', name: 'echo', args: '{}' };
     let turn = 0;
     const provider: LLMProvider = async () => {
       turn++;
@@ -158,7 +158,7 @@ describe('runSubAgent', () => {
 
   it('handles a tool-using turn followed by a final response', async () => {
     let turn = 0;
-    const toolCall: ToolCall = { type: 'tool_call', id: 'c1', tool: 'echo', args: '{"msg":"hi"}' };
+    const toolCall: ToolCall = { id: 'c1', name: 'echo', args: '{"msg":"hi"}' };
     const provider: LLMProvider = async () => {
       turn++;
       if (turn === 1) return { tool_calls: [toolCall] };
@@ -169,7 +169,7 @@ describe('runSubAgent', () => {
       description: 'echo',
       parameters: { type: 'object', properties: { msg: { type: 'string' } } },
       execute: (args) => {
-        const obj = JSON.parse(args) as { msg: string };
+        const obj = args as { msg: string };
         return obj.msg;
       },
       onError: (e) => String(e),

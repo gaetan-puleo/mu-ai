@@ -5,7 +5,15 @@ import { callTool } from './tools/callTool';
 import type { ToolHooks } from './types/Hook';
 import type { Message } from './types/Message';
 import type { Session } from './types/Session';
-import type { LLMResponse, LLMResponseContext, LLMStreamEvent, Resolvable, ToolCall, Tools } from './types/Tool';
+import type {
+  LLMResponse,
+  LLMResponseContext,
+  LLMStreamEvent,
+  Resolvable,
+  ToolCall,
+  ToolContext,
+  Tools,
+} from './types/Tool';
 
 export type RuntimeState = 'idle' | 'running' | 'stopped';
 
@@ -113,6 +121,12 @@ export function createRuntime(config: RuntimeConfig): Runtime {
   let unsubscribe: Unsubscribe | undefined;
   let processing = false;
   let startPromise: Promise<void> | undefined;
+  /**
+   * Aborted whenever `stop()` is invoked (or when a turn ends, to free the
+   * signal for the next one). Tools observe this via `ToolContext.signal` so
+   * a Ctrl-C unwedges in-flight subprocess/`fetch` work.
+   */
+  let turnAbort: AbortController | undefined;
 
   async function callOnStart(): Promise<void> {
     for (const plugin of plugins) {
@@ -291,19 +305,23 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     return doneCalls ?? streamedCalls;
   }
 
-  async function executeToolCalls(calls: ToolCall[], activeTools: Tools): Promise<{ failed: boolean }> {
+  async function executeToolCalls(
+    calls: ToolCall[],
+    activeTools: Tools,
+    ctx: ToolContext,
+  ): Promise<{ failed: boolean }> {
     let failed = false;
     const toolMessages = await Promise.all(calls.map(async (call): Promise<Message> => {
-      const tool = activeTools[call.tool];
+      const tool = activeTools[call.name];
       if (!tool) {
         failed = true;
-        const error = new Error(`Unknown tool: ${call.tool}`);
+        const error = new Error(`Unknown tool: ${call.name}`);
         bus.publish({ type: 'error', error });
         callOnError(error);
         return { role: 'tool', content: `Error: ${error.message}`, tool_id: call.id };
       }
 
-      const toolResult = await callTool(tool, call.args, hooks);
+      const toolResult = await callTool(tool, call.args, ctx, hooks);
       return { role: 'tool', content: toolResult, tool_id: call.id };
     }));
     for (const message of toolMessages) {
@@ -318,7 +336,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     calls: ToolCall[],
   ): ToolCall | undefined {
     for (const call of calls) {
-      const key = `${call.tool}:${call.args.slice(0, 500)}`;
+      const key = `${call.name}:${call.args.slice(0, 500)}`;
       const count = (repeatedToolCalls.get(key) ?? 0) + 1;
       repeatedToolCalls.set(key, count);
       if (count > maxRepeatedToolCalls) {
@@ -359,6 +377,10 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     }
     messages.push(next);
     const repeatedToolCalls = new Map<string, number>();
+    // Fresh controller per turn — `stop()` aborts whatever's pending; closing
+    // out the turn aborts in the `finally` so we don't leak listeners.
+    turnAbort = new AbortController();
+    const toolCtx: ToolContext = { signal: turnAbort.signal };
 
     try {
       while ((currentState as RuntimeState) !== 'stopped') {
@@ -373,7 +395,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
           const repeated = checkRepeatedToolCalls(repeatedToolCalls, calls);
           if (repeated) {
             const error = new Error(
-              `Tool call loop detected: ${repeated.tool} repeated more than ${maxRepeatedToolCalls} times with the same arguments`,
+              `Tool call loop detected: ${repeated.name} repeated more than ${maxRepeatedToolCalls} times with the same arguments`,
             );
             // Pair every assistant tool_call with a tool result so the session
             // remains valid for the next provider call.
@@ -390,7 +412,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
             callOnError(error);
             break;
           }
-          const { failed } = await executeToolCalls(calls, activeTools);
+          const { failed } = await executeToolCalls(calls, activeTools, toolCtx);
           if (failed) break;
           drainIntoTranscript(steeringQueue, 'steering');
           continue;
@@ -414,6 +436,10 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       bus.publish({ type: 'error', error });
       callOnError(error);
     } finally {
+      // Abort any tools still in flight (e.g. when the catch above fired from
+      // a provider error) before the controller goes out of scope.
+      if (turnAbort && !turnAbort.signal.aborted) turnAbort.abort();
+      turnAbort = undefined;
       processing = false;
       void processQueue();
     }
@@ -463,6 +489,12 @@ export function createRuntime(config: RuntimeConfig): Runtime {
 
     async stop() {
       currentState = 'stopped';
+      // Surface the stop to in-flight tools BEFORE we tear down listeners so
+      // any subprocess/`fetch` can wind down on the same tick. Aborting after
+      // the stream break would leave them blocked on whatever they were doing.
+      if (turnAbort && !turnAbort.signal.aborted) {
+        turnAbort.abort();
+      }
       unsubscribe?.();
       unsubscribe = undefined;
       queue.length = 0;

@@ -97,8 +97,8 @@ export class Transcript {
     this.lines.push({
       role: 'tool',
       callId: call.id,
-      name: call.tool,
-      argsPreview: formatToolCallArgs(call.tool, call.args),
+      name: call.name,
+      argsPreview: formatToolCallArgs(call.name, call.args),
     });
   }
 

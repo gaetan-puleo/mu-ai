@@ -1,11 +1,21 @@
 import { spawn } from 'node:child_process';
-import { formatError, parseArgs, type Tool } from 'mu-core';
+import { formatError, type Tool, type ToolContext } from 'mu-core';
 import { validatedCwd } from './utils';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024; // 10 MiB
 const TRUNCATION_MARKER = '\n…[truncated: output exceeded maxOutputBytes]';
 const SIGKILL_DELAY_MS = 1_000;
+
+/**
+ * Wire-level args shape declared in the JSON schema below. The runtime parses
+ * the JSON for us before calling `execute`, so we still narrow at the boundary
+ * (LLMs occasionally emit `{ cmd: 123 }` or omit fields) before trusting
+ * `parsed.cmd`.
+ */
+interface BashArgs {
+  cmd?: unknown;
+}
 
 interface ExecuteBashOptions {
   cwd: string;
@@ -163,15 +173,19 @@ interface BashToolOptions {
   restrictToCwd?: boolean;
   /** Cap on combined stdout/stderr bytes. Default 10 MiB. */
   maxOutputBytes?: number;
-  /** Per-call abort hook — read once at execute time. */
+  /**
+   * Per-call abort hook — read once at execute time. Retained for hosts that
+   * predate the `ToolContext.signal` plumbing; if both are present we prefer
+   * the context signal so the runtime stays in control of cancellation.
+   */
   getAbortSignal?: () => AbortSignal | undefined;
 }
 
-export function createBashTool(opts: BashToolOptions): Tool {
+export function createBashTool(opts: BashToolOptions): Tool<BashArgs, string> {
   const restrictToCwd = opts.restrictToCwd ?? false;
   const maxOutputBytes = opts.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
   const getCwd = validatedCwd(opts.getCwd);
-  const getAbortSignal = opts.getAbortSignal;
+  const fallbackAbortSignal = opts.getAbortSignal;
   return {
     name: 'bash',
     description: 'Run a shell command via bash in the project cwd. Returns stdout+stderr; non-zero exit is an error.',
@@ -183,13 +197,20 @@ export function createBashTool(opts: BashToolOptions): Tool {
       required: ['cmd'],
       additionalProperties: false,
     },
-    execute(args) {
-      const parsed = parseArgs(args);
-      return executeBash(parsed.cmd as string, {
+    execute(args, ctx?: ToolContext) {
+      // Defensive narrow: schema says `cmd: string`, but cast-without-check is
+      // exactly the class of bug finding #149 calls out. If the LLM sends a
+      // number or nothing, fall through to onError.
+      if (typeof args.cmd !== 'string') {
+        return 'Error: bash requires a string `cmd`';
+      }
+      return executeBash(args.cmd, {
         cwd: getCwd(),
         restrictToCwd,
         maxOutputBytes,
-        abortSignal: getAbortSignal?.(),
+        // Prefer the runtime-supplied signal; fall back to the legacy hook so
+        // pre-context hosts (or tests) keep working unchanged.
+        abortSignal: ctx?.signal ?? fallbackAbortSignal?.(),
       });
     },
     onError: formatError,

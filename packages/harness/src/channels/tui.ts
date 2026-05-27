@@ -134,7 +134,7 @@ function renderEvent(event: ChannelOutEvent, write: Writer, ansi: AnsiHelpers, h
       break;
     case 'tool_call':
       hooks.beforeNonAssistant();
-      write(`${ansi.dim(`[tool ${event.call.tool}]`)}\n`);
+      write(`${ansi.dim(`[tool ${event.call.name}]`)}\n`);
       break;
     case 'tool_result': {
       hooks.beforeNonAssistant();

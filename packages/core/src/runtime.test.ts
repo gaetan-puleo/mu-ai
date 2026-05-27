@@ -64,7 +64,7 @@ describe('createRuntime', () => {
 
       if (callCount === 1) {
         return {
-          tool_calls: [{ type: 'tool_call', id: '1', tool: 'sum', args: '2 3' }],
+          tool_calls: [{ id: '1', name: 'sum', args: '{"a":2,"b":3}' }],
         };
       }
 
@@ -102,7 +102,7 @@ describe('createRuntime', () => {
 
     expect(events).toContainEqual({
       type: 'tool_call',
-      call: { type: 'tool_call', id: '1', tool: 'sum', args: '2 3' },
+      call: { id: '1', name: 'sum', args: '{"a":2,"b":3}' },
     });
 
     expect(events).toContainEqual({
@@ -118,7 +118,7 @@ describe('createRuntime', () => {
 
   it('publishes error for unknown tool', async () => {
     const provider: LLMProvider = async () => ({
-      tool_calls: [{ type: 'tool_call', id: '1', tool: 'unknown', args: '{}' }],
+      tool_calls: [{ id: '1', name: 'unknown', args: '{}' }],
     });
 
     const bus = createBus<CoreEvent>();
@@ -357,7 +357,7 @@ describe('createRuntime', () => {
       providerMessages.push(messages.map((message) => `${message.role}:${message.content}`));
       if (callCount === 1) {
         promptVersion = 1;
-        return { tool_calls: [{ type: 'tool_call', id: '1', tool: 'dynamic', args: '{}' }] };
+        return { tool_calls: [{ id: '1', name: 'dynamic', args: '{}' }] };
       }
       return { content: 'Done' };
     };
@@ -429,7 +429,7 @@ describe('createRuntime', () => {
 
       if (callCount === 1) {
         return {
-          tool_calls: [{ type: 'tool_call', id: '1', tool: 'slow', args: '{}' }],
+          tool_calls: [{ id: '1', name: 'slow', args: '{}' }],
         };
       }
 
@@ -515,7 +515,7 @@ describe('createRuntime', () => {
     const provider: LLMProvider = async () => {
       callCount++;
       if (callCount === 1) {
-        return { tool_calls: [{ type: 'tool_call', id: '1', tool: 'slow', args: '{}' }] };
+        return { tool_calls: [{ id: '1', name: 'slow', args: '{}' }] };
       }
       return { content: 'Done' };
     };
@@ -565,7 +565,7 @@ describe('createRuntime', () => {
     const provider: LLMProvider = async () => {
       callCount++;
       if (callCount === 1) {
-        return { tool_calls: [{ type: 'tool_call', id: '1', tool: 'slow', args: '{}' }] };
+        return { tool_calls: [{ id: '1', name: 'slow', args: '{}' }] };
       }
       return { content: 'Done' };
     };
@@ -705,7 +705,7 @@ describe('createRuntime', () => {
       providerMessages.push(messages.map((message) => `${message.role}:${message.content}`));
       if (callCount === 1) {
         expect(Object.keys(tools)).toEqual(['base', 'plugin']);
-        return { tool_calls: [{ type: 'tool_call', id: '1', tool: 'plugin', args: '{}' }] };
+        return { tool_calls: [{ id: '1', name: 'plugin', args: '{}' }] };
       }
       return { content: messages.at(-1)?.content ?? '' };
     };
@@ -829,7 +829,7 @@ describe('createRuntime', () => {
   it('calls plugin onError hooks when runtime processing fails', async () => {
     const errors: unknown[] = [];
     const provider: LLMProvider = async () => ({
-      tool_calls: [{ type: 'tool_call', id: '1', tool: 'missing', args: '{}' }],
+      tool_calls: [{ id: '1', name: 'missing', args: '{}' }],
     });
     const bus = createBus<CoreEvent>();
     const runtime = createRuntime({ session: newSession(),
@@ -908,7 +908,7 @@ describe('createRuntime', () => {
     const provider: LLMProvider = async () => {
       callCount++;
       if (callCount === 1) {
-        return { tool_calls: [{ type: 'tool_call', id: '1', tool: 'sum', args: '1 2' }] };
+        return { tool_calls: [{ id: '1', name: 'sum', args: '1 2' }] };
       }
       return { content: 'Done' };
     };
@@ -936,12 +936,12 @@ describe('createRuntime', () => {
 
     expect(events).toContainEqual({
       type: 'tool_call',
-      call: { type: 'tool_call', id: '1', tool: 'sum', args: '1 2' },
+      call: { id: '1', name: 'sum', args: '1 2' },
     });
   });
 
   it('does not duplicate tool_call events when a streamed call also appears in done.response', async () => {
-    const call = { type: 'tool_call' as const, id: '1', tool: 'sum', args: '1 2' };
+    const call = { id: '1', name: 'sum', args: '1 2' };
     let callCount = 0;
     const provider: LLMProvider = async () => {
       callCount++;
@@ -987,7 +987,7 @@ describe('createRuntime', () => {
       if (callCount === 1) {
         return {
           content: 'Reading file now',
-          tool_calls: [{ type: 'tool_call', id: '1', tool: 'read', args: '{}' }],
+          tool_calls: [{ id: '1', name: 'read', args: '{}' }],
         };
       }
       return { content: 'Done' };
@@ -1018,7 +1018,7 @@ describe('createRuntime', () => {
     expect(assistantEntries).toHaveLength(1);
     expect(assistantEntries[0].content).toBe('Reading file now');
     expect(assistantEntries[0].tool_calls).toEqual([
-      { type: 'tool_call', id: '1', tool: 'read', args: '{}' },
+      { id: '1', name: 'read', args: '{}' },
     ]);
   });
 
@@ -1084,7 +1084,7 @@ describe('createRuntime', () => {
 
   it('keeps the transcript valid when a tool-call loop is detected', async () => {
     const errors: unknown[] = [];
-    const call = { type: 'tool_call' as const, id: 'loop-1', tool: 'spin', args: '{}' };
+    const call = { id: 'loop-1', name: 'spin', args: '{}' };
     const provider: LLMProvider = async () => ({ tool_calls: [call] });
     const bus = createBus<CoreEvent>();
     const events = collectEvents(bus);

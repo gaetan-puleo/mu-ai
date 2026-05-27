@@ -11,7 +11,7 @@
 
 import { BlockList, isIP, isIPv4, isIPv6 } from 'node:net';
 import { lookup } from 'node:dns/promises';
-import { formatError, parseArgs, type Plugin, type Tool } from 'mu-core';
+import { formatError, type Plugin, type Tool, type ToolContext } from 'mu-core';
 import TurndownService from 'turndown';
 
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -265,7 +265,7 @@ async function readBoundedBuffer(response: Response): Promise<BoundedRead> {
   return { ok: true, buf: buf.buffer };
 }
 
-async function runWebFetch(args: Record<string, unknown>): Promise<string> {
+async function runWebFetch(args: WebFetchArgs, ctx?: ToolContext): Promise<string> {
   const url = typeof args.url === 'string' ? args.url : '';
   if (!url) return formatError('url is required');
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
@@ -275,10 +275,26 @@ async function runWebFetch(args: Record<string, unknown>): Promise<string> {
   const timeoutPick = pickTimeoutMs(args.timeout);
   if (!timeoutPick.ok) return timeoutPick.error;
   const timeoutMs = timeoutPick.ms;
-  // TODO: mu-core's Tool.execute signature doesn't pass an AbortSignal yet — when
-  // it does, combine the executor signal with this timeout via AbortSignal.any().
+  // Combine the per-turn runtime signal (if any) with this tool's own timeout
+  // so either source can cancel the in-flight fetch. Without this, a Ctrl-C
+  // from the host hangs until the timeout fires — the precise failure mode
+  // finding #214 calls out.
   const controller = new AbortController();
   const timerId = setTimeout(() => controller.abort(new Error('Request timed out')), timeoutMs);
+  const hostSignal = ctx?.signal;
+  const onHostAbort = (): void => {
+    const reason = hostSignal?.reason instanceof Error
+      ? hostSignal.reason
+      : new Error(typeof hostSignal?.reason === 'string' ? hostSignal.reason : 'Aborted by runtime');
+    controller.abort(reason);
+  };
+  if (hostSignal) {
+    if (hostSignal.aborted) {
+      onHostAbort();
+    } else {
+      hostSignal.addEventListener('abort', onHostAbort, { once: true });
+    }
+  }
 
   try {
     let currentUrl = url;
@@ -335,10 +351,18 @@ async function runWebFetch(args: Record<string, unknown>): Promise<string> {
     return formatError(`Too many redirects (>${MAX_REDIRECTS}) starting from ${url}`);
   } finally {
     clearTimeout(timerId);
+    hostSignal?.removeEventListener('abort', onHostAbort);
   }
 }
 
-export function createWebFetchTool(): Tool {
+/** Wire shape declared by the JSON schema below; narrowed in `runWebFetch`. */
+interface WebFetchArgs {
+  url?: unknown;
+  /** Seconds (not ms) — the schema is human-facing. */
+  timeout?: unknown;
+}
+
+export function createWebFetchTool(): Tool<WebFetchArgs, string> {
   return {
     name: 'webfetch',
     description: 'Fetch a URL and return it as markdown.',
@@ -358,8 +382,8 @@ export function createWebFetchTool(): Tool {
       required: ['url'],
       additionalProperties: false,
     },
-    execute(args) {
-      return runWebFetch(parseArgs(args));
+    execute(args, ctx) {
+      return runWebFetch(args, ctx);
     },
     onError: formatError,
   };

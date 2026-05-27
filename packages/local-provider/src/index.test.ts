@@ -525,7 +525,7 @@ describe('createLocalProvider', () => {
       baseUrl: 'http://localhost:8080',
       model: 'gemma-4-e2b',
     });
-    type ToolCallEvent = { type: string; id: string; tool: string; args: string };
+    type ToolCallEvent = { id: string; name: string; args: string };
     const result = await provider([], {});
     const events: Array<{ type: string; call?: ToolCallEvent }> = [];
     for await (const event of result as AsyncIterable<{ type: string; call?: ToolCallEvent }>) {
@@ -535,8 +535,8 @@ describe('createLocalProvider', () => {
     const toolEvents = events.filter((e) => e.type === 'tool_call').map((e) => e.call);
     expect(toolEvents).toHaveLength(2);
     expect(toolEvents).toEqual([
-      { type: 'tool_call', id: 'call_a', tool: 'foo', args: '{"x":1}' },
-      { type: 'tool_call', id: 'call_b', tool: 'bar', args: '{"y":2}' },
+      { id: 'call_a', name: 'foo', args: '{"x":1}' },
+      { id: 'call_b', name: 'bar', args: '{"y":2}' },
     ]);
   });
 

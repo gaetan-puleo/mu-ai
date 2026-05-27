@@ -70,7 +70,7 @@ export class SubAgentRunStore {
     if (!run) return;
     switch (event.type) {
       case 'tool_call':
-        run.transcript.push({ kind: 'tool_call', tool: event.call.tool, args: event.call.args });
+        run.transcript.push({ kind: 'tool_call', tool: event.call.name, args: event.call.args });
         run.activity = formatActivityFromToolCall(event.call);
         break;
       case 'tool_result':
@@ -152,5 +152,5 @@ function previewLine(text: string): string {
 
 function formatActivityFromToolCall(call: ToolCall): string {
   const args = call.args.length > 60 ? `${call.args.slice(0, 60)}…` : call.args;
-  return `${call.tool}(${args})`;
+  return `${call.name}(${args})`;
 }
