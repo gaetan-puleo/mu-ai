@@ -82,7 +82,7 @@ export class SubAgentRunStore {
         run.activity = previewLine(event.message.content);
         break;
       case 'reasoning_message':
-        run.transcript.push({ kind: 'reasoning', content: event.message.content });
+        run.transcript.push({ kind: 'reasoning', content: event.content });
         run.activity = 'thinking…';
         break;
       case 'user_message':

@@ -303,9 +303,11 @@ function messageFromEvent(event: CoreEvent): Message | undefined {
     case 'user_message':
     case 'assistant_message':
     case 'tool_result':
-    case 'reasoning_message':
       return event.message;
     default:
+      // `reasoning_message` carries only the reasoning string; it's folded
+      // into the following `assistant_message` (`AssistantMessage.reasoning`)
+      // and therefore not persisted as a standalone transcript entry.
       return undefined;
   }
 }

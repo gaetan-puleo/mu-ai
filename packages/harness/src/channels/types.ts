@@ -1,4 +1,4 @@
-import type { Message, ToolCall } from 'mu-core';
+import type { AssistantMessage, ToolCall, ToolMessage } from 'mu-core';
 
 /**
  * Input event a channel pushes into the harness. The harness decides how
@@ -18,11 +18,11 @@ export type ChannelInEvent =
 export type ChannelOutEvent =
   | { type: 'assistant_start' }
   | { type: 'assistant_delta'; content: string }
-  | { type: 'assistant_message'; message: Message }
+  | { type: 'assistant_message'; message: AssistantMessage }
   | { type: 'reasoning_delta'; content: string }
-  | { type: 'reasoning_message'; message: Message }
+  | { type: 'reasoning_message'; content: string }
   | { type: 'tool_call'; call: ToolCall }
-  | { type: 'tool_result'; message: Message }
+  | { type: 'tool_result'; message: ToolMessage }
   | { type: 'command_result'; ok: boolean; output?: unknown; error?: string }
   | { type: 'session_switched'; sessionId: string }
   | { type: 'error'; error: unknown };

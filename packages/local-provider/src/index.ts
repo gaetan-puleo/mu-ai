@@ -92,37 +92,35 @@ export async function listLocalModels(config: {
 }
 
 function convertMessages(messages: Message[]): ChatCompletionMessageParam[] {
-  return messages
-    .filter((message) => message.role !== 'reasoning')
-    .map((message) => {
-      if (message.role === 'tool') {
-        return {
-          role: 'tool',
-          content: message.content,
-          tool_call_id: message.tool_id ?? '',
-        } as ChatCompletionMessageParam;
-      }
-
-      if (message.role === 'assistant' && message.tool_calls?.length) {
-        return {
-          role: 'assistant',
-          content: message.content || null,
-          tool_calls: message.tool_calls.map((call) => ({
-            id: call.id,
-            type: 'function',
-            function: {
-              name: call.name,
-              arguments: call.args,
-            },
-          })),
-        } as ChatCompletionMessageParam;
-      }
-
+  return messages.map((message) => {
+    if (message.role === 'tool') {
       return {
-        role: message.role,
+        role: 'tool',
         content: message.content,
+        tool_call_id: message.tool_id,
       } as ChatCompletionMessageParam;
-    });
+    }
+
+    if (message.role === 'assistant' && message.tool_calls?.length) {
+      return {
+        role: 'assistant',
+        content: message.content || null,
+        tool_calls: message.tool_calls.map((call) => ({
+          id: call.id,
+          type: 'function',
+          function: {
+            name: call.name,
+            arguments: call.args,
+          },
+        })),
+      } as ChatCompletionMessageParam;
+    }
+
+    return {
+      role: message.role,
+      content: message.content,
+    } as ChatCompletionMessageParam;
+  });
 }
 
 // `Tool.description` is now a `Resolvable<string | undefined>`. The OpenAI
@@ -185,13 +183,14 @@ function aggregateBuckets(messages: Message[], tools: Record<string, Tool>): Map
       push('system', message.content);
     } else if (message.role === 'tool') {
       push('tool_results', message.content);
-    } else if (message.role === 'user' || message.role === 'assistant') {
+    } else if (message.role === 'user') {
+      push('messages', message.content);
+    } else {
+      // assistant — only role left in the union with a payload to bucket.
       push('messages', message.content);
       if (message.tool_calls?.length) {
         push('messages', JSON.stringify(message.tool_calls));
       }
-    } else {
-      push('other', message.content);
     }
   }
 

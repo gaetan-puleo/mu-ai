@@ -3,7 +3,7 @@ import type { Plugin } from './plugin';
 import type { LLMProvider, LLMProviderResult } from './provider';
 import { callTool } from './tools/callTool';
 import type { ToolHooks } from './types/Hook';
-import type { Message } from './types/Message';
+import type { AssistantMessage, Message, ToolMessage } from './types/Message';
 import type { Session } from './types/Session';
 import type {
   LLMResponse,
@@ -25,11 +25,17 @@ export type CoreEvent =
   | { type: 'queue_update'; steering: readonly Message[]; followUp: readonly Message[] }
   | { type: 'assistant_start' }
   | { type: 'assistant_delta'; content: string }
-  | { type: 'assistant_message'; message: Message }
+  | { type: 'assistant_message'; message: AssistantMessage }
   | { type: 'reasoning_delta'; content: string }
-  | { type: 'reasoning_message'; message: Message }
+  /**
+   * Final reasoning text for the current assistant turn. Carries only the
+   * reasoning string — reasoning is folded into the following
+   * `assistant_message` (`AssistantMessage.reasoning`) when the turn lands,
+   * so this event is purely a streaming-UI signal.
+   */
+  | { type: 'reasoning_message'; content: string }
   | { type: 'tool_call'; call: ToolCall }
-  | { type: 'tool_result'; message: Message }
+  | { type: 'tool_result'; message: ToolMessage }
   | { type: 'context_update'; context: LLMResponseContext }
   | { type: 'error'; error: unknown };
 
@@ -208,16 +214,14 @@ export function createRuntime(config: RuntimeConfig): Runtime {
   function finalizeResponse(response: LLMResponse | undefined, toolCalls: ToolCall[] = []): void {
     const reasoning = response?.reasoning?.trim();
     if (reasoning) {
-      const message: Message = { role: 'reasoning', content: reasoning };
-      messages.push(message);
-      bus.publish({ type: 'reasoning_message', message });
+      bus.publish({ type: 'reasoning_message', content: reasoning });
     }
 
     const content = response?.content ?? '';
     if (content || toolCalls.length) {
-      const message: Message = toolCalls.length
-        ? { role: 'assistant', content, tool_calls: toolCalls }
-        : { role: 'assistant', content };
+      const message: AssistantMessage = { role: 'assistant', content };
+      if (toolCalls.length) message.tool_calls = toolCalls;
+      if (reasoning) message.reasoning = reasoning;
       messages.push(message);
       if (content) {
         bus.publish({ type: 'assistant_message', message });
@@ -311,7 +315,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     ctx: ToolContext,
   ): Promise<{ failed: boolean }> {
     let failed = false;
-    const toolMessages = await Promise.all(calls.map(async (call): Promise<Message> => {
+    const toolMessages = await Promise.all(calls.map(async (call): Promise<ToolMessage> => {
       const tool = activeTools[call.name];
       if (!tool) {
         failed = true;
@@ -400,7 +404,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
             // Pair every assistant tool_call with a tool result so the session
             // remains valid for the next provider call.
             for (const call of calls) {
-              const message: Message = {
+              const message: ToolMessage = {
                 role: 'tool',
                 content: `Error: ${error.message}`,
                 tool_id: call.id,

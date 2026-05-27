@@ -1091,7 +1091,7 @@ export class ChatApp {
         break;
       case 'reasoning_message':
         this.transcript.activateNextQueuedUserMessage();
-        this.transcript.appendReasoningMessage(event.message);
+        this.transcript.appendReasoningMessage(event.content);
         this.setStatus('reasoning...');
         break;
       case 'tool_call':

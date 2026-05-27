@@ -130,7 +130,8 @@ function renderEvent(event: ChannelOutEvent, write: Writer, ansi: AnsiHelpers, h
       write(ansi.dim(event.content));
       break;
     case 'reasoning_message':
-      // Already streamed via reasoning_delta in most cases; nothing to add.
+      // Already streamed via reasoning_delta in most cases; the final
+      // `content` string is the trimmed payload — nothing extra to render.
       break;
     case 'tool_call':
       hooks.beforeNonAssistant();

@@ -184,7 +184,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: `id`, `createdAt`, `forkedFrom` should be `readonly`.
 
-**32. `Message` not a discriminated union by role**
+**32. `Message` not a discriminated union by role — DONE**
 - File: `src/types/Message.ts:3-8`
 - Dimension: Types — Severity: P1
 - Detail: `content: string` is required even for tool-result messages. Current shape lets you construct `{ role: 'user', tool_id: 'x' }`.
@@ -233,12 +233,12 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: `steeringQueue` / `followUpQueue` are runtime-only working memory but live on the persisted entity. They round-trip through any serializer.
 - Fix: Move to `Runtime` or `TurnState`.
 
-**41. `Message` has no identity**
+**41. `Message` has no identity — PARTIAL (discriminated by role; id/timestamp/metadata deferred)**
 - File: `src/types/Message.ts`
 - Dimension: Entity — Severity: P1
 - Detail: No id, no timestamp, no provenance. Forking by `Session.forkedFrom.atIndex` is brittle.
 
-**42. `Message` role/payload union is implicit**
+**42. `Message` role/payload union is implicit — DONE**
 - File: `src/types/Message.ts`
 - Dimension: Entity — Severity: P1
 - Detail: `role: 'tool'` requires `tool_id`; `role: 'assistant'` may carry `tool_calls`. Discriminated union would eliminate optional-field soup.

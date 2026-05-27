@@ -173,12 +173,12 @@ describe('createRuntime', () => {
 
     expect(events).toContainEqual({
       type: 'reasoning_message',
-      message: { role: 'reasoning', content: 'Thinking...' },
+      content: 'Thinking...',
     });
 
     expect(events).toContainEqual({
       type: 'assistant_message',
-      message: { role: 'assistant', content: 'The answer is 42' },
+      message: { role: 'assistant', content: 'The answer is 42', reasoning: 'Thinking...' },
     });
   });
 
@@ -211,7 +211,7 @@ describe('createRuntime', () => {
 
     expect(events).toContainEqual({
       type: 'reasoning_message',
-      message: { role: 'reasoning', content: 'Thinking...' },
+      content: 'Thinking...',
     });
   });
 
@@ -1116,7 +1116,7 @@ describe('createRuntime', () => {
     // Every assistant tool_call must be paired with a tool result so the
     // session can be re-sent to a strict provider.
     const last = session.messages[session.messages.length - 1];
-    expect(last.role).toBe('tool');
+    if (last.role !== 'tool') throw new Error(`expected last message to be a tool result, got ${last.role}`);
     expect(last.tool_id).toBe('loop-1');
     expect(last.content).toMatch(/Tool call loop detected/);
 
@@ -1124,6 +1124,7 @@ describe('createRuntime', () => {
       (m) => m.role === 'assistant' && m.tool_calls?.length,
     );
     for (const msg of assistantWithToolCalls) {
+      if (msg.role !== 'assistant') continue;
       for (const tc of msg.tool_calls ?? []) {
         const paired = session.messages.find((m) => m.role === 'tool' && m.tool_id === tc.id);
         expect(paired).toBeDefined();

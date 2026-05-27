@@ -81,15 +81,15 @@ export class Transcript {
     if (pending?.role === 'reasoning') pending.content += content;
   }
 
-  appendReasoningMessage(message: Message): void {
+  appendReasoningMessage(content: string): void {
     if (this.pendingReasoningIndex !== undefined) {
       const pending = this.lines[this.pendingReasoningIndex];
-      if (pending?.role === 'reasoning') pending.content = message.content;
+      if (pending?.role === 'reasoning') pending.content = content;
       this.pendingReasoningIndex = undefined;
       return;
     }
     const insertAt = this.pendingAssistantIndex ?? this.lines.length;
-    this.lines.splice(insertAt, 0, { role: 'reasoning', content: message.content, closed: !this.thinkingVisible });
+    this.lines.splice(insertAt, 0, { role: 'reasoning', content, closed: !this.thinkingVisible });
     if (this.pendingAssistantIndex !== undefined) this.pendingAssistantIndex++;
   }
 

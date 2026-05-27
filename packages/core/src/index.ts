@@ -25,7 +25,13 @@ export type {
   BeforeToolResult,
   ToolHooks,
 } from './types/Hook';
-export type { Message } from './types/Message';
+export type {
+  AssistantMessage,
+  Message,
+  SystemMessage,
+  ToolMessage,
+  UserMessage,
+} from './types/Message';
 export type { Session } from './types/Session';
 export type {
   ContextMap,
