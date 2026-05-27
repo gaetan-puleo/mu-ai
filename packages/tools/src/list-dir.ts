@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Tool } from 'mu-core';
-import { formatError, parseArgs, sanitizePath, validatedCwd } from './utils';
+import { formatError, parseArgs, type Tool } from 'mu-core';
+import { sanitizePath, validatedCwd } from './utils';
 
 interface ListDirToolOptions {
   getCwd: () => string;

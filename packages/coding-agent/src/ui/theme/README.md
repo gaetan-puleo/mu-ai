@@ -8,14 +8,8 @@ tokens, themes, and the `ThemeProvider` that distributes them.
 
 ```
 ui/theme/
-├── palette.ts           # raw color palette (neutral, blue, red, ...)
-├── tokens.ts            # Theme / ThemeColors / ThemeStyles / TextStyle
-├── ansi.ts              # styleToAnsi, fgToAnsi, bgToAnsi, wrapWithStyle
-├── ThemeProvider.ts     # holds the active theme + subscribers
-├── useTheme.ts          # getTheme(ctx) helper
-├── themes/
-│   ├── dark.ts          # default
-│   └── light.ts
+├── theme.ts             # ThemeProvider, getTheme, styleToAnsi, Theme types
+├── themes.ts            # darkTheme, lightTheme, palette
 └── index.ts             # barrel
 ```
 
@@ -58,8 +52,8 @@ palette values, and registering a new toggle.
 
 ## Adding a token
 
-1. Add the role to `ThemeColors` or `ThemeStyles` in `tokens.ts`.
-2. Provide a value in every theme under `themes/`.
+1. Add the role to `ThemeColors` or `ThemeStyles` in `theme.ts`.
+2. Provide a value in every theme defined in `themes.ts`.
 3. Consume it in a component via `getTheme(ctx).colors.<role>` or
    `theme.styles.<role>`.
 
@@ -68,8 +62,8 @@ palette values, and registering a new toggle.
 - **Structured styles** (`{fg?, bg?, bold?, ...}`) instead of pre-rendered
   ANSI strings. `styleToAnsi` is the only place that talks SGR.
 - **Capability-aware downgrade** is not implemented yet. Hex colors are
-  always emitted as 24-bit SGR — see `ansi.ts` for the future hook
-  (`fgToAnsi` / `bgToAnsi` could read `ctx.capabilities.colors`).
+  always emitted as 24-bit SGR (`fgToAnsi` / `bgToAnsi` in `theme.ts`
+  could read `ctx.capabilities.colors`).
 - **Layout backgrounds** (used by the `mu-tui` layout engine to paint
   padding cells) are captured at construction time. Live theme switches
   require components that use a background color to either be rebuilt

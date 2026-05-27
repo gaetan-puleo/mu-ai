@@ -25,21 +25,17 @@ export interface TerminalIdentity {
 
 export interface ScreenCapabilities {
   alternateScreen: Capability<boolean>;
-  synchronizedOutput: Capability<boolean>;
-  cursorShape: Capability<boolean>;
 }
 
 export interface ColorCapabilities {
   ansi16: Capability<boolean>;
   palette256: Capability<boolean>;
   truecolor: Capability<boolean>;
-  underlineColor: Capability<boolean>;
 }
 
 export interface InputCapabilities {
   legacy: Capability<boolean>;
   xtermModifiedKeys: Capability<boolean>;
-  csiU: Capability<boolean>;
   kittyKeyboard: Capability<boolean>;
   bracketedPaste: Capability<boolean>;
   focusEvents: Capability<boolean>;
@@ -48,21 +44,17 @@ export interface InputCapabilities {
 export interface MouseCapabilities {
   sgr: Capability<boolean>;
   drag: Capability<boolean>;
-  motion: Capability<boolean>;
-  pixel: Capability<boolean>;
 }
 
 export interface OscCapabilities {
   title: Capability<boolean>;
   hyperlinks: Capability<boolean>;
-  clipboard: Capability<boolean>;
   shellIntegration: Capability<boolean>;
 }
 
 export interface GraphicsCapabilities {
   unicode: Capability<boolean>;
   kitty: Capability<boolean>;
-  sixel: Capability<boolean>;
   iterm2: Capability<boolean>;
 }
 
@@ -119,19 +111,15 @@ export function createDefaultCapabilities(env: NodeJS.ProcessEnv = process.env):
     },
     screen: {
       alternateScreen: capability(modernTerm, modernTerm ? 'env' : 'default'),
-      synchronizedOutput: capability(false),
-      cursorShape: capability(false),
     },
     colors: {
       ansi16: capability(term !== 'dumb'),
       palette256: capability(term.includes('256color'), term.includes('256color') ? 'env' : 'default'),
       truecolor: capability(truecolor, truecolor ? 'env' : 'default'),
-      underlineColor: capability(false),
     },
     input: {
       legacy: capability(true),
       xtermModifiedKeys: capability(modernTerm, modernTerm ? 'env' : 'default'),
-      csiU: capability(false),
       kittyKeyboard: capability(Boolean(env.KITTY_WINDOW_ID), env.KITTY_WINDOW_ID ? 'env' : 'default'),
       bracketedPaste: capability(modernTerm, modernTerm ? 'env' : 'default'),
       focusEvents: capability(modernTerm, modernTerm ? 'env' : 'default'),
@@ -139,19 +127,15 @@ export function createDefaultCapabilities(env: NodeJS.ProcessEnv = process.env):
     mouse: {
       sgr: capability(modernTerm, modernTerm ? 'env' : 'default'),
       drag: capability(modernTerm, modernTerm ? 'env' : 'default'),
-      motion: capability(false),
-      pixel: capability(false),
     },
     osc: {
       title: capability(modernTerm, modernTerm ? 'env' : 'default'),
       hyperlinks: capability(modernTerm, modernTerm ? 'env' : 'default'),
-      clipboard: capability(false),
       shellIntegration: capability(false),
     },
     graphics: {
       unicode: capability(true),
       kitty: capability(Boolean(env.KITTY_WINDOW_ID), env.KITTY_WINDOW_ID ? 'env' : 'default'),
-      sixel: capability(false),
       iterm2: capability(program === 'iTerm.app', program === 'iTerm.app' ? 'env' : 'default'),
     },
     security: {

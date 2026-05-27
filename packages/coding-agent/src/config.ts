@@ -44,10 +44,6 @@ export function getStatePath(): string {
   return paths.stateFile;
 }
 
-export function getPluginsDir(): string {
-  return paths.pluginsDir;
-}
-
 export function loadConfig(): CodingAgentConfig {
   return loadJson(getConfigPath(), (obj) => {
     const out: CodingAgentConfig = {};

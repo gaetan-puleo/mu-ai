@@ -4,7 +4,6 @@ import { describe, it } from '@std/testing/bdd';
 import {
   borderInsets,
   containsPoint,
-  expandRect,
   intersectRect,
   isEmptyRect,
   normalizeInsets,
@@ -29,13 +28,11 @@ describe('insets', () => {
     });
   });
 
-  it('shrinks and expands rects', () => {
+  it('shrinks rects', () => {
     const rect = { x: 5, y: 5, width: 10, height: 10 };
     const inset = { top: 1, right: 2, bottom: 3, left: 4 };
     const shrunk = shrinkRect(rect, inset);
     expect(shrunk).toEqual({ x: 9, y: 6, width: 4, height: 6 });
-    const expanded = expandRect(shrunk, inset);
-    expect(expanded).toEqual(rect);
   });
 
   it('clamps shrink to non-negative size', () => {

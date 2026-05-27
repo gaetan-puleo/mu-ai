@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import type { Tool } from 'mu-core';
-import { formatError, parseArgs, validatedCwd } from './utils';
+import { formatError, parseArgs, type Tool } from 'mu-core';
+import { validatedCwd } from './utils';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024; // 10 MiB

@@ -439,7 +439,8 @@ describe('ScrollView', () => {
     tui.addChild(root);
     tui.setFocus(input);
 
-    (tui as unknown as { layoutEntries: LayoutEntry[] }).layoutEntries = tui.layoutSnapshot(20, 6);
+    (tui as unknown as { layoutEntries: LayoutEntry[] }).layoutEntries =
+      (tui as unknown as { layoutSnapshot: (w: number, h: number) => LayoutEntry[] }).layoutSnapshot(20, 6);
     tui.handleMouseEvent({
       type: 'mouse',
       kind: 'wheel',

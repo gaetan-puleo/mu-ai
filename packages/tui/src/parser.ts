@@ -87,10 +87,6 @@ export class TerminalInputParser {
     return event ? [event] : [{ type: 'terminalResponse', raw, sequence: 'unknown' }];
   }
 
-  hasPendingEscape(): boolean {
-    return this.buffer === ESC;
-  }
-
   hasPending(): boolean {
     return this.buffer.length > 0;
   }

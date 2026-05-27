@@ -12,8 +12,6 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
-export { formatError, parseArgs } from 'mu-core';
-
 function isInside(child: string, parent: string): boolean {
   if (child === parent) return true;
   const rel = relative(parent, child);

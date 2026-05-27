@@ -20,7 +20,7 @@ export interface Component {
    * Container-only components (Box, Spacer, ScrollView) return an empty array;
    * the layout engine handles their border and recurses into children.
    */
-  render: (ctx: RenderContext) => string[];
+  render: (ctx: RenderContext) => ReadonlyArray<string>;
   /**
    * Handle an input event delivered by the TUI router. Mouse events include
    * `localX` / `localY` (cell offsets into `contentRect`).
@@ -47,24 +47,4 @@ export interface Component {
 /** Components that can be focused and may show a text cursor. */
 export interface Focusable extends Component {
   focused: boolean;
-}
-
-/** Components that manage their own children with arrow-key focus navigation. */
-export interface FocusableNavigation extends Component {
-  focusNext?: () => Component | null;
-  focusPrev?: () => Component | null;
-}
-
-/**
- * Container-like helper — kept for backward compatibility with code that
- * conceptualizes a component as a "container" with focus management. The
- * layout engine now derives container behavior from `children` directly.
- */
-export interface Container extends Component {
-  children: Component[];
-  addChild: (component: Component) => void;
-  removeChild: (component: Component) => void;
-  setFocus: (component: Component | null) => void;
-  getFocused: () => Component | null;
-  navigateFocus?: (direction: 'up' | 'down' | 'left' | 'right') => Component | null;
 }

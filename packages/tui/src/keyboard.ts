@@ -1,8 +1,4 @@
-import type { Buffer } from 'node:buffer';
-import process from 'node:process';
-
 import { type InputEvent, type KeyInputEvent, type Modifiers, type MouseInputEvent, NO_MODIFIERS } from './events';
-import type { MouseEvent } from './types/mouse';
 
 // CSI-u / Kitty-like keyboard event: ESC [ code ; modifiers u, with optional Kitty subfields.
 // deno-lint-ignore no-control-regex
@@ -77,28 +73,6 @@ const SS3_KEY_MAP: Record<string, string> = {
   R: 'f3',
   S: 'f4',
 };
-
-export function eventToMouseEvent(event: InputEvent | null): MouseEvent | null {
-  if (event?.type !== 'mouse') return null;
-
-  const button = event.button === 'wheelUp'
-    ? 'scrollUp'
-    : event.button === 'wheelDown'
-    ? 'scrollDown'
-    : event.button === 'middle' || event.button === 'right' || event.button === 'left'
-    ? event.button
-    : 'left';
-
-  return {
-    x: event.x,
-    y: event.y,
-    button,
-    motion: event.kind === 'move' ? 'motion' : event.kind === 'wheel' ? 'press' : event.kind,
-    shift: event.shift,
-    ctrl: event.ctrl,
-    meta: event.meta,
-  };
-}
 
 export function parseInput(raw: string): InputEvent | null {
   if (raw.length === 0) return null;
@@ -364,43 +338,3 @@ function isControlSequence(raw: string): boolean {
   );
 }
 
-/**
- * Query the terminal for Kitty keyboard protocol support.
- * Sends `\x1b[?u` and waits for `\x1b[?Nu` response.
- */
-export async function probeKittyKeyboard(timeoutMs = 50): Promise<boolean> {
-  if (!(process.stdin.isTTY && process.stdout.isTTY)) {
-    return false;
-  }
-
-  return new Promise<boolean>((resolve) => {
-    const wasRaw = process.stdin.isRaw;
-    process.stdin.setRawMode(true);
-
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let buf = '';
-
-    const finish = (result: boolean): void => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      process.stdin.removeListener('data', onData);
-      if (!wasRaw) process.stdin.setRawMode(false);
-      resolve(result);
-    };
-
-    const onData = (chunk: Buffer) => {
-      buf += chunk.toString();
-      // deno-lint-ignore no-control-regex
-      const match = buf.match(/\x1b\[\?(\d+)u/);
-      if (match) {
-        finish(Number.parseInt(match[1], 10) > 0);
-      }
-    };
-
-    timer = setTimeout(() => finish(false), timeoutMs);
-    process.stdin.on('data', onData);
-    process.stdout.write('\x1b[?u');
-  });
-}

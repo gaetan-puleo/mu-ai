@@ -10,7 +10,10 @@ import type {
   ToolCall,
 } from 'mu-core';
 import OpenAI from 'openai';
+import type { Stream } from 'openai/core/streaming';
 import type {
+  ChatCompletionChunk,
+  ChatCompletionCreateParamsStreaming,
   ChatCompletionMessageParam,
   ChatCompletionTool,
 } from 'openai/resources/chat/completions';
@@ -29,6 +32,14 @@ import type {
   LocalProviderConfig,
 } from './types';
 
+type ToolCallDelta = ChatCompletionChunk.Choice.Delta.ToolCall;
+
+interface ReasoningDelta {
+  reasoning_content?: unknown;
+  reasoning?: unknown;
+  reasoningContent?: unknown;
+}
+
 export type {
   LLMResponseContextProps,
   LLMResponseContextSlot,
@@ -40,10 +51,14 @@ export type {
 
 const DEFAULT_BASE_URL = 'http://localhost:8080';
 const DEFAULT_STREAM_TIMEOUT_MS = 30000;
-let OpenAIClient = OpenAI;
+let testingOpenAIClient: typeof OpenAI | undefined;
 
+/**
+ * @deprecated Pass `openAIClient` on `LocalProviderConfig` instead. The global
+ * setter remains only as a back-compat shim and will be removed.
+ */
 export function setOpenAIClientForTesting(client: typeof OpenAI): void {
-  OpenAIClient = client;
+  testingOpenAIClient = client;
 }
 
 export async function detectLocalBackend(config: {
@@ -261,14 +276,21 @@ const createLocalProvider = (config: LocalProviderConfig): LLMProvider => {
     }
     const model = config.model;
 
-    client ??= new OpenAIClient({
+    const ClientCtor = config.openAIClient ?? testingOpenAIClient ?? OpenAI;
+    client ??= new ClientCtor({
       baseURL: getLlamaSwapOpenAIBaseUrl(backend.baseUrl),
       apiKey: config.apiKey ?? 'local',
     });
     const activeClient = client;
 
     const convertedTools = convertTools(tools);
-    const requestOptions: Record<string, unknown> = {
+    // SDK-typed params plus vendor extras (llama-swap accepts id_slot/cache_prompt
+    // which the SDK doesn't model).
+    type RequestOptions = ChatCompletionCreateParamsStreaming & {
+      id_slot?: number;
+      cache_prompt?: boolean;
+    };
+    const requestOptions: RequestOptions = {
       model,
       messages: convertMessages(messages),
       ...(convertedTools.length > 0 ? { tools: convertedTools } : {}),
@@ -330,13 +352,13 @@ const createLocalProvider = (config: LocalProviderConfig): LLMProvider => {
       }
 
       armIdleTimer();
-      const stream = await activeClient.chat.completions.create(
-        requestOptions as any,
-        { signal: controller.signal } as any,
+      const stream: Stream<ChatCompletionChunk> = await activeClient.chat.completions.create(
+        requestOptions,
+        { signal: controller.signal },
       );
 
       try {
-        for await (const chunk of stream as any) {
+        for await (const chunk of stream) {
           armIdleTimer();
           if (chunk.usage) {
             usage = {
@@ -359,13 +381,7 @@ const createLocalProvider = (config: LocalProviderConfig): LLMProvider => {
             yield { type: 'delta', content: delta };
           }
 
-          const toolCallDeltas = choiceDelta?.tool_calls as
-            | Array<{
-              index?: number;
-              id?: string;
-              function?: { name?: string; arguments?: string };
-            }>
-            | undefined;
+          const toolCallDeltas: ToolCallDelta[] | undefined = choiceDelta?.tool_calls;
           if (toolCallDeltas) {
             for (const tc of toolCallDeltas) {
               // Key by index when present, else by id, else by a synthetic per-stream key.
@@ -457,18 +473,16 @@ const createLocalProvider = (config: LocalProviderConfig): LLMProvider => {
         ? await buildContextMap({ model, messages, tools, usage, backendContext, tokenize })
         : undefined;
 
+      const responseContext: LocalLLMResponseContext | undefined = backendContext || usage
+        ? { ...backendContext, usage, contextMap }
+        : undefined;
+
       yield {
         type: 'done',
         response: {
           content,
           tool_calls: collectedToolCalls.length > 0 ? collectedToolCalls : undefined,
-          context: backendContext || usage
-            ? {
-              ...backendContext,
-              usage,
-              contextMap,
-            } as LocalLLMResponseContext
-            : undefined,
+          context: responseContext,
         },
       };
     }
@@ -477,9 +491,9 @@ const createLocalProvider = (config: LocalProviderConfig): LLMProvider => {
   };
 };
 
-function extractReasoningDelta(delta: unknown): string {
-  if (!delta || typeof delta !== 'object') return '';
-  const record = delta as Record<string, unknown>;
+function extractReasoningDelta(delta: ChatCompletionChunk.Choice.Delta | undefined): string {
+  if (!delta) return '';
+  const record = delta as ReasoningDelta;
   const value = record.reasoning_content ?? record.reasoning ?? record.reasoningContent;
   return typeof value === 'string' ? value : '';
 }

@@ -2,7 +2,7 @@ import { parseFrontmatter } from '../markdown';
 import type { PermissionDecision, PermissionRule } from '../permissions/types';
 import type { SubAgent } from './types';
 
-export interface SubAgentParseInput {
+interface SubAgentParseInput {
   source: string;
   filePath: string;
   /** Used as fallback name when frontmatter has none. */

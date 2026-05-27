@@ -42,11 +42,9 @@ export interface SelectListProps<T = unknown> {
   itemPaddingX?: number;
 }
 
-// Default highlight palette. Precomputed from the canonical dark theme tokens
-// (`commandPaletteItem` / `commandPaletteSelected` / `commandPaletteHover` / `muted`) so that a
-// `SelectList` rendered without a `resolveStyles` callback still matches the
-// look of the rest of the suite. Consumers wanting theme-reactive colors
-// should pass `resolveStyles` (see `coding-agent` ChatApp model picker).
+// Default highlight palette. Precomputed from a canonical dark theme so that a
+// `SelectList` rendered without a `resolveStyles` callback still has reasonable
+// defaults. Consumers wanting theme-reactive colors should pass `resolveStyles`.
 //
 //   item:     fg neutral[100] (#f4f4f5) on bg neutral[900] (#18181b)
 //   selected: fg neutral[0]   (#ffffff) on bg neutral[700] (#3f3f46)

@@ -5,7 +5,7 @@ import { callTool } from './tools/callTool';
 import type { ToolHooks } from './types/Hook';
 import type { Message } from './types/Message';
 import type { Session } from './types/Session';
-import type { LLMResponse, LLMResponseContext, LLMStreamEvent, ToolCall, Tools } from './types/Tool';
+import type { LLMResponse, LLMResponseContext, LLMStreamEvent, Resolvable, ToolCall, Tools } from './types/Tool';
 
 export type RuntimeState = 'idle' | 'running' | 'stopped';
 
@@ -43,7 +43,7 @@ export interface RuntimeConfig {
    * in place — callers can observe progress by reading the same arrays.
    */
   session: Session;
-  systemPrompt?: string | (() => string | undefined | Promise<string | undefined>);
+  systemPrompt?: Resolvable<string>;
   hooks?: ToolHooks;
   /**
    * Breaks the turn when the same `(tool, args)` pair is observed more than
@@ -161,11 +161,6 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     return true;
   }
 
-  function startTurn(message: Message): void {
-    queue.push(message);
-    void processQueue();
-  }
-
   function enqueueSide(sideQueue: Message[], message: Message, queueType: 'steering' | 'follow_up'): void {
     const wasEmpty = sideQueue.length === 0;
     sideQueue.push(message);
@@ -175,13 +170,12 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       sideQueue.shift();
       emitQueueUpdate();
       bus.publish({ type: 'queued_message', queue: queueType, message });
-      startTurn(message);
+      queue.push(message);
+      void processQueue();
     }
   }
 
-  async function resolveSystemPrompt(
-    prompt: string | (() => string | undefined | Promise<string | undefined>) | undefined,
-  ): Promise<string | undefined> {
+  async function resolveSystemPrompt(prompt: Resolvable<string> | undefined): Promise<string | undefined> {
     const value = typeof prompt === 'function' ? await prompt() : prompt;
     const trimmed = value?.trim();
     return trimmed || undefined;
@@ -221,7 +215,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     }
   }
 
-  async function processStream(stream: AsyncIterable<LLMStreamEvent>): Promise<ToolCall[]> {
+  async function consumeResult(result: LLMProviderResult): Promise<ToolCall[]> {
     let content = '';
     let reasoning = '';
     let finalized = false;
@@ -239,48 +233,56 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       }
     };
 
-    for await (const event of stream) {
-      if ((currentState as RuntimeState) === 'stopped') {
-        break;
+    const handleDone = (response: LLMResponse | undefined): void => {
+      const responseCalls = response?.tool_calls ?? [];
+      const hasContent = !!(response?.content ?? content);
+      const hasReasoning = !!(response?.reasoning ?? reasoning);
+      if (hasContent || hasReasoning || responseCalls.length) {
+        ensureStarted();
       }
+      for (const call of responseCalls) {
+        if (!seenCallIds.has(call.id)) {
+          seenCallIds.add(call.id);
+          bus.publish({ type: 'tool_call', call });
+        }
+      }
+      doneCalls = responseCalls.length ? responseCalls : undefined;
+      finalizeResponse({
+        reasoning: response?.reasoning ?? reasoning,
+        content: response?.content ?? content,
+        context: response?.context,
+      }, doneCalls ?? streamedCalls);
+      finalized = true;
+    };
 
-      if (event.type === 'delta') {
-        ensureStarted();
-        content += event.content;
-        bus.publish({ type: 'assistant_delta', content: event.content });
-      } else if (event.type === 'reasoning_delta') {
-        ensureStarted();
-        reasoning += event.content;
-        bus.publish({ type: 'reasoning_delta', content: event.content });
-      } else if (event.type === 'tool_call') {
-        ensureStarted();
-        streamedCalls.push(event.call);
-        seenCallIds.add(event.call.id);
-        bus.publish({ type: 'tool_call', call: event.call });
-      } else if (event.type === 'done') {
-        const responseCalls = event.response?.tool_calls ?? [];
-        const hasContent = !!(event.response?.content ?? content);
-        const hasReasoning = !!(event.response?.reasoning ?? reasoning);
-        if (hasContent || hasReasoning || responseCalls.length) {
+    if (isAsyncIterable(result)) {
+      for await (const event of result) {
+        if (currentState === 'stopped') {
+          break;
+        }
+
+        if (event.type === 'delta') {
           ensureStarted();
+          content += event.content;
+          bus.publish({ type: 'assistant_delta', content: event.content });
+        } else if (event.type === 'reasoning_delta') {
+          ensureStarted();
+          reasoning += event.content;
+          bus.publish({ type: 'reasoning_delta', content: event.content });
+        } else if (event.type === 'tool_call') {
+          ensureStarted();
+          streamedCalls.push(event.call);
+          seenCallIds.add(event.call.id);
+          bus.publish({ type: 'tool_call', call: event.call });
+        } else if (event.type === 'done') {
+          handleDone(event.response);
         }
-        for (const call of responseCalls) {
-          if (!seenCallIds.has(call.id)) {
-            seenCallIds.add(call.id);
-            bus.publish({ type: 'tool_call', call });
-          }
-        }
-        doneCalls = responseCalls.length ? responseCalls : undefined;
-        finalizeResponse({
-          reasoning: event.response?.reasoning ?? reasoning,
-          content: event.response?.content ?? content,
-          context: event.response?.context,
-        }, doneCalls ?? streamedCalls);
-        finalized = true;
       }
+    } else {
+      handleDone(result);
     }
 
-    if (!finalized && (currentState as RuntimeState) !== 'stopped' && (content || streamedCalls.length)) {
+    if (!finalized && currentState !== 'stopped' && (content || streamedCalls.length)) {
       finalizeResponse({ content }, streamedCalls);
     }
 
@@ -289,18 +291,9 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     return doneCalls ?? streamedCalls;
   }
 
-  async function consumeResult(result: LLMProviderResult): Promise<ToolCall[]> {
-    const stream = isAsyncIterable(result)
-      ? result
-      : (async function* (): AsyncIterable<LLMStreamEvent> {
-        yield { type: 'done', response: result };
-      })();
-    return processStream(stream);
-  }
-
   async function executeToolCalls(calls: ToolCall[], activeTools: Tools): Promise<{ failed: boolean }> {
     let failed = false;
-    const executeSingle = async (call: ToolCall): Promise<Message> => {
+    const toolMessages = await Promise.all(calls.map(async (call): Promise<Message> => {
       const tool = activeTools[call.tool];
       if (!tool) {
         failed = true;
@@ -312,9 +305,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
 
       const toolResult = await callTool(tool, call.args, hooks);
       return { role: 'tool', content: toolResult, tool_id: call.id };
-    };
-
-    const toolMessages = await Promise.all(calls.map(executeSingle));
+    }));
     for (const message of toolMessages) {
       messages.push(message);
       bus.publish({ type: 'tool_result', message });
@@ -459,7 +450,8 @@ export function createRuntime(config: RuntimeConfig): Runtime {
             }
 
             if (event.type === 'user_message') {
-              startTurn(event.message);
+              queue.push(event.message);
+              void processQueue();
             }
           });
         } finally {

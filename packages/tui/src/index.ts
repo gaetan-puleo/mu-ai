@@ -23,7 +23,7 @@ export type {
   TextInputEvent,
 } from './events';
 export { type GlobalKeybinding, type KeyChord, keyMatches } from './keybinds';
-export { eventToMouseEvent, parseInput, probeKittyKeyboard } from './keyboard';
+export { parseInput } from './keyboard';
 export type {
   BorderChars,
   BorderStyle,
@@ -41,8 +41,7 @@ export type {
 export { TerminalInputParser } from './parser';
 export { ProcessTerminal } from './terminal';
 export { TUI, type TuiOptions } from './tui';
-export type { Component, Container, Focusable, FocusableNavigation } from './types/component';
-export { isFocusable, isFocusableNavigation } from './types/guards';
-export type { MouseButton, MouseEvent, MouseMotion } from './types/mouse';
+export type { Component, Focusable } from './types/component';
+export { isFocusable } from './types/guards';
 export type { Terminal, TerminalMode } from './types/terminal';
-export { sliceByColumn, stripAnsi, truncateToWidth, visibleWidth, wrapText } from './utils';
+export { truncateToWidth, visibleWidth, wrapText } from './utils';

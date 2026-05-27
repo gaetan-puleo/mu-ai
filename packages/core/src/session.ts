@@ -33,7 +33,7 @@ export interface SessionStore {
   subscribe(listener: (event: SessionStoreEvent) => void): Unsubscribe;
 }
 
-export interface InMemorySessionStoreOptions {
+interface InMemorySessionStoreOptions {
   /** Override id generation (default: `s_${counter}`). */
   idGen?: () => string;
   /** Override timestamp (default: `Date.now()`). Useful for deterministic tests. */

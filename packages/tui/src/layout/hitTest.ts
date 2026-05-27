@@ -29,25 +29,6 @@ export function hitTest(entries: LayoutEntry[], x: number, y: number): LayoutEnt
   return best;
 }
 
-/**
- * Find the top-most entry whose outer `rect` (including border) contains `(x, y)`.
- * Useful for border-area hit testing (e.g. clickable window chrome).
- */
-export function hitTestRect(entries: LayoutEntry[], x: number, y: number): LayoutEntry | null {
-  const lookup = buildLookup(entries);
-  let best: LayoutEntry | null = null;
-
-  for (const entry of entries) {
-    if (!containsPoint(entry.clipRect, x, y)) continue;
-    if (!containsPoint(entry.rect, x, y)) continue;
-    if (best === null || compareHit(entry, best, lookup) > 0) {
-      best = entry;
-    }
-  }
-
-  return best;
-}
-
 function buildLookup(entries: LayoutEntry[]): Map<Component, LayoutEntry> {
   const lookup = new Map<Component, LayoutEntry>();
   for (const entry of entries) lookup.set(entry.component, entry);

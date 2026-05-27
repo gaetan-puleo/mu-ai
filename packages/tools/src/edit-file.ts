@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
-import type { Tool } from 'mu-core';
-import { formatError, looksBinary, parseArgs, sanitizePath, validatedCwd, writeAtomic } from './utils';
+import { formatError, parseArgs, type Tool } from 'mu-core';
+import { looksBinary, sanitizePath, validatedCwd, writeAtomic } from './utils';
 
 interface EditFileToolOptions {
   getCwd: () => string;

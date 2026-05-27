@@ -10,7 +10,6 @@ export {
 } from './runtime';
 export {
   createInMemorySessionStore,
-  type InMemorySessionStoreOptions,
   type SessionInit,
   type SessionStore,
   type SessionStoreEvent,
@@ -35,6 +34,7 @@ export type {
   LLMResponse,
   LLMResponseContext,
   LLMStreamEvent,
+  Resolvable,
   Tool,
   ToolCall,
   Tools,

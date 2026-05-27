@@ -2,7 +2,7 @@ import { expect } from '@std/expect';
 import { describe, it } from '@std/testing/bdd';
 
 import type { Component } from '../types/component';
-import { hitTest, hitTestRect } from './hitTest';
+import { hitTest } from './hitTest';
 import type { LayoutEntry, Rect } from './types';
 
 const c = (label: string): Component => ({ render: () => [label] });
@@ -54,20 +54,6 @@ describe('hitTest', () => {
     };
     expect(hitTest([clipped], 5, 5)?.component).toBe(clipped.component);
     expect(hitTest([clipped], 20, 20)).toBeNull();
-  });
-
-  it('hitTestRect uses outer rect including border', () => {
-    const e: LayoutEntry = {
-      component: c('chrome'),
-      rect: { x: 0, y: 0, width: 10, height: 5 },
-      contentRect: { x: 1, y: 1, width: 8, height: 3 },
-      clipRect: wholeScreen,
-      zIndex: 0,
-      depth: 0,
-      order: 0,
-    };
-    expect(hitTestRect([e], 0, 0)?.component).toBe(e.component);
-    expect(hitTest([e], 0, 0)).toBeNull();
   });
 
   it('descendant wins over its ancestor regardless of zIndex', () => {

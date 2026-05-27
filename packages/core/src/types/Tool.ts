@@ -1,8 +1,14 @@
+/**
+ * A value of `T`, or a (sync/async) function that yields `T` (or `undefined`).
+ * Lets hosts pass static strings or lazy callbacks interchangeably.
+ */
+export type Resolvable<T> = T | (() => T | undefined | Promise<T | undefined>);
+
 export interface Tool {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
-  systemPrompt?: string | (() => string | undefined | Promise<string | undefined>);
+  systemPrompt?: Resolvable<string>;
   execute: (args: string) => string | Promise<string>;
   onError: (error: unknown) => string;
 }

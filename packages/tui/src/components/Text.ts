@@ -35,10 +35,6 @@ export class Text implements Component {
     this._text = value;
   }
 
-  setWrap(wrap: boolean): void {
-    this._wrap = wrap;
-  }
-
   render(ctx: RenderContext): string[] {
     const { width, height } = ctx.contentRect;
     if (width <= 0 || height <= 0) return [];

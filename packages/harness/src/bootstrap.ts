@@ -3,12 +3,10 @@
  *
  * Both arya and coding-agent (and any future host) need the same wiring:
  *   - resolve XDG paths
- *   - load .env
  *   - load plugins from disk + npm
  *   - load skills, sub-agents, permissions
  *   - build a sessions store (jsonl by default, in-memory if asked)
  *   - build an approval queue
- *   - register default slash commands
  *   - build the permission hook (per-primary-agent or from a permissions file)
  *   - build the tools (base + subagent dispatcher)
  *   - assemble the system prompt (primary agent body + skills block)
@@ -29,13 +27,6 @@ import {
   type Tools,
 } from 'mu-core';
 import { type ApprovalQueue, approvalQueueToPrompt, createApprovalQueue } from './approvals/queue';
-import {
-  type AgentsCommandDeps,
-  createAgentsCommand,
-  createHelpCommand,
-  createSessionsCommand,
-} from './commands/defaults';
-import { type CommandRegistry, createCommandRegistry } from './commands/registry';
 import { createXdgPaths, type XdgPaths } from './paths/xdg';
 import { createPermissionHook } from './permissions/hook';
 import { loadPermissions } from './permissions/loader';
@@ -81,18 +72,14 @@ export interface BootstrapOptions {
   defaultPermissionDecision?: 'allow' | 'deny' | 'ask';
   /** Choose session storage. `jsonl` writes to `<dataDir>/sessions`. */
   sessionStore?: SessionStoreMode | SessionStore;
-  /** Reuse an existing approval queue (so the transport can listen to it). */
-  approvalQueue?: ApprovalQueue;
-  /** Inject extra commands beyond the defaults. */
-  extraCommands?: ReturnType<CommandRegistry['list']>;
-  /** Skip default commands (`/agents`, `/sessions`, `/help`). Useful when the host wants total control. */
-  skipDefaultCommands?: boolean;
-  /** Reuse an existing event bus instead of creating one. */
-  bus?: EventBus<CoreEvent>;
   /**
    * When provided, hooks + systemPrompt + tool filtering are dynamic: each turn
    * reads from this getter so the host can swap primary agents at runtime.
    * Use the returned `primaryAgents` to know which agents are switchable.
+   *
+   * Note: the static path (no `getActivePrimary`) is used by hosts that swap
+   * permissions/system-prompt at construction time rather than per turn (e.g.
+   * arya, which manages a single primary across the WS lifetime).
    */
   getActivePrimary?: () => SubAgent | undefined;
 }
@@ -157,7 +144,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   }
 
   // 5. Approval queue + permission hook
-  const approvalQueue = opts.approvalQueue ?? createApprovalQueue();
+  const approvalQueue = createApprovalQueue();
   // Static path: one frozen registry from boot-time config.
   // Dynamic path: rebuild the registry per call so swapping the active primary
   // immediately changes which rules apply to the next tool call.
@@ -193,7 +180,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
     : createJsonlSessionStore(paths.sessionsDir);
 
   // 7. Bus
-  const bus = opts.bus ?? createBus<CoreEvent>();
+  const bus = createBus<CoreEvent>();
 
   // 8. Plugins
   const plugins: Plugin[] = [
@@ -237,18 +224,6 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   const toolFilter: ((tools: Tools) => Tools) | undefined = dynamic
     ? (merged) => filterToolsByPrimary(merged, resolveActivePrimary())
     : undefined;
-
-  // 11. Commands
-  const commandRegistry = createCommandRegistry();
-  if (!opts.skipDefaultCommands) {
-    const agentsDeps: AgentsCommandDeps = { getSubAgents: () => subAgents };
-    commandRegistry.register(createAgentsCommand(agentsDeps));
-    commandRegistry.register(createSessionsCommand({ store }));
-    commandRegistry.register(createHelpCommand({ list: () => commandRegistry.list() }));
-  }
-  for (const cmd of opts.extraCommands ?? []) {
-    commandRegistry.register(cmd);
-  }
 
   return {
     bus,

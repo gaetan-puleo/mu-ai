@@ -1,4 +1,5 @@
 import type { LLMResponseContext } from 'mu-core';
+import type OpenAI from 'openai';
 
 export interface LLMResponseContextSlot {
   id: number;
@@ -48,4 +49,9 @@ export interface LocalProviderConfig {
    * cancel the in-flight stream.
    */
   getAbortSignal?: () => AbortSignal | undefined;
+  /**
+   * Optional OpenAI client constructor. Defaults to the SDK's `OpenAI`. Provided
+   * primarily for tests that need to substitute a mock client.
+   */
+  openAIClient?: typeof OpenAI;
 }

@@ -11,7 +11,6 @@ export interface KeyChord {
 export interface GlobalKeybinding {
   chord: KeyChord;
   handler: () => void;
-  confirm?: boolean;
 }
 
 export function keyMatches(chord: KeyChord, event: InputEvent): boolean {

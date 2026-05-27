@@ -61,7 +61,7 @@ function walkTree(root: string, prefix: string, depth: number, result: Array<{ p
 let cachedCwd = '';
 let cachedTree: Array<{ path: string; isDir: boolean }> = [];
 
-export function getProjectTree(cwd: string): Array<{ path: string; isDir: boolean }> {
+function getProjectTree(cwd: string): Array<{ path: string; isDir: boolean }> {
   if (cachedCwd === cwd && cachedTree.length > 0) return cachedTree;
   cachedCwd = cwd;
   cachedTree = [];

@@ -158,14 +158,16 @@ function decodeWithCharset(buf: ArrayBuffer, label: string | undefined): string 
   return new TextDecoder('utf-8').decode(buf);
 }
 
+const TURNDOWN_OPTIONS: TurndownService.Options = {
+  headingStyle: 'atx',
+  hr: '---',
+  bulletListMarker: '-',
+  codeBlockStyle: 'fenced',
+  emDelimiter: '*',
+};
+
 function convertHtmlToMarkdown(html: string): string {
-  const td = new TurndownService({
-    headingStyle: 'atx',
-    hr: '---',
-    bulletListMarker: '-',
-    codeBlockStyle: 'fenced',
-    emDelimiter: '*',
-  });
+  const td = new TurndownService(TURNDOWN_OPTIONS);
   td.remove(['script', 'style', 'meta', 'link']);
   try {
     return td.turndown(html);
@@ -285,7 +287,7 @@ async function runWebFetch(args: Record<string, unknown>): Promise<string> {
       if (!safe.ok) return safe.error;
 
       const attempt = await fetchWithCloudflareRetry(currentUrl, controller.signal, timeoutMs);
-      if ('error' in attempt) return attempt.error;
+      if (!attempt.ok) return attempt.error;
       const { response } = attempt;
 
       if (isRedirect(response.status)) {
@@ -312,7 +314,7 @@ async function runWebFetch(args: Record<string, unknown>): Promise<string> {
       }
 
       const bounded = await readBoundedBuffer(response);
-      if ('error' in bounded) return bounded.error;
+      if (!bounded.ok) return bounded.error;
       const { buf } = bounded;
 
       const contentType = response.headers.get('content-type') ?? '';

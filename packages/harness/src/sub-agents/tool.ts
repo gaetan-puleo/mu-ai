@@ -40,7 +40,11 @@ export function createSubAgentTool(deps: SubAgentToolDeps): Tool {
       additionalProperties: false,
     },
     execute: async (rawArgs) => {
-      const { agent: agentName, task } = parseArgs(rawArgs);
+      const parsed = parseArgs(rawArgs);
+      if (!parsed.ok) {
+        return `Error: subagent could not parse arguments (${parsed.reason}).`;
+      }
+      const { agent: agentName, task } = parsed.value;
       if (!(agentName && task)) {
         return 'Error: subagent requires both `agent` and `task`.';
       }
@@ -98,7 +102,11 @@ export function createSubAgentParallelTool(deps: SubAgentToolDeps): Tool {
       additionalProperties: false,
     },
     execute: async (rawArgs) => {
-      const { runs } = parseParallelArgs(rawArgs);
+      const parsed = parseParallelArgs(rawArgs);
+      if (!parsed.ok) {
+        return `Error: subagent_parallel could not parse arguments (${parsed.reason}).`;
+      }
+      const { runs } = parsed.value;
       if (runs.length === 0) {
         return 'Error: subagent_parallel requires at least one run.';
       }
@@ -146,33 +154,42 @@ export function createSubAgentParallelTool(deps: SubAgentToolDeps): Tool {
   };
 }
 
-function parseArgs(raw: string): { agent: string; task: string } {
+type ParseResult<T> = { ok: true; value: T } | { ok: false; reason: string };
+
+function parseArgs(raw: string): ParseResult<{ agent: string; task: string }> {
+  let obj: { agent?: unknown; task?: unknown };
   try {
-    const obj = JSON.parse(raw) as { agent?: unknown; task?: unknown };
-    return {
+    obj = JSON.parse(raw) as { agent?: unknown; task?: unknown };
+  } catch (err) {
+    return { ok: false, reason: `invalid JSON: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  return {
+    ok: true,
+    value: {
       agent: typeof obj.agent === 'string' ? obj.agent : '',
       task: typeof obj.task === 'string' ? obj.task : '',
-    };
-  } catch {
-    return { agent: '', task: '' };
-  }
+    },
+  };
 }
 
-function parseParallelArgs(raw: string): { runs: Array<{ agent: string; task: string }> } {
+function parseParallelArgs(
+  raw: string,
+): ParseResult<{ runs: Array<{ agent: string; task: string }> }> {
+  let obj: { runs?: unknown };
   try {
-    const obj = JSON.parse(raw) as { runs?: unknown };
-    if (!Array.isArray(obj.runs)) return { runs: [] };
-    const runs = obj.runs.map((r) => {
-      const item = r as { agent?: unknown; task?: unknown };
-      return {
-        agent: typeof item.agent === 'string' ? item.agent : '',
-        task: typeof item.task === 'string' ? item.task : '',
-      };
-    });
-    return { runs };
-  } catch {
-    return { runs: [] };
+    obj = JSON.parse(raw) as { runs?: unknown };
+  } catch (err) {
+    return { ok: false, reason: `invalid JSON: ${err instanceof Error ? err.message : String(err)}` };
   }
+  if (!Array.isArray(obj.runs)) return { ok: false, reason: 'missing or non-array `runs`' };
+  const runs = obj.runs.map((r) => {
+    const item = r as { agent?: unknown; task?: unknown };
+    return {
+      agent: typeof item.agent === 'string' ? item.agent : '',
+      task: typeof item.task === 'string' ? item.task : '',
+    };
+  });
+  return { ok: true, value: { runs } };
 }
 
 /**

@@ -26,8 +26,6 @@ export interface AgentRuntime {
   currentSession: () => Session;
   /** Reflects the current model — always in sync with `setModel()`. */
   readonly model: string;
-  models: Model[];
-  plugins: Plugin[];
   /**
    * Build a fresh runtime, replacing the current one.
    *  - omit `sessionId` → creates a brand new session in the store.
@@ -50,7 +48,6 @@ export interface AgentRuntimeConfig {
   /** Forwarded to the core runtime. Filters the merged tool map per-turn. */
   toolFilter?: (tools: Tools) => Tools;
   model?: string;
-  models?: Model[];
   listModels?: () => Promise<Model[]>;
   onModelChange?: (model: string) => void;
   /** Provide an existing store to share sessions across components. Defaults to a fresh in-memory store. */
@@ -60,8 +57,8 @@ export interface AgentRuntimeConfig {
 }
 
 export function createAgentRuntime(config: AgentRuntimeConfig): AgentRuntime {
-  const { plugins = [], models: initialModels = [] } = config;
-  let currentModel = config.model ?? initialModels[0]?.id ?? '';
+  const plugins = config.plugins ?? [];
+  let currentModel = config.model ?? '';
 
   const bus = config.bus ?? createBus<CoreEvent>();
   const store = config.store ?? createInMemorySessionStore();
@@ -91,7 +88,7 @@ export function createAgentRuntime(config: AgentRuntimeConfig): AgentRuntime {
   };
   const runtime = buildRuntime(activeSession);
 
-  const listModels = config.listModels ?? (async () => initialModels);
+  const listModels = config.listModels ?? (async () => []);
 
   return {
     bus,
@@ -101,8 +98,6 @@ export function createAgentRuntime(config: AgentRuntimeConfig): AgentRuntime {
     get model() {
       return currentModel;
     },
-    models: initialModels,
-    plugins,
     createRuntime,
     listModels,
     setModel: (nextModel: string) => {

@@ -12,11 +12,8 @@ import {
   createLocalProviderPlugin,
   detectLocalBackend,
   listLocalModels,
-  setOpenAIClientForTesting,
 } from './index';
 import type { LocalProviderConfig } from './index';
-
-const createLocalProvider = (config: LocalProviderConfig): LLMProvider => createLocalProviderPlugin(config).provider!;
 
 let currentChatImpl: ((options: unknown) => unknown) | undefined;
 const mockCreateChatCompletion = fn((options: unknown) => currentChatImpl?.(options));
@@ -29,7 +26,8 @@ class MockOpenAI {
   };
 }
 
-setOpenAIClientForTesting(MockOpenAI as never);
+const createLocalProvider = (config: LocalProviderConfig): LLMProvider =>
+  createLocalProviderPlugin({ openAIClient: MockOpenAI as never, ...config }).provider!;
 
 const MOCK_MODELS_RESPONSE = {
   data: [

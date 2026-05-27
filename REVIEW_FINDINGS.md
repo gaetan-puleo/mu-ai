@@ -179,7 +179,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P1
 - Detail: Locks the entire pipeline into JSON-string passing.
 
-**31. No `readonly` on Session identity fields**
+**31. No `readonly` on Session identity fields — DONE**
 - File: `src/types/Session.ts:8-18`
 - Dimension: Types — Severity: P2
 - Detail: `id`, `createdAt`, `forkedFrom` should be `readonly`.
@@ -194,7 +194,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: `queue_update.steering`/`followUp` should be `readonly Message[]` to signal "snapshot, don't mutate".
 
-**34. `as RuntimeState` casts**
+**34. `as RuntimeState` casts — DONE**
 - File: `src/runtime.ts:252, 348`
 - Dimension: Types — Severity: P2
 - Detail: Workaround for TS not re-widening a closure-captured `let`. Casts hide that compiler can no longer help.
@@ -214,7 +214,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: `deleted` only carries `sessionId`, the others carry the full `Session`. Inconsistent.
 
-**38. `Resolvable<T>` pattern duplicated**
+**38. `Resolvable<T>` pattern duplicated — DONE**
 - File: `src/types/Tool.ts:5`, `src/runtime.ts:49`
 - Dimension: Types — Severity: P2
 - Detail: 3-arm functor type `string | (() => string | undefined | Promise<string | undefined>)` duplicated verbatim.
@@ -294,7 +294,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P1
 - Detail: No producer sets them, no consumer reads them.
 
-**53. `InMemorySessionStoreOptions` over-exposed**
+**53. `InMemorySessionStoreOptions` over-exposed — DONE**
 - File: `src/session.ts:36-41`
 - Dimension: Simplification — Severity: P2
 - Detail: Only used by `session.test.ts`. Exporting interface for one test is over-engineering.
@@ -309,7 +309,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: `BeforeToolHook` / `AfterToolHook` aliases redundant with `ToolHooks` shape.
 
-**56. `consumeResult` IIFE-generator wrap**
+**56. `consumeResult` IIFE-generator wrap — DONE**
 - File: `src/runtime.ts:293-300`
 - Dimension: Simplification — Severity: P2
 - Detail: Wraps non-stream result in a `done`-only async generator. Handle inline; avoids 5-line wrapper + `isAsyncIterable` predicate.
@@ -319,7 +319,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: Local-provider only does one or the other per turn.
 
-**58. Inlinable helpers**
+**58. Inlinable helpers — DONE**
 - File: `src/runtime.ts:302-311, 182-185, 144-151, 134-142`
 - Dimension: Simplification — Severity: P2
 - Detail: `executeSingle`, `startTurn`, `callLifecycleHook`, `callOnError` all inlinable.
@@ -396,7 +396,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: P1
 - Detail: `tui.ts` uses `cellbuffer.ts`; `canvas.ts` isn't imported anywhere outside its own tests — dead path that doubles the "what's the renderer" question.
 
-**71. `Container` interface dead**
+**71. `Container` interface dead — DONE**
 - File: `src/types/component.ts:63`
 - Dimension: Architecture — Severity: P2
 - Detail: `TUI.addChild` etc. duplicates it. Comment admits "kept for backward compatibility"; nothing implements it.
@@ -458,7 +458,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Responsibilities — Severity: P1
 - Detail: Rich and correct in intent but internal and severely outdated.
 
-**83. Doc-comment reference to ChatApp**
+**83. Doc-comment reference to ChatApp — DONE**
 - File: `src/components/SelectList.ts:34, 49`
 - Dimension: Responsibilities — Severity: P2
 - Detail: Mentions "coding-agent ChatApp model picker" as integration example — harmless wording, not coupling, but worth removing.
@@ -490,7 +490,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: `focused: boolean` is the sole discriminant. Any component with an unrelated `focused` field will be treated as focusable.
 
-**89. `Container` legacy + unparameterized**
+**89. `Container` legacy + unparameterized — DONE**
 - File: `src/types/component.ts:63-70`
 - Dimension: Types — Severity: P2
 - Detail: `addChild`/`removeChild` take `Component` but no type narrowing.
@@ -515,12 +515,12 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: `(terminal as { capabilities?: Capabilities })` ad-hoc.
 
-**94. `Component.render` returns mutable array**
+**94. `Component.render` returns mutable array — DONE**
 - File: `src/types/component.ts:23`
 - Dimension: Types — Severity: P2
 - Detail: `string[]` should be `ReadonlyArray<string>`. `render.ts:67` does defensive `slice`.
 
-**95. `Capabilities` fully mutable**
+**95. `Capabilities` fully mutable — DONE**
 - File: `src/capabilities.ts:78-87`
 - Dimension: Types — Severity: P2
 - Detail: `TUI.getCapabilities()` hands the live reference back.
@@ -594,27 +594,27 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P1
 - Detail: `TuiFeature`, `FeatureContext`, `RuntimeEnv`, `createRuntimeEnv`, `TUI.features`, `setupFeatures`, `cleanupFeatures`, etc. No registrations exist.
 
-**109. `drain.ts` collapsible**
+**109. `drain.ts` collapsible — DONE**
 - File: `src/drain.ts`
 - Dimension: Simplification — Severity: P2
 - Detail: Only one caller, inside the same package. Collapse into `terminal.ts`.
 
-**110. `probeKittyKeyboard` unused externally**
+**110. `probeKittyKeyboard` unused externally — DONE**
 - File: `src/keyboard.ts:371-406`
 - Dimension: Simplification — Severity: P2
 - Detail: Exported but never used externally; capability detection in `capabilities.ts` already infers Kitty.
 
-**111. `eventToMouseEvent` zero callers**
+**111. `eventToMouseEvent` zero callers — DONE**
 - File: `src/keyboard.ts:81-100`
 - Dimension: Simplification — Severity: P2
 - Detail: Converts `MouseInputEvent` to a parallel `MouseEvent` type.
 
-**112. `types/mouse.ts` parallel dead system**
+**112. `types/mouse.ts` parallel dead system — DONE**
 - File: `src/types/mouse.ts:1-16`
 - Dimension: Simplification — Severity: P1
 - Detail: `MouseButton`, `MouseMotion`, `MouseEvent` — duplicating `events.ts` `MouseInputEvent`. No external consumer.
 
-**113. `FocusableNavigation`, `Container`, `isFocusableNavigation` dead**
+**113. `FocusableNavigation`, `Container`, `isFocusableNavigation` dead — DONE**
 - File: `src/types/component.ts:53-70`, `src/types/guards.ts:7-9`, `src/tui.ts:191-199`
 - Dimension: Simplification — Severity: P1
 - Detail: Container explicitly "kept for backward compatibility"; FocusableNavigation has no implementer.
@@ -624,51 +624,51 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P1
 - Detail: Not imported by any consumer (verified across repo).
 
-**115. Confirm-chord logic dead**
+**115. Confirm-chord logic dead — DONE**
 - File: `src/keybinds.ts`, `src/tui.ts:71,464-485`
 - Dimension: Simplification — Severity: P2
 - Detail: `confirm: true` is never set; only plain handlers registered.
 
-**116. `hasPendingEscape` unused**
+**116. `hasPendingEscape` unused — DONE**
 - File: `src/parser.ts:82-84`
 - Dimension: Simplification — Severity: P2
 - Detail: No callers.
 
-**117. Most `TUI` API never called externally**
+**117. Most `TUI` API never called externally — DONE**
 - File: `src/tui.ts:81,99-101,103-105,117-119,133-135,166-168,175-181,277-283,293-299,301-305,308-311,313-316`
 - Dimension: Simplification — Severity: P1
 - Detail: `getCapabilities`, `updateCapabilities`, `getUserContext`, `getBackgroundColor`, `addRawInputListener`, `addInputListener`, `getFocusableComponents`, `layoutSnapshot`, `getLayoutEntries`, `invalidate`, `onDebug` — all unused.
 
-**118. Many `TuiOptions` knobs never varied**
+**118. Many `TuiOptions` knobs never varied — DONE**
 - File: `src/tui.ts`
 - Dimension: Simplification — Severity: P2
 - Detail: `synchronizedOutput`, `escapeTimeoutMs`, `maxInputBufferBytes`, `maxPasteBytes`, etc. — all defaults.
 
-**119. `Text.setWrap()` unused**
+**119. `Text.setWrap()` unused — DONE**
 - File: `src/components/Text.ts:38-40`
 - Dimension: Simplification — Severity: P2
 - Detail: No callers.
 
-**120. `sliceByColumn`, `stripAnsi` only used by dead canvas**
+**120. `sliceByColumn`, `stripAnsi` only used by dead canvas — DONE**
 - File: `src/utils.ts`
 - Dimension: Simplification — Severity: P2
 - Detail: Drop from `index.ts` exports if canvas goes.
 
-**121. Many capability flags always false**
+**121. Many capability flags always false — DONE**
 - File: `src/capabilities.ts`
 - Dimension: Simplification — Severity: P2
 - Detail: `screen.synchronizedOutput`, `screen.cursorShape`, `colors.underlineColor`, `input.csiU`, `mouse.motion`, `mouse.pixel`, `graphics.sixel`, `osc.clipboard` — nothing flips them.
 
-**122. `expandRect`, `hitTestRect` only used by own tests**
+**122. `expandRect`, `hitTestRect` only used by own tests — DONE**
 - File: `src/layout/insets.ts:43-50`, `src/layout/hitTest.ts:36-49`
 - Dimension: Simplification — Severity: P2
 
-**123. `LAYOUT_PLAN.md`, `CONTEXT.md` stale planning docs**
+**123. `LAYOUT_PLAN.md`, `CONTEXT.md` stale planning docs — DONE**
 - File: package root
 - Dimension: Simplification — Severity: P2
 - Detail: 16KB + 10KB. Should be deleted or completely rewritten.
 
-**124. `npm/` directory committed**
+**124. `npm/` directory committed — DONE**
 - File: `packages/tui/npm/`, `packages/coding-agent/npm/script/coding-agent/npm/src/tui/...`
 - Dimension: Simplification — Severity: P2
 - Detail: Generated artifacts shouldn't be committed; duplicated tree.
@@ -789,7 +789,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Responsibilities — Severity: (info)
 - Detail: Five tools share single organizing concept: "things an agent does to host's local environment, sandboxed to one cwd." Don't split.
 
-**146. `formatError`/`parseArgs` re-export blurs ownership**
+**146. `formatError`/`parseArgs` re-export blurs ownership — DONE**
 - File: `src/utils.ts:3`
 - Dimension: Responsibilities — Severity: P2
 - Detail: Re-exports from `mu-core`. Could drop re-export and have call sites import directly.
@@ -826,12 +826,12 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: No allowlist, no per-tool override, no glob — can't express "bash allowed but only `git *`" or "read allowed outside cwd, write restricted".
 
-**153. `MuToolName` hand-maintained, 3 places to align**
+**153. `MuToolName` hand-maintained, 3 places to align — DONE**
 - File: `src/index.ts:17`
 - Dimension: Types — Severity: P2
 - Detail: String literal union separate from switch at lines 39-43 and from `name: 'read'` strings inside each factory.
 
-**154. `*ToolOptions` interfaces file-local**
+**154. `*ToolOptions` interfaces file-local — DONE**
 - File: `src/read-file.ts:5`, `src/bash.ts:62`, etc.
 - Dimension: Types — Severity: P2
 - Detail: Consumers can't reference shapes when building wrappers.
@@ -984,7 +984,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: P2
 - Detail: `LocalLLMResponseContext` embeds llama-swap slot/props concepts.
 
-**182. Test-only mutation global**
+**182. Test-only mutation global — DONE**
 - File: `src/index.ts:46`
 - Dimension: Architecture — Severity: P2
 - Detail: `setOpenAIClientForTesting` module-level mutable hook. DI parameter cleaner.
@@ -1018,32 +1018,32 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Types
 
-**188. `as any` on chat.completions.create**
+**188. `as any` on chat.completions.create — DONE**
 - File: `src/index.ts:308`
 - Dimension: Types — Severity: P1
 - Detail: `requestOptions: Record<string, unknown>` (line 281) so cast masks hand-rolled request shape.
 
-**189. `as any` on stream iteration**
+**189. `as any` on stream iteration — DONE**
 - File: `src/index.ts:310`
 - Dimension: Types — Severity: P1
 - Detail: `for await (const chunk of stream as any)`. Should be `Stream<ChatCompletionChunk>`.
 
-**190. Tool-call delta inline anonymous type**
+**190. Tool-call delta inline anonymous type — DONE**
 - File: `src/index.ts:332-338`
 - Dimension: Types — Severity: P2
 - Detail: Duplicates `ChatCompletionChunk.Choice.Delta.ToolCall` from SDK.
 
-**191. Redundant cast on response context**
+**191. Redundant cast on response context — DONE**
 - File: `src/index.ts:412`
 - Dimension: Types — Severity: P2
 - Detail: Shape constructible without cast.
 
-**192. `extractReasoningDelta(delta: unknown)` defensive**
+**192. `extractReasoningDelta(delta: unknown)` defensive — DONE**
 - File: `src/index.ts:422-427`
 - Dimension: Types — Severity: P2
 - Detail: 3-way fallback deserves a named `ReasoningDelta` type.
 
-**193. `response.json()` implicit any**
+**193. `response.json()` implicit any — DONE**
 - File: `src/backends/llama-swap.ts:29, 79, 102, 214`
 - Dimension: Types — Severity: P1
 - Detail: Every fetch site returns implicit `any`. No named DTOs.
@@ -1256,7 +1256,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P1
 - Detail: `HTMLRewriter`, `rewriter: any`, `element(el: any)`, `text(t: any)`.
 
-**233. Turndown options inline**
+**233. Turndown options inline — DONE**
 - File: `src/plugin.ts:67`
 - Dimension: Types — Severity: P2
 - Detail: Buried in function body; not lifted to typed constant.
@@ -1266,7 +1266,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P1
 - Detail: `renderBody` returns `Promise<string>` for image/markdown/text/html alike. No discriminated output.
 
-**235. `'error' in attempt` instead of `!attempt.ok`**
+**235. `'error' in attempt` instead of `!attempt.ok` — DONE**
 - File: `src/plugin.ts:229, 236`
 - Dimension: Types — Severity: P2
 - Detail: Discriminant exists; use it.
@@ -1706,7 +1706,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Architecture
 
-**318. 11 subfolders; many with no in-repo consumer**
+**318. 11 subfolders; many with no in-repo consumer — DONE**
 - File: `src/`
 - Dimension: Architecture — Severity: P1
 - Detail: `channels/`, `mentions/`, `scheduler/`, `roundtrips.ts` have zero consumers outside the harness package.
@@ -1799,7 +1799,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P1
 - Detail: Should be `ApprovalRequestId` (branded).
 
-**335. `parseArgs` silent fallback**
+**335. `parseArgs` silent fallback — DONE**
 - File: `src/sub-agents/tool.ts:42, 149, 161`
 - Dimension: Types — Severity: P2
 - Detail: Falls back to `{ agent: '', task: '' }` on JSON.parse failure.
@@ -1989,7 +1989,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P1
 - Detail: `hostName`, `paths`, `hostConfig`, `envResult`, `permissionConfig`, `commandRegistry`, `skills` never read.
 
-**372. Bootstrap dead options**
+**372. Bootstrap dead options — DONE**
 - File: `src/bootstrap.ts`
 - Dimension: Simplification — Severity: P2
 - Detail: `permissionSource`, `extraCommands`, `skipDefaultCommands`, `paths` override, `extraPermissionsFiles`, `extraPluginsDirs`.
@@ -2014,7 +2014,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: `parseFrontmatter`, `parseSkill`, `loadSkills`, etc. — internal-only.
 
-**377. `plugin-loader` options reexported**
+**377. `plugin-loader` options reexported — DONE**
 - File: `src/index.ts`
 - Dimension: Simplification — Severity: P2
 - Detail: `LoadPluginsOptions` / `loadPlugins` exported but only used internally.
@@ -2024,7 +2024,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: No command in the repo defines aliases.
 
-**379. `AgentRuntime` over-exposed**
+**379. `AgentRuntime` over-exposed — DONE**
 - File: `src/agent-runtime.ts:62-113`
 - Dimension: Simplification — Severity: P2
 - Detail: Coding-agent uses 7 of 12 properties. `createRuntime(sessionId)`, `currentSession()`, `listModels`, `models` array, `model` getter, `onModelChange` can collapse.
@@ -2285,17 +2285,17 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Simplifications
 
-**427. `TASKS_TEMPLATE` commented stub**
+**427. `TASKS_TEMPLATE` commented stub — DONE**
 - File: `src/init.ts:54-58, 68`
 - Dimension: Simplification — Severity: P1
 - Detail: No yaml task exists anywhere; remove template and file write.
 
-**428. Skills dir advertised but unused**
+**428. Skills dir advertised but unused — DONE**
 - File: `src/init.ts:62, 75-78`
 - Dimension: Simplification — Severity: P1
 - Detail: `skillsDir` created but never seeded; companion has no skills feature.
 
-**429. `skillsDir` config field unused**
+**429. `skillsDir` config field unused — DONE**
 - File: `src/bootstrap.ts:69`
 - Dimension: Simplification — Severity: P1
 - Detail: Loaded, defaulted, passed via `extraSkillsDirs`, but no consumer.
@@ -2305,12 +2305,12 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: Should be `turn_complete` bus event upstream.
 
-**431. Pointless destructure-then-rebuild**
+**431. Pointless destructure-then-rebuild — DONE**
 - File: `src/ws.ts:54`
 - Dimension: Simplification — Severity: P2
 - Detail: `const { bus, approvalQueue, commandRegistry } = { bus: opts.agent.bus, ... }`.
 
-**432. `restrictToCwd: false` redundant**
+**432. `restrictToCwd: false` redundant — DONE**
 - File: `src/bootstrap.ts:96`
 - Dimension: Simplification — Severity: P2
 - Detail: Default already.
@@ -2409,7 +2409,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: P1
 - Detail: Any session update invalidates `useTranscript` for all sessions. Cross-session re-renders.
 
-**450. `ThemeContext` dead infrastructure**
+**450. `ThemeContext` dead infrastructure — DONE**
 - File: `src/theme/ThemeContext.tsx`
 - Dimension: Architecture — Severity: P2
 - Detail: Hardcoded `darkTheme`, no `setTheme`. Provider has no dynamic value.
@@ -2469,7 +2469,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: `(event.detail as { task?: string } | undefined) ?? {}`.
 
-**461. `SchedulerEvent` declared but unexported**
+**461. `SchedulerEvent` declared but unexported — DONE**
 - File: `src/types/wire.ts:101`
 - Dimension: Types — Severity: P2
 - Detail: Only used inside the inbound union.
@@ -2537,17 +2537,17 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Entity — Severity: P1
 - Detail: Consumes transcript items with id beginning `approval-` or `sub-agent-`. NOTHING produces such ids. Card-in-transcript code path is dead.
 
-**474. PHANTOM: `SubagentStatus='aborted'`**
+**474. PHANTOM: `SubagentStatus='aborted'` — DONE**
 - File: `src/types/domain.ts:71`
 - Dimension: Entity — Severity: P2
 - Detail: Reducer never emits it.
 
-**475. PHANTOM: `ApprovalSnapshot.status='timeout'`**
+**475. PHANTOM: `ApprovalSnapshot.status='timeout'` — DONE**
 - File: `src/types/domain.ts`, `src/components/.../ApprovalCard.tsx:73-75`
 - Dimension: Entity — Severity: P2
 - Detail: Declared, rendered, never produced.
 
-**476. PHANTOM: `AgentInfo.type='subagent'`**
+**476. PHANTOM: `AgentInfo.type='subagent'` — DONE**
 - File: `src/hooks/useComposer.ts:60`, `src/services/aryaClient.ts:250`
 - Dimension: Entity — Severity: P2
 - Detail: `useComposer` filters on `subagent` for `@` menu; aryaClient hardcodes every wire agent to `type: 'primary'`. Subagent picker always empty.
@@ -2563,41 +2563,41 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Simplifications
 
-**479. `selectIsTurnInFlight` zero importers**
+**479. `selectIsTurnInFlight` zero importers — DONE**
 - File: `src/state/selectors.ts:11-17`
 - Dimension: Simplification — Severity: P1
 - Detail: Exported, no consumers.
 
-**480. `sharedSpacing` (21 entries) never read**
+**480. `sharedSpacing` (21 entries) never read — DONE**
 - File: `src/theme/themes.ts:3-37`
 - Dimension: Simplification — Severity: P1
 - Detail: NativeWind handles spacing.
 
-**481. `sharedRadius` (14 entries) never read**
+**481. `sharedRadius` (14 entries) never read — DONE**
 - File: `src/theme/themes.ts:39-54`
 - Dimension: Simplification — Severity: P1
 - Detail: `theme.radius.*` never referenced.
 
-**482. `sharedFontWeights` never read**
+**482. `sharedFontWeights` never read — DONE**
 - File: `src/theme/themes.ts:66-73`
 - Dimension: Simplification — Severity: P1
 
-**483. `sharedFontSizes` only `sm` used**
+**483. `sharedFontSizes` only `sm` used — DONE**
 - File: `src/theme/themes.ts:56-64`
 - Dimension: Simplification — Severity: P2
 - Detail: In CodeBlock.
 
-**484. `sharedChrome` only `pillHeight` used**
+**484. `sharedChrome` only `pillHeight` used — DONE**
 - File: `src/theme/themes.ts:83-87`
 - Dimension: Simplification — Severity: P2
 - Detail: In AgentChip:88.
 
-**485. `app/two.tsx` shim**
+**485. `app/two.tsx` shim — DONE**
 - File: `src/app/two.tsx:1-3`
 - Dimension: Simplification — Severity: P2
 - Detail: Single-line re-export of `SettingsScreen`. Move handler into `app/settings.tsx`.
 
-**486. Unused deps in package.json**
+**486. Unused deps in package.json — DONE**
 - File: `package.json:30, 40, 26`
 - Dimension: Simplification — Severity: P2
 - Detail: `react-native-css-interop` (NativeWind transitive), `@babel/plugin-transform-react-jsx` (babel.config doesn't reference), `expo-system-ui` (no source imports).
@@ -2607,7 +2607,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: Both lists ship identical hexes. Pick one source.
 
-**488. ThemeContext collapsible**
+**488. ThemeContext collapsible — DONE**
 - File: `src/theme/ThemeContext.tsx`
 - Dimension: Simplification — Severity: P2
 - Detail: Provider holds frozen literal — could be `export const colors = {...}`.

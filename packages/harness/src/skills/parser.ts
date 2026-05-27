@@ -1,7 +1,7 @@
 import { parseFrontmatter } from '../markdown';
 import type { Skill } from './types';
 
-export interface SkillParseInput {
+interface SkillParseInput {
   source: string;
   filePath: string;
   /** Used as fallback name when frontmatter has none. */

@@ -9,7 +9,6 @@ export {
   type RoundtripListener,
   RoundtripStore,
 } from './roundtrips';
-export { loadPlugins, type LoadPluginsOptions } from './plugin-loader';
 export { bootstrap, type BootstrapOptions, type BootstrapResult } from './bootstrap';
 
 // ── paths ────────────────────────────────────────────────────────────
@@ -63,10 +62,8 @@ export {
   type AgentsCommandDeps,
   createAgentsCommand,
   createHelpCommand,
-  createModelCommand,
   createSessionsCommand,
   type HelpCommandDeps,
-  type ModelCommandDeps,
   type SessionsCommandDeps,
 } from './commands/defaults';
 

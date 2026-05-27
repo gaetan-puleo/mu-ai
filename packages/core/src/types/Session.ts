@@ -6,13 +6,13 @@ import type { Message } from './Message';
  * when to persist or re-render lists.
  */
 export interface Session {
-  id: string;
+  readonly id: string;
   title?: string;
   messages: Message[];
   steeringQueue: Message[];
   followUpQueue: Message[];
-  createdAt: number;
+  readonly createdAt: number;
   updatedAt: number;
   /** When the session was created via `store.fork`, points back to the source. */
-  forkedFrom?: { sessionId: string; atIndex: number };
+  readonly forkedFrom?: { sessionId: string; atIndex: number };
 }

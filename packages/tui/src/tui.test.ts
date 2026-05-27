@@ -4,11 +4,11 @@ import { describe, it } from '@std/testing/bdd';
 import { capability, createDefaultCapabilities } from './capabilities';
 import type { InputEvent } from './events';
 import { type KeyChord, keyMatches } from './keybinds';
-import { eventToMouseEvent, parseInput } from './keyboard';
+import { parseInput } from './keyboard';
 import { TerminalInputParser } from './parser';
 import { TUI } from './tui';
-import type { Component, Focusable, FocusableNavigation } from './types/component';
-import { isFocusable, isFocusableNavigation } from './types/guards';
+import type { Component, Focusable } from './types/component';
+import { isFocusable } from './types/guards';
 import type { Terminal } from './types/terminal';
 import { sliceByColumn, stripAnsi, truncateToWidth, visibleWidth, wrapText } from './utils';
 
@@ -49,15 +49,6 @@ describe('component guards', () => {
     expect(isFocusable(component)).toBe(true);
     expect(isFocusable({ render: () => [] })).toBe(false);
     expect(isFocusable(null)).toBe(false);
-  });
-
-  it('detects focus navigation components', () => {
-    const component: FocusableNavigation = {
-      render: () => [],
-      focusNext: () => null,
-    };
-    expect(isFocusableNavigation(component)).toBe(true);
-    expect(isFocusableNavigation({ render: () => [] })).toBe(false);
   });
 
   it('accepts handleEvent on components', () => {
@@ -203,10 +194,6 @@ describe('parseInput', () => {
     expect(parseInput('\x1b[<64;10;5M')).toMatchObject({ type: 'mouse', kind: 'wheel', button: 'wheelUp' });
   });
 
-  it('converts mouse events to the compatibility mouse type', () => {
-    const event = parseInput('\x1b[<64;10;5M');
-    expect(eventToMouseEvent(event)).toMatchObject({ button: 'scrollUp', motion: 'press' });
-  });
 });
 
 describe('TerminalInputParser', () => {

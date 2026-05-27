@@ -39,16 +39,6 @@ export function shrinkRect(rect: Rect, insets: Insets): Rect {
   return { x, y, width, height };
 }
 
-/** Expand a rect by the given insets. */
-export function expandRect(rect: Rect, insets: Insets): Rect {
-  return {
-    x: rect.x - insets.left,
-    y: rect.y - insets.top,
-    width: rect.width + insets.left + insets.right,
-    height: rect.height + insets.top + insets.bottom,
-  };
-}
-
 /** Compute the intersection of two rects. Returns a zero-area rect if disjoint. */
 export function intersectRect(a: Rect, b: Rect): Rect {
   const x = Math.max(a.x, b.x);

@@ -18,7 +18,7 @@ import { drawEntry } from './layout/render';
 import type { Color, EventContext, LayoutEntry, Rect } from './layout/types';
 import { TerminalInputParser } from './parser';
 import type { Component } from './types/component';
-import { isFocusable, isFocusableNavigation } from './types/guards';
+import { isFocusable } from './types/guards';
 import type { Terminal } from './types/terminal';
 import { visibleWidth } from './utils';
 
@@ -30,9 +30,6 @@ interface StartableTerminal extends Terminal {
 export interface TuiOptions {
   capabilities?: PartialCapabilities;
   synchronizedOutput?: boolean;
-  escapeTimeoutMs?: number;
-  maxInputBufferBytes?: number;
-  maxPasteBytes?: number;
   /**
    * Application-defined value forwarded into every `RenderContext.userContext`
    * and `EventContext.userContext`. The TUI core treats this as opaque data;
@@ -49,8 +46,6 @@ export class TUI {
   private previousHeight = 0;
   private focusedComponent: Component | null = null;
   private inputInterceptors: Array<(event: InputEvent) => boolean | undefined> = [];
-  private inputListeners: Array<(event: InputEvent) => void> = [];
-  private rawInputListeners: Array<(data: string) => void> = [];
   private renderRequested = false;
   private renderTimer: ReturnType<typeof setTimeout> | undefined;
   private pendingEscapeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -65,11 +60,9 @@ export class TUI {
   private children: Component[] = [];
   private layoutEntries: LayoutEntry[] = [];
   private globalKeybindings: GlobalKeybinding[] = [];
-  private confirmBuffer: { chord: GlobalKeybinding; timestamp: number } | null = null;
-  private readonly confirmTimeoutMs = 500;
   private readonly parser: TerminalInputParser;
   private readonly useSynchronizedOutput: boolean;
-  private readonly escapeTimeoutMs: number;
+  private readonly escapeTimeoutMs = 25;
   private started = false;
   private userContext: unknown;
   private backdropColor: Rgba = OPAQUE_BLACK;
@@ -77,23 +70,11 @@ export class TUI {
   constructor(terminal: Terminal, options: TuiOptions = {}) {
     this.terminal = terminal;
     this.useSynchronizedOutput = options.synchronizedOutput ?? true;
-    this.escapeTimeoutMs = options.escapeTimeoutMs ?? 25;
     this.userContext = options.userContext;
-    this.parser = new TerminalInputParser({
-      maxBufferBytes: options.maxInputBufferBytes,
-      maxPasteBytes: options.maxPasteBytes,
-    });
+    this.parser = new TerminalInputParser();
 
     const terminalCaps = (terminal as { capabilities?: Capabilities }).capabilities;
     this.capabilities = mergeCapabilities(terminalCaps ?? createDefaultCapabilities(), options.capabilities);
-  }
-
-  getCapabilities(): Capabilities {
-    return this.capabilities;
-  }
-
-  updateCapabilities(patch: PartialCapabilities): void {
-    this.capabilities = mergeCapabilities(this.capabilities, patch);
   }
 
   /**
@@ -106,10 +87,6 @@ export class TUI {
     this.requestRender(true);
   }
 
-  getUserContext(): unknown {
-    return this.userContext;
-  }
-
   /**
    * Set the terminal's effective background color. This is the color used as
    * the base when compositing semi-transparent layers — without it, transparent
@@ -120,10 +97,6 @@ export class TUI {
     const rgba = colorToRgba(color);
     this.backdropColor = { ...rgba, a: 1 };
     this.requestRender(true);
-  }
-
-  getBackgroundColor(): Rgba {
-    return this.backdropColor;
   }
 
   addGlobalKeybinding(binding: GlobalKeybinding): () => void {
@@ -164,7 +137,7 @@ export class TUI {
    * Components with `layout.focusable === true` or implementing `Focusable`
    * are included.
    */
-  getFocusableComponents(): Component[] {
+  private getFocusableComponents(): Component[] {
     return this.layoutEntries
       .slice()
       .sort((a, b) => (a.depth !== b.depth ? a.depth - b.depth : a.order - b.order))
@@ -173,23 +146,11 @@ export class TUI {
   }
 
   /**
-   * Focus traversal:
-   * 1. If the focused component implements `FocusableNavigation`, defer to it.
-   * 2. Otherwise, walk the flat focusable list from the layout pass.
-   * 3. Fall back to the top-level children order when no layout entries exist
-   *    (e.g. before the first render).
+   * Focus traversal walks the flat focusable list from the layout pass.
+   * Falls back to top-level children order when no layout entries exist
+   * (e.g. before the first render).
    */
   navigateFocus(direction: 'up' | 'down' | 'left' | 'right'): Component | null {
-    if (isFocusableNavigation(this.focusedComponent)) {
-      const next = direction === 'down' || direction === 'right'
-        ? this.focusedComponent.focusNext?.()
-        : this.focusedComponent.focusPrev?.();
-      if (next) {
-        this.setFocus(next);
-        return next;
-      }
-    }
-
     const focusables = this.getFocusableComponents();
     const pool = focusables.length > 0 ? focusables : this.children;
     if (pool.length === 0) return null;
@@ -264,14 +225,6 @@ export class TUI {
     process.nextTick(() => this.scheduleRender());
   }
 
-  addInputListener(listener: (event: InputEvent) => void): () => void {
-    this.inputListeners.push(listener);
-    return () => {
-      const index = this.inputListeners.indexOf(listener);
-      if (index !== -1) this.inputListeners.splice(index, 1);
-    };
-  }
-
   addInputInterceptor(listener: (event: InputEvent) => boolean | undefined): () => void {
     this.inputInterceptors.push(listener);
     return () => {
@@ -280,29 +233,10 @@ export class TUI {
     };
   }
 
-  addRawInputListener(listener: (data: string) => void): () => void {
-    this.rawInputListeners.push(listener);
-    return () => {
-      const index = this.rawInputListeners.indexOf(listener);
-      if (index !== -1) this.rawInputListeners.splice(index, 1);
-    };
-  }
-
-  invalidate(): void {
-    for (const child of this.children) {
-      this.invalidateRecursive(child);
-    }
-  }
-
   /** Build a one-off layout snapshot for the current children at the given size. */
-  layoutSnapshot(width: number = this.terminal.columns, height: number = this.terminal.rows): LayoutEntry[] {
+  private layoutSnapshot(width: number = this.terminal.columns, height: number = this.terminal.rows): LayoutEntry[] {
     const rootRect: Rect = { x: 0, y: 0, width, height };
     return layoutTree(this.children, rootRect, this.focusedComponent, this.capabilities);
-  }
-
-  /** The cached entries from the last render pass (used by hit testing). */
-  getLayoutEntries(): LayoutEntry[] {
-    return this.layoutEntries;
   }
 
   handleMouseEvent(event: Extract<InputEvent, { type: 'mouse' }>): void {
@@ -358,14 +292,6 @@ export class TUI {
   }
 
   private handleRawInput(data: string): void {
-    for (const listener of this.rawInputListeners.slice()) {
-      try {
-        listener(data);
-      } catch {
-        /* listener errors must not break input handling */
-      }
-    }
-
     const events = this.parser.feed(data);
     this.dispatchEvents(events);
 
@@ -405,14 +331,6 @@ export class TUI {
       }
     }
 
-    for (const listener of this.inputListeners.slice()) {
-      try {
-        listener(event);
-      } catch {
-        /* listener errors must not break input handling */
-      }
-    }
-
     if (event.type === 'mouse') {
       this.handleMouseEvent(event);
       return;
@@ -443,26 +361,10 @@ export class TUI {
   private handleGlobalKeybinding(event: InputEvent): boolean {
     for (const binding of this.globalKeybindings) {
       if (keyMatches(binding.chord, event)) {
-        if (binding.confirm) {
-          if (this.confirmBuffer?.chord === binding) {
-            binding.handler();
-            this.confirmBuffer = null;
-            return true;
-          }
-          this.confirmBuffer = { chord: binding, timestamp: Date.now() };
-          setTimeout(() => {
-            if (this.confirmBuffer?.chord === binding) {
-              this.confirmBuffer = null;
-            }
-          }, this.confirmTimeoutMs);
-          return true;
-        }
         binding.handler();
         return true;
       }
     }
-
-    this.confirmBuffer = null;
     return false;
   }
 
@@ -478,13 +380,6 @@ export class TUI {
     }
     const fallbackRect: Rect = { x: 0, y: 0, width: this.terminal.columns, height: this.terminal.rows };
     return { rect: fallbackRect, contentRect: fallbackRect, focused: true, userContext: this.userContext };
-  }
-
-  private invalidateRecursive(component: Component): void {
-    component.invalidate?.();
-    if (component.children) {
-      for (const child of component.children) this.invalidateRecursive(child);
-    }
   }
 
   private renderFrame(width: number, height: number): string[] {
