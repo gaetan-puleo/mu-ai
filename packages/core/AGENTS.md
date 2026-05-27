@@ -41,10 +41,9 @@ Providers live outside `mu-core` and are passed to the runtime exclusively throu
 
 Examples:
 
-- `mu-local-provider`
+- `mu-local-provider` (llama-swap)
 - Future OpenAI provider
 - Future Anthropic provider
-- Future llama-swap provider
 
 ## Provider Factory
 
@@ -54,7 +53,7 @@ A provider factory creates an `LLMProvider` from provider-specific config.
 type ProviderFactory<Config> = (config: Config) => LLMProvider;
 ```
 
-`mu-core` may provide `defineProvider()` as a typing primitive, but the implementation belongs to provider packages.
+The implementation belongs to provider packages.
 
 ## Runtime
 
@@ -220,22 +219,20 @@ The host wires together:
 
 ## Local Provider
 
-`mu-local-provider` is the provider package for OpenAI-compatible local model servers.
+`mu-local-provider` is the provider package for the llama-swap backend.
 
 It owns:
 
 - OpenAI SDK dependency
-- Ollama defaults
-- LM Studio defaults
-- llama-swap defaults
+- llama-swap detection and defaults
 - conversion between `mu-core` primitives and OpenAI-compatible API payloads
 
-To wire it into the runtime, the host wraps `createLocalProvider(...)` in a `Plugin` entry and passes it via `plugins`:
+To wire it into the runtime, the host passes `createLocalProviderPlugin(...)` via `plugins`:
 
 ```ts
 createRuntime({
   bus,
-  plugins: [{ name: 'mu-local-provider', provider: createLocalProvider(config) }],
+  plugins: [createLocalProviderPlugin(config)],
 });
 ```
 
@@ -248,7 +245,5 @@ Do not add these to `mu-core`:
 - `/v1/chat/completions`
 - `baseUrl`
 - `apiKey`
-- Ollama-specific code
-- LM Studio-specific code
 - llama-swap-specific code
 - provider-specific response parsing

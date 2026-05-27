@@ -146,7 +146,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Responsibilities — Severity: P2
 - Detail: The interface belongs to core, but a concrete in-memory implementation with `idGen`/`now` overrides is host-flavored. Harness already ships `createJsonlSessionStore`.
 
-**25. `package.json` description drift**
+**25. `package.json` description drift — DONE**
 - File: `package.json`
 - Dimension: Responsibilities — Severity: P2
 - Detail: Description ("Agent runtime primitives: types, plugin SDK, runtime, sessions") accurate but repo context still says "hooks, event bus." Align.
@@ -189,7 +189,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P1
 - Detail: `content: string` is required even for tool-result messages. Current shape lets you construct `{ role: 'user', tool_id: 'x' }`.
 
-**33. `CoreEvent` error: unknown everywhere**
+**33. `CoreEvent` error: unknown everywhere — DONE**
 - File: `src/runtime.ts:13-27`
 - Dimension: Types — Severity: P2
 - Detail: `queue_update.steering`/`followUp` should be `readonly Message[]` to signal "snapshot, don't mutate".
@@ -431,7 +431,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: P1
 - Detail: Prescribes `./components`, `./layout`, `./features` exports. `package.json` exposes only `.` and `./components`.
 
-**78. `README.md` + `CONTEXT.md` severely stale**
+**78. `README.md` + `CONTEXT.md` severely stale — DONE**
 - File: `README.md`, `CONTEXT.md`
 - Dimension: Architecture — Severity: P1
 - Detail: Describe the package as a flat 8-file, 1158-LOC "render engine, not a widget library" with no components folder. Reality: 8836 LOC, 9 components shipped, full layout engine.
@@ -448,12 +448,12 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Responsibilities — Severity: (info)
 - Detail: Zero mu coupling, zero workspace deps. No imports from any other mu-* package.
 
-**81. Package README is the repo README**
+**81. Package README is the repo README — DONE**
 - File: `packages/tui/README.md`
 - Dimension: Responsibilities — Severity: P1
 - Detail: Not package-specific. Should state generic engine boundary explicitly.
 
-**82. `CONTEXT.md` stale**
+**82. `CONTEXT.md` stale — DONE**
 - File: `packages/tui/CONTEXT.md`
 - Dimension: Responsibilities — Severity: P1
 - Detail: Rich and correct in intent but internal and severely outdated.
@@ -463,7 +463,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Responsibilities — Severity: P2
 - Detail: Mentions "coding-agent ChatApp model picker" as integration example — harmless wording, not coupling, but worth removing.
 
-**84. `feature` naming collides with mu-core plugin concept**
+**84. `feature` naming collides with mu-core plugin concept — DONE**
 - File: `src/feature.ts`, `src/features/`
 - Dimension: Responsibilities — Severity: P2
 - Detail: Confusing to newcomers. Rename to `terminalFeature` / `terminalFeatures` or `caps`.
@@ -495,7 +495,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: `addChild`/`removeChild` take `Component` but no type narrowing.
 
-**90. Layout primitives lack `readonly`**
+**90. Layout primitives lack `readonly` — DONE**
 - File: `src/layout/types.ts:5-32`
 - Dimension: Types — Severity: P2
 - Detail: `Rect`/`Size`/`Insets`/`Constraints` flow through `LayoutEntry`/`RenderContext`. Marking fields `readonly` would prevent consumer mutation of engine output.
@@ -959,7 +959,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Architecture
 
-**177. README claims 3 backends, only llama-swap exists**
+**177. README claims 3 backends, only llama-swap exists — DONE**
 - File: `package.json`
 - Dimension: Architecture — Severity: P1
 - Detail: README/description advertises Ollama, LM Studio, and llama-swap support, but only llama-swap implemented.
@@ -1011,7 +1011,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Responsibilities — Severity: P1
 - Detail: Hard-codes name-pattern heuristics ("mcp_", "skill") about consumers the provider has no business knowing about.
 
-**187. README ↔ reality mismatch on backends**
+**187. README ↔ reality mismatch on backends — DONE**
 - File: README, package.json
 - Dimension: Responsibilities — Severity: P1
 - Detail: Either trim description or add real detectors.
@@ -1711,7 +1711,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: P1
 - Detail: `channels/`, `mentions/`, `scheduler/`, `roundtrips.ts` have zero consumers outside the harness package.
 
-**319. `bootstrap()` not called by coding-agent — REFRAMED (wiring gap, not dead code)**
+**319. `bootstrap()` not called by coding-agent — DONE (bootstrap is now called; verified in c301551 + 97e1d6e)**
 - File: `src/bootstrap.ts`
 - Dimension: Architecture — Severity: P1
 - Detail: 300-line orchestrator with no caller in this monorepo (coding-agent uses pieces individually).
@@ -2135,7 +2135,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: (info)
 - Detail: Thin composition layer.
 
-**399. README/PLAN drift**
+**399. README/PLAN drift — DONE**
 - File: README.md, PLAN.md
 - Dimension: Architecture — Severity: P1
 - Detail: Parent README lists `ws-channel.ts`, `scheduler.ts`, `plugins/tools/{fs,shell,http}` — none exist in `src/`.
@@ -2182,12 +2182,12 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Responsibilities — Severity: (info)
 - Detail: Premise about duplicated fs/shell/http was wrong.
 
-**408. README stale on `createAryaToolsPlugin`**
+**408. README stale on `createAryaToolsPlugin` — DONE**
 - File: README.md
 - Dimension: Responsibilities — Severity: P1
 - Detail: Mentions `createAryaToolsPlugin (fs, shell, http)` — doesn't exist in code.
 
-**409. ws.ts bypasses Channel abstraction — LOAD-BEARING**
+**409. ws.ts bypasses Channel abstraction — DONE (converted to WsChannel via createChannelManager)**
 - File: `src/ws.ts`
 - Dimension: Responsibilities — Severity: P1
 - Detail: Re-implements bus→client bridging, session activation, approval surfacing inline. Should be a `WsChannel` registered via `createChannelManager`.

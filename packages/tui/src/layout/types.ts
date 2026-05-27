@@ -3,32 +3,32 @@ import type { Component } from '../types/component';
 
 /** Axis-aligned rectangle in terminal cells. */
 export interface Rect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
 }
 
 /** Edge insets in cells. */
 export interface Insets {
-  top: number;
-  right: number;
-  bottom: number;
-  left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly left: number;
 }
 
 /** Width/height pair in cells. */
 export interface Size {
-  width: number;
-  height: number;
+  readonly width: number;
+  readonly height: number;
 }
 
 /** Sizing constraints, used by `measure()`. */
 export interface Constraints {
-  minWidth: number;
-  maxWidth: number;
-  minHeight: number;
-  maxHeight: number;
+  readonly minWidth: number;
+  readonly maxWidth: number;
+  readonly minHeight: number;
+  readonly maxHeight: number;
 }
 
 /**

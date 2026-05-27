@@ -14,7 +14,7 @@ export type CoreEvent =
   | { type: 'steer'; message: Message }
   | { type: 'follow_up'; message: Message }
   | { type: 'queued_message'; queue: 'steering' | 'follow_up'; message: Message }
-  | { type: 'queue_update'; steering: Message[]; followUp: Message[] }
+  | { type: 'queue_update'; steering: readonly Message[]; followUp: readonly Message[] }
   | { type: 'assistant_start' }
   | { type: 'assistant_delta'; content: string }
   | { type: 'assistant_message'; message: Message }

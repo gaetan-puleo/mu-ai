@@ -6,24 +6,25 @@ Minimal terminal AI assistant for local models.
 
 ```
 packages/
-├── core/              # Plugin SDK, runtime, event bus, sessions, hooks, types
-├── tui/               # Zero-dependency terminal UI engine (differential rendering, input parsing)
+├── core/              # Runtime primitives: messages, tools, plugin SDK, event bus, sessions
+├── harness/           # Shared bootstrap: plugins, skills, sub-agents, permissions, approvals, scheduler, jsonl sessions
+├── tui/               # Terminal UI engine (input parser, capability detector, layout, components)
 ├── tools/             # Filesystem + shell tools (read, write, edit, bash, list_dir)
-├── local-provider/    # Local LLM provider (OpenAI-compatible: Ollama, LM Studio, llama-swap)
+├── local-provider/    # llama-swap LLM provider
 ├── webfetch/          # URL fetching tool (HTML to markdown)
 └── coding-agent/      # CLI + TUI application
 ```
 
-Layering: `core` <- `{local-provider, tools, tui, webfetch}` <- `coding-agent`.
+Layering: `core` <- `harness` <- `{local-provider, tools, tui, webfetch}` <- `coding-agent`.
 
 ## Features
 
-- **Local-first** -- works with any OpenAI-compatible API (Ollama, LM Studio, llama-swap, etc.)
+- **Local-first** -- runs against a llama-swap server
 - **Streaming** -- real-time token streaming with reasoning content support
 - **Plugin system** -- extensible via plugins (tools, lifecycle hooks, commands)
-- **Zero-dep TUI** -- custom terminal UI with synchronized rendering, no React/Ink
-- **Session persistence** -- conversations auto-saved, resume with `mu -c`
-- **Slash commands** -- `/model`, `/sessions`, `/new`, plus plugin-registered commands
+- **Custom TUI** -- terminal UI engine in `mu-tui` (no React/Ink)
+- **Session persistence** -- conversations auto-saved, resume with `-c`
+- **Slash commands** -- `/sessions`, `/agents`, `/help`, plus plugin-registered commands
 - **Single-shot mode** -- quick answers without launching the TUI
 
 ## Requirements
@@ -99,11 +100,10 @@ Config lives at `~/.config/mu/config.json`:
 
 ## Supported Backends
 
-Any OpenAI-compatible API works. Tested with:
-
 - **llama-swap** -- `http://localhost:8080/v1`
-- **Ollama** -- `http://localhost:11434/v1`
-- **LM Studio** -- `http://localhost:1234/v1`
+
+Other OpenAI-compatible servers may work but the provider only auto-detects
+llama-swap.
 
 ## Keyboard Shortcuts
 

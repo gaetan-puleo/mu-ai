@@ -1,6 +1,7 @@
 {
   "name": "coding-agent",
   "version": "0.16.0",
+  "description": "Terminal coding assistant: mu-core + mu-harness + mu-tui over a llama-swap backend",
   "type": "module",
   "bin": {
     "coding-agent": "./bin/coding-agent.ts"

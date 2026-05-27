@@ -54,21 +54,17 @@ loader will auto-install the package on first run.
 
 ## Permissioning per agent
 
-The tool exposes a `matchKey` of `args.url`, so agent markdown definitions
-can glob-allow specific origins:
+Permission rules match against the raw stringified JSON args
+(`PermissionRule.argsPattern`). Globs (`*`, `?`) are supported:
 
 ```yaml
 permissions:
-  webfetch:
-    allow:
-      - 'https://github.com/**'
-      - 'https://*.dev/**'
-    ask:
-      - '**'
+  - tool: webfetch
+    argsPattern: '*"url":"https://github.com/*'
+    decision: allow
+  - tool: webfetch
+    decision: ask
 ```
-
-Glob matching is keyed solely on the URL — the `timeout` parameter does
-not participate in permission checks.
 
 ## Implementation notes
 
