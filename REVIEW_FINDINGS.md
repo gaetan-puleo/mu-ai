@@ -1407,7 +1407,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: (info)
 - Detail: Handles CLI dispatch, provider plumbing, config gating.
 
-**261. `ChatApp.ts` 1608-line god-class**
+**261. `ChatApp.ts` 1608-line god-class — DONE**
 - File: `src/ui/ChatApp.ts`
 - Dimension: Architecture — Severity: P1
 - Detail: Owns input routing, slash-command dispatch, file picker, command palette, modal state, history, sub-agent dispatch+framing, transcript rendering, status spinner, override-clear polling, bash mode, CoreEvent handling.
@@ -2399,7 +2399,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: (info)
 - Detail: Brief was wrong — no Tamagui dep.
 
-**448. `aryaClient.ts` 338 LOC mixing concerns**
+**448. `aryaClient.ts` 338 LOC mixing concerns — DONE**
 - File: `src/services/aryaClient.ts`
 - Dimension: Architecture — Severity: P1
 - Detail: Lifecycle / outbound / dispatch.

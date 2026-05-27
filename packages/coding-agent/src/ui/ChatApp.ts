@@ -1,34 +1,30 @@
-import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
 import type { CoreEvent, LLMResponseContext, Message, Runtime, Unsubscribe } from 'mu-core';
 import { appendHistory, loadHistory } from '../config';
-import { formatSubAgentReplyForParent, type Model, RoundtripStore } from 'mu-harness';
+import { type Model, RoundtripStore } from 'mu-harness';
 import { type Component, type InputEvent, ProcessTerminal, TUI } from 'mu-tui';
-import { Box, Input, type InputHighlight, Modal, ScrollView, SelectList, Text } from 'mu-tui/components';
-import { AssistantMessage } from './components/AssistantMessage';
-import { CommandPalette, type CommandPaletteItem } from './components/CommandPalette';
-import { FilePicker, type PickerEntry } from './components/FilePicker';
-import { CommandLine, CommandResultLine, ErrorLine, ErrorToast, HiddenThinkingLine } from './components/SimpleLines';
-import { OutputBlock } from './components/OutputBlock';
-import { ReasoningBlock } from './components/ReasoningBlock';
-import { ToolLine } from './components/ToolLine';
-import { UserMessage } from './components/UserMessage';
-import { WaitingList, type WaitingItem } from './components/WaitingList';
-import { SubAgentPreview } from './components/SubAgentPreview';
-import { SubAgentRunStore, type SubAgentRun } from './subAgentRun';
+import { Box, Input, type InputHighlight, ScrollView, Text } from 'mu-tui/components';
+import { CommandPalette } from './components/CommandPalette';
+import { ErrorToast } from './components/SimpleLines';
+import { type WaitingItem, WaitingList } from './components/WaitingList';
 import { buildStatusParts, formatTokens, StatusLine } from './statusLine';
-import { darkTheme, getTheme, lightTheme, styleToAnsi, type Theme, ThemeProvider } from './theme';
+import { darkTheme, lightTheme, styleToAnsi, type Theme, ThemeProvider } from './theme';
 import { Transcript } from './Transcript';
+import type { AgentDisplay } from './chatApp/picker';
+import { FilePickerController, ModelPickerController } from './chatApp/picker';
+import { buildSubAgentViewComponents, buildTranscriptComponents } from './chatApp/transcript';
+import {
+  type ChatCommand,
+  createCommands,
+  exportContextToFile,
+  filterCommands,
+  runShellCommand,
+  toggleOutputBlocksInTranscript,
+} from './chatApp/commands';
+import { SubAgentController } from './chatApp/subAgents';
 
 interface ChatBus {
   publish: (event: CoreEvent) => void;
   subscribe: (fn: (event: CoreEvent) => void) => Unsubscribe;
-}
-
-interface ChatCommand extends CommandPaletteItem {
-  run: (args: string) => void;
-  deferWhenBusy?: boolean;
 }
 
 interface ModelController {
@@ -36,12 +32,6 @@ interface ModelController {
   listModels: () => Promise<Model[]>;
   readonly model: string;
   setModel: (model: string) => void;
-}
-
-interface AgentDisplay {
-  name: string;
-  color?: string;
-  description?: string;
 }
 
 interface ChatAppOptions {
@@ -103,9 +93,8 @@ export class ChatApp {
   private commandItems: ChatCommand[] = [];
   private commandCursor = 0;
   private dismissedPaletteFor = '';
-  private modal: Modal | undefined;
-  private models: Model[] = [];
-  private modelCursor = 0;
+  private modelPicker: ModelPickerController;
+  private mountedModal: Component | undefined;
   private unsubscribe: Unsubscribe | undefined;
   private stopped = false;
   private status = 'ready';
@@ -116,9 +105,7 @@ export class ChatApp {
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   private spinnerTimer: ReturnType<typeof setInterval> | undefined;
   private spinnerTick = 0;
-  private filePicker: FilePicker | undefined;
-  private filePickerAnchor = -1;
-  private filePickerCursor = 0;
+  private filePicker: FilePickerController;
   private lastEscTime = 0;
   private history: string[] = [];
   private historyCursor = -1;
@@ -129,11 +116,7 @@ export class ChatApp {
   private waitingList: WaitingList | undefined;
   private overrideIdleTimer: ReturnType<typeof setInterval> | undefined;
   private overrideActive = false;
-  private subAgentRuns = new SubAgentRunStore();
-  private subAgentPreviews = new Map<string, SubAgentPreview>();
-  /** When set, the main chat area renders this sub-agent's transcript instead of the primary one. */
-  private viewingSubAgent: string | undefined;
-  private viewingSubAgentUnsubscribe: (() => void) | undefined;
+  private subAgents: SubAgentController;
 
   constructor(
     runtime: Runtime,
@@ -144,14 +127,18 @@ export class ChatApp {
   ) {
     this.runtime = runtime;
     this.bus = bus;
-    this.models = [];
     this.history = loadHistory();
     this.transcript = new Transcript(options.thinkingVisible ?? true);
 
     this.themeProvider = new ThemeProvider(darkTheme);
     const theme = this.themeProvider.current();
 
-    this.terminal = new ProcessTerminal({ alternateScreen: true, keyboard: true, mouse: { drag: true, motion: true }, focusEvents: true });
+    this.terminal = new ProcessTerminal({
+      alternateScreen: true,
+      keyboard: true,
+      mouse: { drag: true, motion: true },
+      focusEvents: true,
+    });
     this.tui = new TUI(this.terminal, { userContext: this.themeProvider });
 
     this.scrollView = new ScrollView({ layout: { width: 'fill', height: 'fill' }, focusable: false });
@@ -198,7 +185,14 @@ export class ChatApp {
       children: [this.toastZone, this.inputTopWidgetZone, this.inputBox, this.inputBottomWidgetZone, this.statusBox],
     });
 
-    this.commandItems = this.createCommands();
+    this.commandItems = createCommands({
+      startNewSession: () => void this.startNewSession(),
+      openModelModal: () => this.openModelModal(),
+      exportContext: (args) => void this.exportContext(args),
+      toggleThinking: () => this.handleToggleThinking(),
+      toggleOutputBlocks: () => this.toggleOutputBlocks(),
+      stopAndExit: (code) => void this.stop().then(() => this.onExit?.(code)),
+    });
 
     this.root = new Box({
       layout: {
@@ -210,6 +204,34 @@ export class ChatApp {
       },
       children: [this.transcriptBox, this.bottomDock],
     });
+
+    // FilePicker + SubAgent controllers — both delegate state in/out of this
+    // class so the orchestrator only deals with composition, not the inner
+    // state machines.
+    this.filePicker = new FilePickerController({
+      input: this.input,
+      collectMentionableAgents: () => this.collectMentionableAgents(),
+      mount: (component, height) => this.mountTopWidget(component, height),
+      onValueChanged: (value) => this.updateHighlights(value),
+      requestRender: () => this.tui.requestRender(),
+    });
+    this.subAgents = new SubAgentController({
+      transcript: this.transcript,
+      renderTranscript: () => this.renderTranscript(),
+      setStatus: (s) => this.setStatus(s),
+      setInputVisible: (v) => this.setInputVisible(v),
+      publish: (event) => this.bus.publish(event),
+      requestRender: () => this.tui.requestRender(),
+      dispatch: options.dispatchSubAgent,
+    });
+    this.modelPicker = new ModelPickerController({
+      runtimeState: () => this.runtime.state(),
+      mountModal: (modal) => this.mountRootModal(modal),
+      setFocus: (component) => this.tui.setFocus(component),
+      restoreFocus: () => this.tui.setFocus(this.input),
+      requestRender: (force) => this.tui.requestRender(force),
+      setStatus: (s) => this.setStatus(s),
+    }, this.modelController);
 
     this.tui.addChild(this.root);
     this.tui.setFocus(this.input);
@@ -235,7 +257,7 @@ export class ChatApp {
   private async loadModels(): Promise<void> {
     if (!this.modelController) return;
     try {
-      this.models = await this.modelController.listModels();
+      this.modelPicker.setList(await this.modelController.listModels());
       this.updateModelLabel();
       this.tui.requestRender();
     } catch { /* ignore */ }
@@ -389,7 +411,10 @@ export class ChatApp {
   private updateModelLabel(): void {
     const modelId = this.modelController?.model ?? '';
     const agent = this.options.getActivePrimary?.();
-    if (!modelId && !agent) { this.modelLabel.setText(''); return; }
+    if (!modelId && !agent) {
+      this.modelLabel.setText('');
+      return;
+    }
     const theme = this.themeProvider.current();
     const white = styleToAnsi({ fg: theme.colors.text });
     const dim = styleToAnsi({ fg: theme.colors.textMuted });
@@ -402,7 +427,7 @@ export class ChatApp {
       parts.push(`${dot} ${white}${displayName}${reset}`);
     }
     if (modelId) {
-      const model = this.models.find((m) => m.id === modelId);
+      const model = this.modelPicker.list.find((m) => m.id === modelId);
       const provider = model?.ownedBy ? `  ${dim}${model.ownedBy}${reset}` : '';
       parts.push(`${white}${modelId}${reset}${provider}`);
     }
@@ -453,7 +478,7 @@ export class ChatApp {
     const text = value.trim();
     if (!text) return;
     // Sub-agent screen is read-only — ignore any stray submits.
-    if (this.viewingSubAgent) return;
+    if (this.subAgents.viewing) return;
 
     this.pushHistory(text);
 
@@ -475,7 +500,7 @@ export class ChatApp {
       if (routing.kind === 'dispatch' && routing.agent) {
         this.transcript.appendUser(text);
         this.renderTranscript();
-        void this.dispatchSubAgentRun(routing.agent, routing.task ?? text);
+        this.subAgents.dispatch(routing.agent, routing.task ?? text);
         return;
       }
       this.transcript.appendUser(text);
@@ -494,7 +519,9 @@ export class ChatApp {
     this.bus.publish({ type: isSteering ? 'steer' : 'user_message', message });
   }
 
-  private classifyMention(text: string): { kind: 'override' | 'dispatch' | 'none'; agent?: AgentDisplay; task?: string } {
+  private classifyMention(
+    text: string,
+  ): { kind: 'override' | 'dispatch' | 'none'; agent?: AgentDisplay; task?: string } {
     const match = text.match(/@([a-zA-Z_][\w-]*)/);
     if (!match) return { kind: 'none' };
     const name = match[1].toLowerCase();
@@ -516,141 +543,6 @@ export class ChatApp {
     this.overrideActive = true;
     this.updateModelLabel();
     this.scheduleOverrideClear();
-  }
-
-  private dispatchSubAgentRun(agent: AgentDisplay, task: string): void {
-    if (!this.options.dispatchSubAgent) {
-      this.transcript.appendError(`No dispatcher wired for @${agent.name}`);
-      this.renderTranscript();
-      return;
-    }
-    const runId = `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-    this.subAgentRuns.start({ id: runId, agentName: agent.name, agentColor: agent.color, task });
-
-    // Append a preview entry; renderTranscript wires the live component below.
-    this.transcript.appendSubAgentPreview(runId);
-    this.setStatus(`@${agent.name} running...`);
-    this.renderTranscript();
-
-    // Subscribe to live updates: refresh the cached preview component and
-    // re-render so the activity sub-line keeps pace with the sub-agent. The
-    // sub-agent in-place view subscribes independently in openSubAgentDetail.
-    const unsubscribe = this.subAgentRuns.subscribe(runId, (run) => {
-      const preview = this.subAgentPreviews.get(runId);
-      if (preview) preview.update(run);
-      this.tui.requestRender();
-    });
-
-    void this.options.dispatchSubAgent(
-      agent.name,
-      task,
-      (event) => this.subAgentRuns.pushEvent(runId, event),
-    )
-      .then((result) => {
-        this.subAgentRuns.complete(runId, result);
-        // Feed the sub-agent's answer back to the primary as a user-side
-        // context note so it takes a turn and reacts.
-        this.feedPrimaryWithSubAgentResult(agent.name, task, result);
-      })
-      .catch((err) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        this.subAgentRuns.complete(runId, { content: '', error: msg });
-        this.feedPrimaryWithSubAgentResult(agent.name, task, { content: '', error: msg });
-      })
-      .finally(() => {
-        unsubscribe();
-        this.tui.requestRender();
-      });
-  }
-
-  private feedPrimaryWithSubAgentResult(
-    agentName: string,
-    task: string,
-    result: { content: string; error?: string },
-  ): void {
-    // The primary takes a turn over a synthetic user message that frames the
-    // sub-agent's output. ChatApp's bus handler never appends user_messages
-    // to the transcript (handleSubmit does it directly), so this stays invisible
-    // until the primary's response streams in.
-    //
-    // Framing comes from `mu-harness/sub-agents/tool` so user-initiated `@<sub>`
-    // and LLM-initiated `subagent({...})` produce identical context blocks.
-    const content = formatSubAgentReplyForParent({
-      agentName,
-      task,
-      content: result.content,
-      error: result.error,
-    });
-    this.setStatus('thinking...');
-    this.bus.publish({ type: 'user_message', message: { role: 'user', content } });
-  }
-
-  /** In-place render of a sub-agent's full transcript (replaces the main chat). */
-  private renderSubAgentView(runId: string): void {
-    const run = this.subAgentRuns.get(runId);
-    if (!run) {
-      this.viewingSubAgent = undefined;
-      this.renderTranscript();
-      return;
-    }
-    const shouldStickToBottom = this.scrollView.isAtBottom();
-    const components: Component[] = [];
-    // Header line so the user knows they're in a sub-agent context.
-    const status = run.status === 'running' ? '◐ running' : run.status === 'completed' ? '✓ done' : '✗ error';
-    components.push(new CommandLine(`@${run.agentName} — ${run.task}    [${status}]    Esc to return`));
-
-    for (const entry of run.transcript) {
-      switch (entry.kind) {
-        case 'user':
-          components.push(new UserMessage({ content: entry.content }));
-          break;
-        case 'assistant':
-          components.push(new AssistantMessage({ content: entry.content }));
-          break;
-        case 'reasoning':
-          components.push(
-            new ReasoningBlock({
-              content: entry.content,
-              layout: { width: 'fill', height: 'auto', padding: { left: 1, right: 1 } },
-            }),
-          );
-          break;
-        case 'tool_call':
-          components.push(new ToolLine(entry.tool, entry.args.length > 120 ? `${entry.args.slice(0, 119)}…` : entry.args));
-          break;
-        case 'tool_result':
-          components.push(new CommandResultLine(entry.content.length > 200 ? `${entry.content.slice(0, 199)}…` : entry.content));
-          break;
-        case 'error':
-          components.push(new ErrorLine(entry.message));
-          break;
-      }
-    }
-    this.scrollView.setChildren(components, { stickToBottom: shouldStickToBottom });
-    this.tui.requestRender();
-  }
-
-  /** Click on a SubAgentPreview → swap the visible transcript to the sub-agent's. */
-  private openSubAgentDetail(runId: string): void {
-    const run = this.subAgentRuns.get(runId);
-    if (!run) return;
-    this.viewingSubAgentUnsubscribe?.();
-    this.viewingSubAgent = runId;
-    this.setInputVisible(false);
-    this.viewingSubAgentUnsubscribe = this.subAgentRuns.subscribe(runId, () => {
-      if (this.viewingSubAgent === runId) this.renderTranscript();
-    });
-    this.renderTranscript();
-  }
-
-  /** Return to the primary agent's transcript. */
-  private closeSubAgentDetail(): void {
-    if (!this.viewingSubAgent) return;
-    this.viewingSubAgentUnsubscribe?.();
-    this.viewingSubAgentUnsubscribe = undefined;
-    this.viewingSubAgent = undefined;
-    this.setInputVisible(true);
-    this.renderTranscript();
   }
 
   private setInputVisible(visible: boolean): void {
@@ -765,7 +657,7 @@ export class ChatApp {
     }
     this.updateBashMode(value);
     this.updateCommandPalette(value);
-    this.updateFilePicker(value);
+    this.updateFilePicker();
     this.updateHighlights(value);
     this.updateDockHeight();
   }
@@ -791,23 +683,23 @@ export class ChatApp {
   }
 
   private interceptInput(event: InputEvent): boolean {
-    if (this.modal && event.type === 'key' && event.kind !== 'release') {
-      return this.interceptModalInput(event);
+    if (this.modelPicker.isOpen && event.type === 'key' && event.kind !== 'release') {
+      return this.modelPicker.handleKey(event);
     }
 
     // Sub-agent screen is read-only: only Esc (return to main) reaches us;
     // every other key is swallowed before the input or any shortcut sees it.
     // Mouse and paste events fall through so scroll / click can still work.
-    if (this.viewingSubAgent && event.type === 'key' && event.kind !== 'release') {
+    if (this.subAgents.viewing && event.type === 'key' && event.kind !== 'release') {
       if (event.key === 'escape' || event.key === 'esc') {
-        this.closeSubAgentDetail();
+        this.subAgents.closeDetail();
       }
       return true;
     }
 
     if (event.type === 'key' && event.kind !== 'release' && (event.key === 'escape' || event.key === 'esc')) {
       if (this.clearToast()) return true;
-      if (this.filePicker) return false;
+      if (this.filePicker.visible) return false;
       if (this.input.value.startsWith('!') || this.input.value.startsWith('$') || this.input.value.startsWith('/')) {
         this.input.setValue('');
         this.updateInputHeight('');
@@ -836,11 +728,11 @@ export class ChatApp {
       return this.handleFollowUpSubmit();
     }
 
-    if (event.type === 'key' && event.kind !== 'release' && this.filePicker && !this.commandPalette) {
-      if (this.interceptFilePickerInput(event)) return true;
+    if (event.type === 'key' && event.kind !== 'release' && this.filePicker.visible && !this.commandPalette) {
+      if (this.filePicker.intercept(event)) return true;
     }
 
-    if (event.type === 'key' && event.kind !== 'release' && !this.commandPalette && !this.filePicker) {
+    if (event.type === 'key' && event.kind !== 'release' && !this.commandPalette && !this.filePicker.visible) {
       if (event.key === 'up') return this.navigateHistory('up');
       if (event.key === 'down') return this.navigateHistory('down');
       if (event.key === 'tab' && this.canCyclePrimaryAgent()) {
@@ -883,17 +775,6 @@ export class ChatApp {
 
   // --- Commands ---
 
-  private createCommands(): ChatCommand[] {
-    return [
-      { name: 'new', description: 'start a new session', run: () => this.startNewSession() },
-      { name: 'model', description: 'switch the active model', run: () => this.openModelModal() },
-      { name: 'context-export', description: 'export context map to a file', deferWhenBusy: true, run: (args) => void this.exportContext(args) },
-      { name: 'thinking', description: 'toggle thinking blocks', deferWhenBusy: true, run: () => this.handleToggleThinking() },
-      { name: 'expand', description: 'toggle output block expansion', deferWhenBusy: true, run: () => this.toggleOutputBlocks() },
-      { name: 'quit', description: 'exit the agent', run: () => void this.stop().then(() => this.onExit?.(0)) },
-    ];
-  }
-
   private executeCommand(command: ChatCommand, args: string): void {
     if (command.deferWhenBusy && this.runtime.state() !== 'idle') {
       const label = args ? `/${command.name} ${args}` : `/${command.name}`;
@@ -911,7 +792,9 @@ export class ChatApp {
     const queue = this.deferredCommandQueue.splice(0);
     this.updateWaitingList();
     for (const entry of queue) {
-      try { entry.run(); } catch { /* ignore */ }
+      try {
+        entry.run();
+      } catch { /* ignore */ }
     }
   }
 
@@ -955,9 +838,7 @@ export class ChatApp {
   }
 
   private filteredCommands(value: string): ChatCommand[] {
-    if (!value.startsWith('/') || value.includes(' ') || value === this.dismissedPaletteFor) return [];
-    const query = value.slice(1).toLowerCase();
-    return this.commandItems.filter((command) => command.name.toLowerCase().startsWith(query));
+    return filterCommands(this.commandItems, value, this.dismissedPaletteFor);
   }
 
   private updateCommandPalette(value: string): void {
@@ -1022,7 +903,12 @@ export class ChatApp {
 
   private runCommand(value: string): boolean {
     if (value.startsWith('!') || value.startsWith('$')) {
-      this.runShellCommand(value.slice(1).trim());
+      runShellCommand({
+        cmd: value.slice(1).trim(),
+        transcript: this.transcript,
+        theme: this.themeProvider.current(),
+        onRender: () => this.renderTranscript(),
+      });
       return true;
     }
     if (!value.startsWith('/')) return false;
@@ -1039,82 +925,23 @@ export class ChatApp {
 
   // --- File Picker ---
 
-  private findActiveAtMention(value: string): { anchor: number; token: string } | undefined {
-    const cursor = this.input.cursor;
-    for (let i = cursor - 1; i >= 0; i--) {
-      if (value[i] === ' ' || value[i] === '\n') return undefined;
-      if (value[i] === '@') {
-        const token = value.slice(i + 1, cursor);
-        return { anchor: i, token };
-      }
+  /** Mount or unmount a widget in the zone above the input. */
+  private mountTopWidget(component: Component | undefined, height: number): void {
+    if (component) {
+      this.inputTopWidgetZone.children = [component];
+    } else if (!this.commandPalette) {
+      this.inputTopWidgetZone.children = [];
     }
-    return undefined;
-  }
-
-  private updateFilePicker(value: string): void {
-    if (this.commandPalette) {
-      this.dismissFilePicker();
-      return;
-    }
-
-    const mention = this.findActiveAtMention(value);
-    if (!mention) {
-      this.dismissFilePicker();
-      return;
-    }
-
-    this.filePickerAnchor = mention.anchor;
-    this.filePickerCursor = 0;
-
-    this.filePicker = new FilePicker({
-      cwd: process.cwd(),
-      query: mention.token,
-      agents: this.collectMentionableAgents(),
-      selectedIndex: this.filePickerCursor,
-      onSelect: (entry) => this.selectFilePickerEntry(entry),
-    });
-
-    const count = this.filePicker.visibleEntries.length;
-    if (count === 0) {
-      this.dismissFilePicker();
-      return;
-    }
-
-    const visibleHeight = Math.min(8, count);
-    this.inputTopWidgetZone.children = [this.filePicker];
-    if (this.inputTopWidgetZone.layout) this.inputTopWidgetZone.layout.height = visibleHeight;
+    if (this.inputTopWidgetZone.layout) this.inputTopWidgetZone.layout.height = height;
     this.updateDockHeight();
   }
 
-  private dismissFilePicker(): void {
-    if (!this.filePicker) return;
-    this.filePicker = undefined;
-    this.filePickerAnchor = -1;
-    this.filePickerCursor = 0;
-    if (!this.commandPalette) {
-      this.inputTopWidgetZone.children = [];
-      if (this.inputTopWidgetZone.layout) this.inputTopWidgetZone.layout.height = 0;
-      this.updateDockHeight();
+  private updateFilePicker(): void {
+    if (this.commandPalette) {
+      this.filePicker.dismiss();
+      return;
     }
-  }
-
-  private selectFilePickerEntry(entry: PickerEntry): void {
-    const value = this.input.value;
-    const cursor = this.input.cursor;
-    const anchor = this.filePickerAnchor;
-    if (anchor < 0) return;
-
-    const before = value.slice(0, anchor + 1);
-    const after = value.slice(cursor);
-    const insertText = entry.kind === 'agent' ? entry.name : entry.path;
-
-    const newValue = `${before}${insertText}${after}`;
-    const newCursor = anchor + 1 + insertText.length;
-    this.input.setValue(newValue);
-    this.input.setCursor(newCursor);
-    this.updateHighlights(newValue);
-    this.dismissFilePicker();
-    this.tui.requestRender();
+    this.filePicker.update();
   }
 
   private updateHighlights(value: string): void {
@@ -1147,64 +974,6 @@ export class ChatApp {
       }
     }
     return false;
-  }
-
-  private interceptFilePickerInput(event: Extract<InputEvent, { type: 'key' }>): boolean {
-    if (!this.filePicker) return false;
-
-    const entries = this.filePicker.visibleEntries;
-    if (entries.length === 0) return false;
-
-    if (event.key === 'up') {
-      this.filePickerCursor = Math.max(0, this.filePickerCursor - 1);
-      this.filePicker.setSelectedIndex(this.filePickerCursor);
-      this.tui.requestRender();
-      return true;
-    }
-    if (event.key === 'down') {
-      this.filePickerCursor = Math.min(entries.length - 1, this.filePickerCursor + 1);
-      this.filePicker.setSelectedIndex(this.filePickerCursor);
-      this.tui.requestRender();
-      return true;
-    }
-    if (event.key === 'tab' || event.key === 'enter') {
-      const entry = entries[this.filePickerCursor];
-      if (entry) this.selectFilePickerEntry(entry);
-      return true;
-    }
-    if (event.key === 'escape' || event.key === 'esc') {
-      this.dismissFilePicker();
-      this.tui.requestRender();
-      return true;
-    }
-    return false;
-  }
-
-  private runShellCommand(cmd: string): void {
-    const theme = this.themeProvider.current();
-    const entry = { role: 'output_block' as const, component: new OutputBlock({ command: cmd, output: '', theme }) };
-    this.transcript.lines.push(entry);
-    this.renderTranscript();
-
-    let stdout = '';
-    let stderr = '';
-    const proc = spawn('bash', ['-c', cmd], { stdio: ['pipe', 'pipe', 'pipe'] });
-
-    proc.stdout?.on('data', (data: Buffer) => {
-      stdout += data.toString('utf-8');
-    });
-    proc.stderr?.on('data', (data: Buffer) => {
-      stderr += data.toString('utf-8');
-    });
-    proc.on('close', (code) => {
-      const output = code !== 0 || stderr ? [stdout, stderr].filter(Boolean).join('\n') : stdout;
-      entry.component = new OutputBlock({ command: cmd, output: output.trim() || '(no output)', theme });
-      this.renderTranscript();
-    });
-    proc.on('error', (err) => {
-      entry.component = new OutputBlock({ command: cmd, output: err.message, variant: 'error', theme });
-      this.renderTranscript();
-    });
   }
 
   // Note: mu-core Runtime exposes no AbortSignal, so we cannot interrupt an
@@ -1244,14 +1013,13 @@ export class ChatApp {
 
     this.unsubscribe?.();
     this.unsubscribe = undefined;
-    this.viewingSubAgentUnsubscribe?.();
-    this.viewingSubAgentUnsubscribe = undefined;
+    this.subAgents.detachViewing();
     await this.runtime.stop();
     this.runtime = this.modelController.createRuntime();
     this.unsubscribe = this.bus.subscribe((event) => this.handleEvent(event));
     await this.runtime.start();
     this.transcript.reset();
-    this.subAgentPreviews.clear();
+    this.subAgents.previews.clear();
     this.deferredCommandQueue.length = 0;
     this.contextText = '';
     this.roundtrips.clear();
@@ -1261,30 +1029,14 @@ export class ChatApp {
   }
 
   private async exportContext(args: string): Promise<void> {
-    const history = this.roundtrips.all();
-    if (history.length === 0) {
-      this.showErrorToast('No context available to export.');
-      return;
-    }
-
-    const outputPath = args.trim() || '.mu/context.json';
-    const resolvedPath = resolve(outputPath);
-    const payload = {
-      exportedAt: new Date().toISOString(),
-      model: this.modelController?.model,
-      roundtrips: history,
-    };
-
-    try {
-      await mkdir(dirname(resolvedPath), { recursive: true });
-      await writeFile(resolvedPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-      this.transcript.lines.push({ role: 'command', content: `/context-export ${outputPath}` });
-      this.transcript.lines.push({ role: 'command_result', content: `saved context to ${outputPath}` });
-      this.renderTranscript();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.showErrorToast(`Failed to export context: ${message}`);
-    }
+    await exportContextToFile({
+      args,
+      roundtrips: this.roundtrips,
+      modelId: this.modelController?.model,
+      transcript: this.transcript,
+      onRender: () => this.renderTranscript(),
+      onError: (message) => this.showErrorToast(message),
+    });
   }
 
   private handleToggleThinking(): void {
@@ -1294,160 +1046,24 @@ export class ChatApp {
   }
 
   private toggleOutputBlocks(): void {
-    const blocks = this.transcript.lines
-      .filter((e): e is Extract<typeof e, { role: 'output_block' }> => e.role === 'output_block')
-      .map((e) => e.component);
-    if (blocks.length === 0) return;
-    const allExpanded = blocks.every((b) => b.expanded);
-    for (const b of blocks) b.expanded = !allExpanded;
-    this.renderTranscript();
+    if (toggleOutputBlocksInTranscript(this.transcript)) this.renderTranscript();
   }
 
   // --- Model picker modal ---
 
   private openModelModal(): void {
-    if (!this.modelController) {
-      this.openModal({
-        title: 'Model Picker',
-        body: 'No model controller is configured.',
-        footer: 'Esc or Enter to close',
-        onClose: () => this.closeModal(),
-      });
-      return;
-    }
-
-    if (this.runtime.state() !== 'idle') {
-      this.openModal({
-        title: 'Model Picker',
-        body: 'Cannot switch model while a response is running.',
-        footer: 'Esc or Enter to close',
-        onClose: () => this.closeModal(),
-      });
-      return;
-    }
-
-    this.openModal({
-      title: 'Model Picker',
-      body: `Loading models...\nCurrent: ${this.modelController.model || 'unknown'}`,
-      footer: 'Up/Down to move, Enter to select, Esc to close',
-      contentPaddingX: 0,
-      onClose: () => this.closeModal(),
-    });
-
-    void this.loadModelsForModal();
+    this.modelPicker.open();
   }
 
-  private async loadModelsForModal(): Promise<void> {
-    if (!(this.modelController && this.modal)) return;
-    try {
-      this.models = await this.modelController.listModels();
-      const current = this.modelController.model;
-      this.modelCursor = Math.max(0, this.models.findIndex((model) => model.id === current));
-      this.mountModelSelectList();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.modal.setContent({
-        title: 'Model Picker',
-        body: `Failed to list models:\n${message}`,
-        footer: 'Esc or Enter to close',
-        content: undefined,
-      });
-      this.tui.requestRender(true);
-    }
-  }
-
-  private mountModelSelectList(): void {
-    if (!this.modal) return;
-    const current = this.modelController?.model ?? '';
-
-    if (this.models.length === 0) {
-      this.modal.setContent({
-        title: 'Model Picker',
-        body: 'No models available.',
-        footer: 'Esc to close',
-        content: undefined,
-      });
-      this.tui.requestRender(true);
-      return;
-    }
-
-    const maxIdWidth = this.models.reduce((max, m) => Math.max(max, m.id.length), 0);
-    const DIM = '\x1b[2m';
-    const items = this.models.map((model) => {
-      const pad = ' '.repeat(maxIdWidth - model.id.length);
-      const provider = model.ownedBy ? `  ${model.ownedBy}` : '';
-      return {
-        label: `${model.id}${pad}${DIM}${provider}`,
-        selectedLabel: `${model.id}${pad}${provider}`,
-        value: model,
-      };
-    });
-
-    const selectList = new SelectList<Model>({
-      items,
-      selectedIndex: this.modelCursor,
-      itemPaddingX: 2,
-      onChange: (_item, index) => {
-        this.modelCursor = index;
-      },
-      onSelect: (item) => {
-        if (item.value) this.selectModelById(item.value.id);
-      },
-      layout: { width: 'fill', height: 'fill' },
-      resolveStyles: (ctx) => {
-        const theme = getTheme(ctx);
-        return {
-          item: styleToAnsi(theme.styles.commandPaletteItem),
-          selected: styleToAnsi(theme.styles.commandPaletteSelected),
-          hovered: styleToAnsi(theme.styles.commandPaletteHover),
-        };
-      },
-    });
-
-    const visibleRows = Math.min(items.length, 10);
-    this.modal.setSize(undefined, visibleRows + 2);
-
-    this.modal.setContent({
-      title: 'Model Picker',
-      footer: `Current: ${current || 'unknown'}`,
-      content: selectList,
-    });
-    this.tui.setFocus(selectList);
-    this.tui.requestRender(true);
-  }
-
-  private interceptModalInput(event: Extract<InputEvent, { type: 'key' }>): boolean {
-    if (event.key === 'escape' || event.key === 'esc') {
-      this.closeModal();
-      return true;
-    }
-    return false;
-  }
-
-  private selectModelById(id: string): void {
-    if (!this.modelController) {
-      this.closeModal();
-      return;
-    }
-    this.modelController.setModel(id);
-    this.setStatus(`model: ${id}`);
-    this.closeModal();
-  }
-
-  private openModal(props: ConstructorParameters<typeof Modal>[0]): void {
-    if (this.modal) this.root.removeChild(this.modal);
-    this.modal = new Modal(props);
-    this.root.addChild(this.modal);
-    this.tui.setFocus(this.modal);
-    this.tui.requestRender(true);
-  }
-
-  private closeModal(): void {
-    if (!this.modal) return;
-    this.root.removeChild(this.modal);
-    this.modal = undefined;
-    this.tui.setFocus(this.input);
-    this.tui.requestRender(true);
+  /**
+   * Add/remove a modal at the root level. `ModelPickerController` is the only
+   * caller today; if more modal-bearing controllers appear they reuse the same
+   * mount point, which is why this stays generic.
+   */
+  private mountRootModal(modal: Component | undefined): void {
+    if (this.mountedModal) this.root.removeChild(this.mountedModal);
+    this.mountedModal = modal ?? undefined;
+    if (modal) this.root.addChild(modal);
   }
 
   // --- Event handling ---
@@ -1510,66 +1126,34 @@ export class ChatApp {
   // --- Rendering ---
 
   private renderTranscript(): void {
-    if (this.viewingSubAgent) {
-      this.renderSubAgentView(this.viewingSubAgent);
-      return;
-    }
     const shouldStickToBottom = this.scrollView.isAtBottom();
-    const components: Component[] = [];
-    for (const entry of this.transcript.lines) {
-      switch (entry.role) {
-        case 'user':
-          components.push(new UserMessage({ content: entry.content, label: entry.label }));
-          break;
-        case 'assistant':
-          components.push(new AssistantMessage({ content: entry.content }));
-          break;
-        case 'command':
-          components.push(new CommandLine(entry.content));
-          break;
-        case 'command_result':
-          components.push(new CommandResultLine(entry.content));
-          break;
-        case 'output_block':
-          components.push(entry.component);
-          break;
-        case 'reasoning':
-          if (entry.closed) {
-            components.push(new HiddenThinkingLine(() => {
-              this.transcript.openThinkingLine(entry);
-              this.renderTranscript();
-            }));
-          } else {
-            components.push(
-              new ReasoningBlock({
-                content: entry.content,
-                layout: { width: 'fill', height: 'auto', padding: { left: 1, right: 1 } },
-              }),
-            );
-          }
-          break;
-        case 'tool':
-          components.push(new ToolLine(entry.name, entry.argsPreview));
-          break;
-        case 'error':
-          components.push(new ErrorLine(entry.content));
-          break;
-        case 'subagent_preview': {
-          const run = this.subAgentRuns.get(entry.runId);
-          if (!run) break;
-          const preview = new SubAgentPreview({
-            run,
-            onClick: (id) => this.openSubAgentDetail(id),
-          });
-          // Cache the live preview component so per-run notifications can
-          // mutate the props in place without rebuilding the whole transcript.
-          this.subAgentPreviews.set(entry.runId, preview);
-          components.push(preview);
-          break;
-        }
+    let components: Component[];
+    if (this.subAgents.viewing) {
+      const run = this.subAgents.runs.get(this.subAgents.viewing);
+      if (!run) {
+        // The run vanished — fall back to the main view.
+        this.subAgents.detachViewing();
+        components = this.buildMainComponents();
+      } else {
+        components = buildSubAgentViewComponents(run);
       }
+    } else {
+      components = this.buildMainComponents();
     }
     this.scrollView.setChildren(components, { stickToBottom: shouldStickToBottom });
     this.tui.requestRender();
+  }
+
+  private buildMainComponents(): Component[] {
+    return buildTranscriptComponents({
+      transcript: this.transcript,
+      subAgentRuns: this.subAgents.runs,
+      previewCache: this.subAgents.previews,
+      onOpenSubAgent: (id) => this.subAgents.openDetail(id),
+      onOpenThinking: (line) => {
+        this.transcript.openThinkingLine(line);
+        this.renderTranscript();
+      },
+    });
   }
 }
