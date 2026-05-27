@@ -385,7 +385,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Architecture
 
-**69. `tui.ts` is 750-line god-object**
+**69. `tui.ts` is 750-line god-object — DONE**
 - File: `src/tui.ts`
 - Dimension: Architecture — Severity: P1
 - Detail: Mixes ≥7 concerns: lifecycle, render scheduling/throttling, diff algorithm, layout invocation, input router, focus traversal, feature lifecycle, global keybindings.
@@ -1723,7 +1723,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Both own slash-detection logic.
 - Direction: dedupe internally in harness; coding-agent should consume the Channel-side slash detection rather than building its own. See [[feedback-harness-role]].
 
-**321. `bootstrap.ts` is 300-line god function**
+**321. `bootstrap.ts` is 300-line god function — DONE**
 - File: `src/bootstrap.ts`
 - Dimension: Architecture — Severity: P1
 - Detail: 11 numbered steps. Steps 4-5 (permissions+approvals+hook) and 9 (tools+subagent injection) deserve dedicated factories.

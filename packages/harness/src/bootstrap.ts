@@ -15,35 +15,29 @@
  *   - the LLM provider plugin (it's host config)
  *   - the transport (TUI, WS, etc.)
  *   - the model state (which model is currently selected)
+ *
+ * Implementation is split into focused sibling factories under `./bootstrap/`:
+ *   - `permissions.ts` — permissions config + approval queue + permission hook
+ *   - `sessions.ts`    — session-store resolution
+ *   - `tools.ts`       — plugin composition + tool filtering / subagent injection
+ * This file is the orchestrator that wires the factories together.
  */
 import { existsSync } from 'node:fs';
-import {
-  type CoreEvent,
-  createBus,
-  createInMemorySessionStore,
-  type EventBus,
-  type Plugin,
-  type SessionStore,
-  type Tools,
-} from 'mu-core';
-import { type ApprovalQueue, approvalQueueToPrompt, createApprovalQueue } from './approvals/queue';
+import { type CoreEvent, createBus, type EventBus, type Plugin, type SessionStore, type Tools } from 'mu-core';
+import { type ApprovalQueue } from './approvals/queue';
+import { buildPermissionsAndApprovals, type PermissionSource } from './bootstrap/permissions';
+import { resolveSessionStore, type SessionStoreMode } from './bootstrap/sessions';
+import { buildToolsAndSubagents } from './bootstrap/tools';
 import { createXdgPaths, type XdgPaths } from './paths/xdg';
-import { createPermissionHook } from './permissions/hook';
-import { loadPermissions } from './permissions/loader';
-import { createPermissionRegistry } from './permissions/registry';
-import type { PermissionConfig } from './permissions/types';
+import type { createPermissionHook } from './permissions/hook';
 import { loadPlugins } from './plugin-loader';
-import { createJsonlSessionStore } from './sessions/jsonl-store';
 import { loadSkills } from './skills/loader';
 import { formatSkillsForSystemPrompt } from './skills/system-prompt';
 import { loadSubAgents } from './sub-agents/loader';
 import { filterToolsByPrimary, pickPrimaryAgent } from './sub-agents/primary';
-import { createSubAgentParallelTool, createSubAgentTool } from './sub-agents/tool';
 import type { SubAgent } from './sub-agents/types';
 
-export type SessionStoreMode = 'jsonl' | 'memory';
-
-export type PermissionSource = 'primary-agent' | 'permissions-file' | 'none';
+export type { PermissionSource, SessionStoreMode };
 
 export interface BootstrapOptions {
   /** Host name, drives XDG paths (e.g. 'arya', 'coding-agent'). */
@@ -117,7 +111,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   const subAgentsDirs = uniqueExisting([paths.agentsDir, ...(opts.extraAgentsDirs ?? [])]);
   const permissionsFiles = unique([paths.permissionsFile, ...(opts.extraPermissionsFiles ?? [])]);
 
-  // 3. Resources from disk
+  // Resources from disk.
   const userPlugins = await loadPlugins({
     localDir: paths.pluginsDir,
     npmSpecs: opts.npmPlugins,
@@ -131,85 +125,35 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   const resolveActivePrimary = (): SubAgent | undefined =>
     dynamic ? opts.getActivePrimary!() ?? primaryAgent : primaryAgent;
 
-  // 4. Permissions
-  const source: PermissionSource = opts.permissionSource ?? (primaryAgent ? 'primary-agent' : 'permissions-file');
-  const defaultDecision = opts.defaultPermissionDecision ?? 'ask';
-  let permissionConfig: PermissionConfig;
-  if (source === 'primary-agent' && primaryAgent) {
-    permissionConfig = { rules: primaryAgent.permissions, default: defaultDecision };
-  } else if (source === 'permissions-file') {
-    permissionConfig = loadPermissions(permissionsFiles);
-  } else {
-    permissionConfig = { rules: [], default: defaultDecision };
-  }
+  // Permissions + approvals + hook.
+  const { approvalQueue, hook: permissionHook } = buildPermissionsAndApprovals({
+    primaryAgent,
+    dynamic,
+    resolveActivePrimary,
+    permissionsFiles,
+    source: opts.permissionSource,
+    defaultDecision: opts.defaultPermissionDecision,
+  });
 
-  // 5. Approval queue + permission hook
-  const approvalQueue = createApprovalQueue();
-  // Static path: one frozen registry from boot-time config.
-  // Dynamic path: rebuild the registry per call so swapping the active primary
-  // immediately changes which rules apply to the next tool call.
-  const staticRegistry = createPermissionRegistry(permissionConfig);
-  const permissionHook = dynamic
-    ? createPermissionHook({
-      registry: {
-        check(call) {
-          const active = resolveActivePrimary();
-          if (!active) return staticRegistry.check(call);
-          // Tool filtering hides disallowed tools from the LLM entirely (via
-          // toolFilter, see below); here we only need to evaluate the active
-          // agent's permission rules.
-          const registry = createPermissionRegistry({
-            rules: active.permissions,
-            default: defaultDecision,
-          });
-          return registry.check(call);
-        },
-      },
-      prompt: approvalQueueToPrompt(approvalQueue),
-    })
-    : createPermissionHook({
-      registry: staticRegistry,
-      prompt: approvalQueueToPrompt(approvalQueue),
-    });
+  // Session store.
+  const store = resolveSessionStore(opts.sessionStore, paths.sessionsDir);
 
-  // 6. Session store
-  const store: SessionStore = typeof opts.sessionStore === 'object' && opts.sessionStore !== null
-    ? opts.sessionStore
-    : opts.sessionStore === 'memory'
-    ? createInMemorySessionStore()
-    : createJsonlSessionStore(paths.sessionsDir);
-
-  // 7. Bus
+  // Bus.
   const bus = createBus<CoreEvent>();
 
-  // 8. Plugins
-  const plugins: Plugin[] = [
-    ...(opts.providerPlugin ? [opts.providerPlugin] : []),
-    ...(opts.extraPlugins ?? []),
-    ...userPlugins,
-  ];
+  // Tools + plugins (filter base tools, inject subagent dispatcher).
+  const { tools, plugins } = buildToolsAndSubagents({
+    baseTools: opts.baseTools,
+    providerPlugin: opts.providerPlugin,
+    extraPlugins: opts.extraPlugins,
+    userPlugins,
+    subAgents,
+    primaryAgent,
+    approvalQueue,
+    dynamic,
+  });
 
-  // 9. Tools: dynamic mode keeps every base tool (active filter happens in
-  // the permission hook); static mode pre-filters by the boot-time primary.
-  let tools: Tools = dynamic
-    ? { ...(opts.baseTools ?? {}) }
-    : filterToolsByPrimary(opts.baseTools ?? {}, primaryAgent);
-
-  if (subAgents.length > 0) {
-    const deps = {
-      getSubAgents: () => subAgents,
-      getTools: () => tools,
-      getPlugins: () => plugins,
-      approvalPrompt: approvalQueueToPrompt(approvalQueue),
-    };
-    tools = {
-      ...tools,
-      subagent: createSubAgentTool(deps),
-      subagent_parallel: createSubAgentParallelTool(deps),
-    };
-  }
-
-  // 10. System prompt — closes over the active primary so swapping affects
+  // System prompt — closes over the active primary so swapping affects
   // the next turn immediately.
   const systemPrompt = (): string | undefined => {
     const active = resolveActivePrimary();
@@ -219,7 +163,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
     return combined || undefined;
   };
 
-  // 10b. Tool filter — in dynamic mode the active primary's allow-list hides
+  // Tool filter — in dynamic mode the active primary's allow-list hides
   // disallowed tools from the LLM entirely (no schema, no system prompt for them).
   const toolFilter: ((tools: Tools) => Tools) | undefined = dynamic
     ? (merged) => filterToolsByPrimary(merged, resolveActivePrimary())

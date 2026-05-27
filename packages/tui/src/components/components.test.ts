@@ -5,7 +5,8 @@ import { createDefaultCapabilities } from '../capabilities';
 import { cellBufferToLines as canvasToLines, createCellBuffer as createCanvas } from '../layout/cellbuffer';
 import { layoutTree, sortForRender } from '../layout/engine';
 import { drawEntry } from '../layout/render';
-import type { LayoutEntry, RenderContext } from '../layout/types';
+import type { InputEvent } from '../events';
+import type { RenderContext } from '../layout/types';
 import { TUI } from '../tui';
 import type { Component } from '../types/component';
 import type { Terminal } from '../types/terminal';
@@ -439,9 +440,8 @@ describe('ScrollView', () => {
     tui.addChild(root);
     tui.setFocus(input);
 
-    (tui as unknown as { layoutEntries: LayoutEntry[] }).layoutEntries =
-      (tui as unknown as { layoutSnapshot: (w: number, h: number) => LayoutEntry[] }).layoutSnapshot(20, 6);
-    tui.handleMouseEvent({
+    (tui as unknown as { doRender: () => void }).doRender();
+    (tui as unknown as { dispatchEvent: (event: InputEvent) => void }).dispatchEvent({
       type: 'mouse',
       kind: 'wheel',
       button: 'wheelDown',
@@ -455,7 +455,6 @@ describe('ScrollView', () => {
       alt: false,
       meta: false,
     });
-    (tui as unknown as { stopped: boolean }).stopped = true;
 
     expect(tui.getFocused()).toBe(input);
     expect(scrollView.scrollY).toBe(1);
