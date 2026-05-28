@@ -10,11 +10,19 @@ import type { Resolvable, ToolCall, ToolContext, Tools } from './types/Tool';
 
 export type RuntimeState = 'idle' | 'running' | 'stopped';
 
+/**
+ * Provenance tag on prompts that enter the runtime. Default `'user'` means
+ * a real person typed it; other values surface that the message came from
+ * an automated source (cron, RPC, agent-to-agent forwarding), which the
+ * permission hook can read to refuse risky auto-actions.
+ */
+export type MessageSource = 'user' | 'cron' | 'rpc' | 'agent' | (string & {});
+
 export type CoreEvent =
-  | { type: 'user_message'; message: Message }
-  | { type: 'steer'; message: Message }
-  | { type: 'follow_up'; message: Message }
-  | { type: 'queued_message'; queue: 'steering' | 'follow_up'; message: Message }
+  | { type: 'user_message'; message: Message; source?: MessageSource }
+  | { type: 'steer'; message: Message; source?: MessageSource }
+  | { type: 'follow_up'; message: Message; source?: MessageSource }
+  | { type: 'queued_message'; queue: 'steering' | 'follow_up'; message: Message; source?: MessageSource }
   | { type: 'queue_update'; steering: readonly Message[]; followUp: readonly Message[] }
   | { type: 'assistant_start' }
   | { type: 'assistant_delta'; content: string }

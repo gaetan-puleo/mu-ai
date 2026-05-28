@@ -76,15 +76,14 @@ function scheduleTask(
     const at = Date.now();
     onEvent?.({ type: 'task_started', task, at });
     try {
-      // TODO(security/P2): cron-fired prompts publish as plain `user_message`
-      // with no provenance, so the permission registry cannot distinguish a
-      // human-typed prompt from a scheduler-fired one. A clean fix needs a
-      // `source` annotation on the published event (e.g. `source: 'cron'`)
-      // that the permission hook can read — but `CoreEvent.user_message` lives
-      // in mu-core and adding a field there is out of scope for this package.
-      // Until then, hosts that schedule cron tasks should treat the scheduler
-      // as a trusted source and pin permissions accordingly.
-      bus.publish({ type: 'user_message', message: { role: 'user', content: task.prompt } });
+      // Tag scheduled prompts with `source: 'cron'` so the permission hook
+      // (or anything subscribed to the bus) can refuse risky auto-actions
+      // it would normally let a real user perform.
+      bus.publish({
+        type: 'user_message',
+        message: { role: 'user', content: task.prompt },
+        source: 'cron',
+      });
     } catch (err) {
       onEvent?.({
         type: 'task_failed',

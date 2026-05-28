@@ -2,6 +2,7 @@
 export {
   type CoreEvent,
   createRuntime,
+  type MessageSource,
   type Runtime,
   type RuntimeConfig,
   type RuntimeState,

@@ -1832,10 +1832,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P2
 - Detail: `new Cron(task.cron, ...)` throws synchronously on invalid cron strings; no try/catch around `scheduleTask`. One malformed line kills scheduler start.
 
-**315. Cron-fired prompts have no provenance — PARTIAL (TODO documented at cron-publish site; full fix requires mu-core CoreEvent extension)**
+**315. Cron-fired prompts have no provenance — DONE**
 - File: `src/scheduler/plugin.ts:70`
 - Dimension: Bug — Severity: P2 (security)
 - Detail: Scheduled tasks publish `user_message` directly. Permission rules can't distinguish "user typed this" from "cron fired".
+- Fix: mu-core's `CoreEvent` variants (`user_message`, `steer`, `follow_up`, `queued_message`) now carry an optional `source?: MessageSource` field (`'user' | 'cron' | 'rpc' | 'agent' | string`). The scheduler now publishes with `source: 'cron'`. `MessageSource` is exported from mu-core so the permission hook (or any consumer) can refuse risky auto-actions.
 
 **316. Channel manager caches half-started channel — DONE**
 - File: `src/channels/manager.ts:33-42`
