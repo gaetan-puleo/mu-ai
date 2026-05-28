@@ -5,6 +5,10 @@ import type { PermissionCheck, PermissionRule } from './types';
 export interface PermissionPromptMeta {
   /** Sub-agent that triggered the call, if any. Set by `runSubAgent`. */
   agent?: string;
+  /** Session id the call belongs to (multi-runtime hosts). */
+  sessionId?: string;
+  /** Channel that raised the call (multi-channel hosts). */
+  channelId?: string;
 }
 
 /**

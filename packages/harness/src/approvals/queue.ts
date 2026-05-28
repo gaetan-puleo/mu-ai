@@ -21,6 +21,17 @@ export interface ApprovalRequest {
    * Absent for primary-agent calls.
    */
   agent?: string;
+  /**
+   * Session in which the request was raised. Set by hosts that run more than
+   * one runtime (arya per WS client, etc.) so the UI can route the approval
+   * back to the right view.
+   */
+  sessionId?: string;
+  /**
+   * Channel that requested the approval (e.g. `'tui'`, `'ws:client-42'`).
+   * Set by multi-channel hosts so prompts can target the originating surface.
+   */
+  channelId?: string;
 }
 
 export type ApprovalDecision = 'allow' | 'deny';
@@ -38,6 +49,10 @@ export function assertApprovalDecision(value: unknown): ApprovalDecision {
 export interface ApprovalRequestMeta {
   /** Sub-agent that triggered the call, if any. */
   agent?: string;
+  /** Session id the call belongs to (multi-runtime hosts). */
+  sessionId?: string;
+  /** Channel that raised the call (multi-channel hosts). */
+  channelId?: string;
 }
 
 export interface ApprovalQueue {
@@ -71,6 +86,8 @@ export function createApprovalQueue(): ApprovalQueue {
           matchedRule,
           createdAt: Date.now(),
           agent: meta?.agent,
+          sessionId: meta?.sessionId,
+          channelId: meta?.channelId,
         };
         pendingMap.set(id, { req, resolve });
         for (const fn of listeners) {

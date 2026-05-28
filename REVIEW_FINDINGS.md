@@ -2084,11 +2084,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: In memory only, no link to Session/transcript. Relationship to core's `LLMResponseContext` unwritten.
 - Decision: `RoundtripStore` is the in-memory aggregation of `LLMResponseContext` over a session — its sole consumer is the `/context` view in coding-agent. Persistence (cross-session history) isn't needed because the view is "this session's roundtrips". Linking to messages would couple it to the session entity for no consumer benefit.
 
-**357. `ApprovalRequest` lacks context — PARTIAL**
+**357. `ApprovalRequest` lacks context — DONE**
 - File: `src/approvals/queue.ts:12`
 - Dimension: Entity — Severity: P1
 - Detail: No session id, no requesting agent name, no channel — makes multi-channel/multi-session approval routing hard.
-- Fix: `ApprovalRequestMeta` (passed alongside) carries the agent name (#310). Session id + channel id wait on the multi-channel routing design (currently a single primary runtime → single channel per process).
+- Fix: `ApprovalRequest` now carries `agent?`, `sessionId?`, `channelId?` — all populated from `ApprovalRequestMeta` (also enriched). Same fields added to `PermissionPromptMeta`. Hosts that don't route by session/channel can omit; multi-runtime hosts (arya per WS client) can populate.
 
 **358. `SchedulerTask.channel` dangling — REJECTED**
 - File: `src/scheduler/plugin.ts:28, 70`
@@ -2892,13 +2892,13 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
   - mu-coding-agent state: `saveState` writes via `writeFileSync` to a tiny config file; atomic semantics from kernel on small writes are sufficient there.
   - No need to hoist a shared helper to mu-core — the only sites that genuinely need temp+rename are in mu-tools (`writeAtomic` lives next to its callers).
 
-**500. Pattern: Approval/Session entities anaemic — PARTIAL**
+**500. Pattern: Approval/Session entities anaemic — DONE (mu side)**
 - Packages: mu-harness (ApprovalRequest no sessionId/agentName/channelId), arya/server (singleton activeSessionId), arya-companion (global ApprovalSnapshot pool), mu-core (Session conflates persisted+queues)
 - Detail: All four bugs share root: approval/session entities lack context fields for multi-tenant correctness.
 - Severity: P1
 - Fix:
   - mu-core: queues moved off `Session` (#40) — persisted vs transient state now separate.
-  - mu-harness: `ApprovalRequestMeta.agent` carries agent name (#310). Channel id deferred — see #357.
+  - mu-harness: `ApprovalRequest` + `ApprovalRequestMeta` + `PermissionPromptMeta` all carry `agent?`, `sessionId?`, `channelId?` (#310, #357). Multi-runtime/multi-channel routing now possible without external bookkeeping.
   - arya/server + companion: fixed in arya-agent repo (#392, #393, #420, #469).
 
 **501. Pattern: Duplicated types across boundaries — PARTIAL**
