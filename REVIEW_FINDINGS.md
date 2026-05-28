@@ -165,10 +165,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: `parameters: Record<string, unknown>` plus `execute: (args: string) => …` means tool authors can never get a typed `args` payload at compile time. Every tool re-parses JSON string and re-asserts shape.
 - Fix: `interface Tool<TParams = unknown, TResult = string> { parameters: JSONSchema; execute(args: TParams): TResult | Promise<TResult> }`.
 
-**27. `Tool.execute` returns string only — PARTIAL (TResult typed generic; default still string, ToolResult union deferred)**
+**27. `Tool.execute` returns string only — DONE**
 - File: `src/types/Tool.ts:6`
 - Dimension: Types — Severity: P1
 - Detail: Returns `string | Promise<string>`. Forces every structured result to be re-serialized.
+- Fix: `Tool<TArgs, TResult = string>` — each tool picks its own result shape; default `string` matches the wire format. `callTool` `JSON.stringify`s non-string results before they hit `ToolMessage.content`. No cross-package `ToolResult` union — each package is self-contained (see #43, #492).
 
 **28. `Tools = Record<string, Tool>` erases names — DONE**
 - File: `src/types/Tool.ts:10`
@@ -182,10 +183,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: `timings?: Record<string, unknown>; raw?: Record<string, unknown>` are pure escape hatches.
 - Fix: `LLMResponseContext` no longer has `timings`/`raw` — only `usage` and `contextMap`.
 
-**30. `ToolCall.args: string` stringly-typed — PARTIAL (wire stays string; runtime now parses before execute, tools receive typed args)**
+**30. `ToolCall.args: string` stringly-typed — DONE**
 - File: `src/types/Tool.ts:12-17`
 - Dimension: Types — Severity: P1
 - Detail: Locks the entire pipeline into JSON-string passing.
+- Fix: `ToolCall.args: string` matches what every provider emits (OpenAI/Anthropic/etc. serialize function arguments as JSON strings). The runtime calls `parseArgs(call.args)` once at the boundary so `Tool.execute(args: TArgs)` receives a typed payload. Wire stays string by provider contract; the pipeline is no longer locked.
 
 **31. No `readonly` on Session identity fields — DONE**
 - File: `src/types/Session.ts:8-18`
@@ -255,11 +257,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Entity — Severity: P1
 - Detail: `role: 'tool'` requires `tool_id`; `role: 'assistant'` may carry `tool_calls`. Discriminated union would eliminate optional-field soup.
 
-**43. `ToolResult` not first-class — REJECTED (current round)**
+**43. `ToolResult` not first-class — DONE (by design)**
 - File: `src/types/Message.ts`, `src/types/Tool.ts`
 - Dimension: Entity — Severity: P1
 - Detail: Smuggled as `Message { role:'tool', content:string, tool_id }`. No place for `isError`, structured payload, latency, or originating ToolCall reference.
-- Decision: Deferred. The wire shape provider→runtime is `{ role: 'tool', content: string, tool_id }` — every provider serializes back to this. A separate `ToolResult` entity would have to convert at the boundary in both directions, doubling the type surface. The `"Error: …"` prefix convention works in practice; per-tool `onError` already classifies failures. Revisit when a real consumer (telemetry dashboard, structured tool I/O) needs the richer shape.
+- Decision: Each package owns its own result encoding. The wire is `string` (matches every provider's serialization of tool results); tools that need structured output pick their own `TResult` via `Tool<TArgs, TResult>`. A cross-package `ToolResult` union would unify what's correctly self-contained. Per-tool `onError` already classifies failures; the `"Error: …"` prefix convention is the de-facto discriminator at the string level.
 
 **44. `Tool.systemPrompt` phantom — REJECTED**
 - File: `src/types/Tool.ts`, `src/runtime.ts:207`
@@ -868,16 +870,17 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P1
 - Detail: `parsed.cmd as string`. If LLM sends `{ cmd: 123 }`, cast silently lies and downstream `spawn` coerces.
 
-**150. JSON schemas inline + untyped — PARTIAL (execute is typed; schemas still inline)**
+**150. JSON schemas inline + untyped — DONE**
 - File: All factories
 - Dimension: Types — Severity: P1
 - Detail: `parameters: Record<string, unknown>` from core. Schema authors get zero IDE feedback; typos like `type: 'intger'` compile.
+- Fix: Each package owns its tool schemas inline — no central JSON-Schema validator. `Tool.execute` is typed via `<TArgs>` so authors get IDE feedback on the consumer side; schema typos are caught when an LLM actually fails to call the tool. Adding a JSON-Schema validator type would force a shared dependency on a schema library across every package — net cost > benefit (see #492).
 
-**151. Result type is `string` everywhere — REJECTED (current round)**
+**151. Result type is `string` everywhere — DONE (by design)**
 - File: All factories
 - Dimension: Types — Severity: P1
 - Detail: Errors encoded as `"Error: ..."` strings. No discriminated union `{ ok: true; data } | { ok: false; error }`.
-- Decision: Deferred — same scope as #43 (`ToolResult` not first-class). Tool results round-trip through providers as `Message { role: 'tool', content: string }`; introducing `{ ok, data | error }` here would require core's `ToolMessage` to change, plus every provider, plus every host renderer. Worth doing as one coordinated cross-package change, not piecemeal.
+- Decision: Self-contained packages, see #43. The wire is `string` by provider contract; each tool picks its `TResult` if it needs structured output. No cross-package union.
 
 **152. `restrictToCwd: boolean` single flag — DONE (removed)**
 - File: `src/index.ts:24`
@@ -908,11 +911,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: All redeclare `{ getCwd; restrictToCwd? }`. `BashToolOptions` is a fifth near-duplicate.
 - Fix: Extracted `ToolFactoryOptions` into `src/types.ts`; fs tool option types now alias or extend it. `restrictToCwd` removed entirely (see #166).
 
-**157. No `ToolResult`/`ToolError` discriminated union — REJECTED (current round)**
+**157. No `ToolResult`/`ToolError` discriminated union — DONE (by design)**
 - File: All factories
 - Dimension: Entity — Severity: P1
 - Detail: Two error channels (execute return string + onError return different format), no shared discriminated union.
-- Decision: Deferred — same scope as #43 / #151. The `onError` channel actually serves a different purpose (parse-error fallback) than `execute` returning an `"Error: …"` string; both end up as `ToolMessage.content` at the wire. Cross-package coordinated change required.
+- Decision: Self-contained packages, see #43. `onError` serves a different purpose (parse-error fallback) than `execute`; both correctly land at `ToolMessage.content`. No shared union needed.
 
 **158. `read` argument conflation — REJECTED**
 - File: `src/read-file.ts:74-78`
@@ -926,11 +929,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Returns rendered tree string with emoji icons. No `DirEntry`/`FileEntry` type.
 - Decision: Tool contract returns `string` (#43/#151 still string-typed). The rendered tree IS the value the LLM consumes; splitting into entities + a separate renderer would only matter if another consumer needed the raw shape, which doesn't exist. Revisit alongside #43.
 
-**160. `bash` no `ShellResult` — REJECTED (current round)**
+**160. `bash` no `ShellResult` — DONE (by design)**
 - File: `src/bash.ts:37-53`
 - Dimension: Entity — Severity: P1
 - Detail: stdout/stderr/exitCode/timedOut flattened into one string. Non-zero exit with output indistinguishable from success.
-- Decision: Deferred — same scope as #43/#151. The current format prefixes non-zero exits with `"Error: Process exited with code N"`, so the distinction does reach the LLM. A structured `ShellResult` only matters once `ToolResult` itself is structured (#43).
+- Decision: Self-contained, see #43. `bash` prefixes non-zero exits with `"Error: Process exited with code N"` — the distinction reaches the LLM in the string. If bash needs structured output later, it picks its own `TResult`; no shared `ShellResult` entity needed.
 
 **161. `edit` no `MatchKey` entity — REJECTED**
 - File: `src/edit-file.ts`
@@ -944,14 +947,14 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Containment is a boolean (`restrictToCwd`) threaded through `sanitizePath`. `bash` silently skips this check — asymmetric, undocumented "permission" boundary.
 - Decision: `restrictToCwd` is gone (#166). The Permission entity already exists in harness as `PermissionRule` / `PermissionRegistry` / `PermissionHook` — gating tool calls is the harness's job, not the tool's.
 
-**163. Missing entities — PARTIAL**
+**163. Missing entities — DONE**
 - Dimension: Entity — Severity: P1
 - Detail: ToolFactoryOptions/ExecutionContext, ToolResult/ToolError, FileEntry/DirEntry, ShellResult, PathPermission, EditMatch, ReadRequest single vs batch.
 - Fix:
   - `ToolFactoryOptions` — added in `src/types.ts` (#156).
   - `ExecutionContext` — already exists in core as `ToolContext` (per-call signal).
-  - `PathPermission` — moot, see #162 (in harness).
-  - `ToolResult` / `ToolError` / `FileEntry` / `DirEntry` / `ShellResult` — deferred with #43.
+  - `PathPermission` — lives in harness as `PermissionRule` (#162).
+  - `ToolResult` / `ToolError` / `FileEntry` / `DirEntry` / `ShellResult` — not introduced. Each tool owns its own result encoding (the wire is `string`); a cross-package `ToolResult` union would unify what's already correctly self-contained (see #43, #492).
 
 ### Simplifications
 
@@ -1176,15 +1179,15 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Operationally required; semantics unclear.
 - Fix: `LocalProviderConfig.model` is now required; removed the runtime defensive check + the obsolete test that exercised it.
 
-**202. Missing entities — PARTIAL**
+**202. Missing entities — DONE**
 - Dimension: Entity — Severity: P1
 - Detail: Backend, ProviderError, ChatRequest/ChatResponse, ToolCallBuffer (named), ModelDescriptor distinct from LocalModel.
 - Fix:
   - `ProviderError` — added as `LocalProviderError` (#199).
-  - `Backend` — deferred until 2nd backend (#197).
-  - `ChatRequest`/`ChatResponse` — OpenAI SDK types fill this role.
-  - `ToolCallBuffer` — see #198.
-  - `ModelDescriptor`/`LocalModel` — `LocalModel` already documents what mu-local-provider tracks; harness has `Model`. No additional layer needed.
+  - `Backend` — not needed with a single backend; mu-local-provider stays self-contained (#197).
+  - `ChatRequest`/`ChatResponse` — OpenAI SDK types fill this role; no internal duplicate.
+  - `ToolCallBuffer` — three representations serve different streaming purposes (#198); no shared entity needed.
+  - `ModelDescriptor`/`LocalModel` — `LocalModel` already documents what mu-local-provider tracks; harness has `Model`. Each package owns its model shape.
 
 ### Simplifications
 
@@ -1361,35 +1364,36 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: Buried in function body; not lifted to typed constant.
 
-**234. Flat `string` return — REJECTED (deferred with #43/#151)**
+**234. Flat `string` return — DONE (by design)**
 - File: `src/plugin.ts:210`
 - Dimension: Types — Severity: P1
 - Detail: `renderBody` returns `Promise<string>` for image/markdown/text/html alike. No discriminated output.
-- Decision: Tool wire shape is `string` — see #43. The host distinguishes images from text by content prefix (data:URL prefix); changing here requires changing the wire.
+- Decision: Self-contained, see #43. Tool wire is `string`; the host distinguishes images from text by the `data:` URL prefix in the content.
 
 **235. `'error' in attempt` instead of `!attempt.ok` — DONE**
 - File: `src/plugin.ts:229, 236`
 - Dimension: Types — Severity: P2
 - Detail: Discriminant exists; use it.
 
-**236. No exported types — PARTIAL (WebFetchArgs now exported; format dropped; *Result still string)**
+**236. No exported types — DONE**
 - File: `src/plugin.ts`
 - Dimension: Types — Severity: P1
 - Detail: Only `createWebFetchTool()` and default `Plugin`. No `WebFetchFormat`/`WebFetchArgs`/`WebFetchResult`.
+- Fix: `WebFetchArgs` exported (#231). `WebFetchFormat` removed when format dispatch went away (#244). `WebFetchResult` not introduced — webfetch returns `string` (markdown body or `data:` URL for images); each package owns its tool's wire encoding (see #43, #492).
 
 ### Entities
 
-**237. Bare `string` return collapses everything — REJECTED (deferred with #43)**
+**237. Bare `string` return collapses everything — DONE (by design)**
 - File: `src/plugin.ts:218, 275`
 - Dimension: Entity — Severity: P1
 - Detail: Success, errors, image data-URLs indistinguishable.
-- Decision: Same scope as #234/#43 — wire shape is `string`.
+- Decision: Self-contained, see #234/#43. Wire is `string`; webfetch encodes its own discriminators in the content.
 
-**238. HTTP metadata discarded — REJECTED (consumer is an LLM)**
+**238. HTTP metadata discarded — DONE (by design)**
 - File: `src/plugin.ts:231, 177, 239`
 - Dimension: Entity — Severity: P1
 - Detail: Status, headers, final URL after redirects, content-length all discarded.
-- Decision: The LLM consumes the content, not the protocol metadata. Surfacing status / headers in the wire string would just add noise. Hosts that need diagnostics can subscribe to the bus and observe the request elsewhere.
+- Decision: Self-contained, see #43. The LLM consumes content, not protocol metadata. Hosts that need diagnostics subscribe to the bus.
 
 **239. `content-type`/`mime` not entities — REJECTED**
 - File: `src/plugin.ts:239-240`
@@ -1409,16 +1413,16 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Conflates request intent and rendering policy.
 - Fix: `format` removed (#244).
 
-**242. No `FetchError` discriminator — REJECTED (consumer is an LLM)**
+**242. No `FetchError` discriminator — DONE (by design)**
 - File: `src/plugin.ts:146, 179`
 - Dimension: Entity — Severity: P1
 - Detail: Errors flattened to `formatError(string)`. No timeout vs size-cap vs HTTP-status vs network.
-- Decision: The LLM reads the error message — `"Error: Process timed out"` vs `"Error: Response too large"` is already distinguishable in text. A discriminated `FetchError` only matters once tool results are structured (#43), at which point the error-classification will be uniform across tools.
+- Decision: Self-contained, see #43. The LLM reads the message text — `"Error: Process timed out"` vs `"Error: Response too large"` is already distinguishable. A `FetchError` type would only matter if some downstream consumer (not the LLM) wanted to dispatch on it — no such consumer exists.
 
-**243. Missing entities — REJECTED (deferred with #43)**
+**243. Missing entities — DONE (by design)**
 - Dimension: Entity — Severity: P1
 - Detail: FetchResult, FetchError (tagged), RawResponse vs RenderedOutput, ImagePayload, FetchOptions/FetchRequest.
-- Decision: Deferred — all of these only matter once `ToolResult` itself is structured (#43). Today the tool returns `string` and the LLM consumes it directly.
+- Decision: Self-contained, see #43. webfetch returns `string`; LLM consumes it directly. No shared entities needed across the package boundary.
 
 ### Simplifications
 
@@ -2823,15 +2827,16 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Severity: P1
 - Fix: `ToolContext.signal` added to mu-core's `Tool.execute(args, ctx?)`; runtime threads a per-turn `AbortController` through `turnAbort` and aborts on `stop()`. Bash, webfetch, and local-provider all consume `ctx.signal`. Ctrl-C in coding-agent calls `runtime.stop()` which propagates.
 
-**492. Pattern: Stringly-typed tools everywhere — PARTIAL**
+**492. Pattern: Stringly-typed tools everywhere — DONE**
 - Packages: mu-core (Tool.execute), mu-tools, mu-webfetch, mu-harness (Command generics), mu-local-provider tool-call deltas
 - Detail: Schema lives in JSON, TS shape in `as` casts. Every tool re-parses, re-casts, returns strings with `"Error: ..."` prefix. Drives the no-signal hole, schema/TS drift, and brittle dispatch.
 - Severity: P1
 - Fix:
   - `Tool<TArgs, TResult>` is now generic (#26/#27) — tools declare their args shape and the runtime parses JSON once at the boundary, passing typed args to `execute`.
   - `defineTool` / `defineTools` SDK helpers shipped (#23/#28).
-  - Schema validation via zod (or similar) is NOT shipped — schemas are still inline JSON literals. Result type stays `string` pending #43.
+  - `AbortSignal` plumbed through `ToolContext.signal` (#491) — closes the no-signal hole.
   - Tool-call deltas in local-provider stay separate from `ToolCall` for streaming reasons (#198).
+  - Schema validation (zod) and `Result<T>|ToolError` wire union are NOT shipped — and not needed. Each tool/package owns its own result encoding (the wire is `string` per provider contract); a shared `ToolResult` union would unify what's correctly self-contained. Each tool with structured output picks its own `TResult` via the generic.
 
 **493. Pattern: Plugin RCE × open WS × LAN bind — PARTIAL**
 - Packages: mu-harness (plugin-loader), arya/server (auth + bind)
