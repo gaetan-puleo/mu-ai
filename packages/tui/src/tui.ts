@@ -14,15 +14,18 @@ import { Renderer } from './renderer';
 import type { Component } from './types/component';
 import type { Terminal } from './types/terminal';
 
-export interface TuiOptions {
+export interface TuiOptions<TContext = unknown> {
   capabilities?: PartialCapabilities;
   synchronizedOutput?: boolean;
   /**
    * Application-defined value forwarded into every `RenderContext.userContext`
    * and `EventContext.userContext`. The TUI core treats this as opaque data;
    * intended for consumer-defined providers such as theming.
+   *
+   * Type with `new TUI<MyContext>(terminal, { userContext })` so hosts get
+   * typed access via `getUserContext()` / `setUserContext()` without casts.
    */
-  userContext?: unknown;
+  userContext?: TContext;
 }
 
 /**
@@ -30,22 +33,25 @@ export interface TuiOptions {
  * children/capabilities state. Delegates rendering to {@link Renderer},
  * input dispatch to {@link InputRouter}, and focus traversal to
  * {@link FocusManager} — each in a sibling module.
+ *
+ * Optionally generic over the `userContext` payload so hosts can type their
+ * theme/provider blob without casts.
  */
-export class TUI {
+export class TUI<TContext = unknown> {
   private readonly terminal: Terminal;
   private readonly capabilities: Capabilities;
   private readonly children: Component[] = [];
   private layoutEntries: LayoutEntry[] = [];
   private started = false;
   private terminalFocused = true;
-  private userContext: unknown;
+  private userContext: TContext | undefined;
   private backdropColor: Rgba = OPAQUE_BLACK;
 
   private readonly renderer: Renderer;
   private readonly inputRouter: InputRouter;
   private readonly focusManager: FocusManager;
 
-  constructor(terminal: Terminal, options: TuiOptions = {}) {
+  constructor(terminal: Terminal, options: TuiOptions<TContext> = {}) {
     this.terminal = terminal;
     this.userContext = options.userContext;
 
@@ -90,9 +96,14 @@ export class TUI {
    * contexts. Triggers a full redraw so consumers immediately see the new
    * value.
    */
-  setUserContext(value: unknown): void {
+  setUserContext(value: TContext): void {
     this.userContext = value;
     this.requestRender(true);
+  }
+
+  /** Get the current typed user context value (or `undefined` if unset). */
+  getUserContext(): TContext | undefined {
+    return this.userContext;
   }
 
   /**

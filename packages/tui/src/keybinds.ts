@@ -1,4 +1,4 @@
-import type { InputEvent } from './events';
+import type { InputEvent, KeyInputEvent } from './events';
 
 export interface KeyChord {
   key?: string;
@@ -10,17 +10,15 @@ export interface KeyChord {
 
 export interface GlobalKeybinding {
   chord: KeyChord;
-  handler: () => void;
+  handler: (event: KeyInputEvent) => void;
 }
 
 export function keyMatches(chord: KeyChord, event: InputEvent): boolean {
   if (event.type !== 'key') return false;
   if (chord.key !== undefined && chord.key !== event.key) return false;
-  const fields: Array<keyof KeyChord> = ['shift', 'ctrl', 'meta', 'alt'];
-  for (const field of fields) {
-    const want = chord[field] ?? false;
-    const got = (event as unknown as Record<string, boolean | undefined>)[field] ?? false;
-    if (want !== got) return false;
-  }
+  if ((chord.shift ?? false) !== event.shift) return false;
+  if ((chord.ctrl ?? false) !== event.ctrl) return false;
+  if ((chord.meta ?? false) !== event.meta) return false;
+  if ((chord.alt ?? false) !== event.alt) return false;
   return true;
 }

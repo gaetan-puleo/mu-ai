@@ -137,7 +137,9 @@ export class InputRouter {
 
     const entries = this.host.getLayoutEntries();
     const entry = hitTest(entries, event.x, event.y);
-    const target = entry ? this.findMouseEventTarget(entry, entries) : null;
+    // Build a Component→LayoutEntry index once per event so the parent walk
+    // is O(depth) instead of O(N × depth).
+    const target = entry ? this.findMouseEventTarget(entry, this.byComponent(entries)) : null;
     if (target) {
       const ctx: EventContext = {
         rect: target.rect,
@@ -159,21 +161,26 @@ export class InputRouter {
     }
   }
 
-  private findMouseEventTarget(entry: LayoutEntry, entries: LayoutEntry[]): LayoutEntry | null {
+  private findMouseEventTarget(entry: LayoutEntry, index: Map<Component, LayoutEntry>): LayoutEntry | null {
     let current: LayoutEntry | undefined = entry;
     while (current) {
       if (current.component.handleEvent) return current;
-      current = current.parent
-        ? entries.find((candidate) => candidate.component === current?.parent)
-        : undefined;
+      current = current.parent ? index.get(current.parent) : undefined;
     }
     return null;
   }
 
+  private byComponent(entries: LayoutEntry[]): Map<Component, LayoutEntry> {
+    const out = new Map<Component, LayoutEntry>();
+    for (const e of entries) out.set(e.component, e);
+    return out;
+  }
+
   private handleGlobalKeybinding(event: InputEvent): boolean {
+    if (event.type !== 'key') return false;
     for (const binding of this.globalKeybindings) {
       if (keyMatches(binding.chord, event)) {
-        binding.handler();
+        binding.handler(event);
         return true;
       }
     }

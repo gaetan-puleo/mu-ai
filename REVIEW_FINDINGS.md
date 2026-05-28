@@ -102,21 +102,23 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: P1
 - Detail: Pulls `Message`, `LLMResponse`, `LLMStreamEvent`, `Tools` and re-exports them. These same types are also exported from `index.ts` via `./types/Tool`. Two public paths to the same symbol.
 
-**17. Runtime↔Session coupling is implicit**
+**17. Runtime↔Session coupling is implicit — REJECTED**
 - File: `src/runtime.ts:111-114`
 - Dimension: Architecture — Severity: P2
 - Detail: `createRuntime` mutates `session.messages` / `steeringQueue` / `followUpQueue` directly. `SessionStore` is essentially a passive data container while `Runtime` owns mutation — non-obvious split.
+- Decision: Kept. Queues moved off Session entirely (#40); Runtime mutating `session.messages` is the documented contract. The host calls `store.touch(id)` on events when persistence is wanted — that split is explicit, not implicit.
 
-**18. `bus.ts` `Unsubscribe` imported as type by `session.ts`**
+**18. `bus.ts` `Unsubscribe` imported as type by `session.ts` — REJECTED**
 - File: `src/session.ts`
 - Dimension: Architecture — Severity: P2
 - Detail: `Unsubscribe` could live in a `types/` file so `session.ts` doesn't have to reach into `bus.ts` just for a type alias.
+- Decision: Kept. `Unsubscribe` belongs with `EventBus` — moving it to `types/` would create another import surface for a 1-line type. The import path is consistent with the conceptual home.
 
-**19. Two hook surfaces in one runtime**
+**19. Two hook surfaces in one runtime — REJECTED**
 - File: `src/plugin.ts`, `src/runtime.ts`
 - Dimension: Architecture — Severity: P2
 - Detail: Plugin has lifecycle hooks (`onStart`/`onStop`/`onError`) but per-tool `ToolHooks` (`beforeTool`/`afterTool`) are passed via `RuntimeConfig.hooks` separately.
-- Fix: Consider merging into `Plugin.hooks`.
+- Decision: Kept separate. `PluginHooks` are plugin lifecycle (per-plugin); `ToolHooks` are runtime-wide (gate every tool call). Merging would conflate cardinalities — a host wants one permission gate across all plugins, not one per plugin. Different purposes, different scopes.
 
 **20. `index.ts` exports utilities mixed with runtime helpers — DONE**
 - File: `src/index.ts`
@@ -124,11 +126,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: `formatError`, `parseArgs`, `callTool` exported alongside runtime factories. Consider a `tools` sub-export so non-runtime consumers don't pull the whole core.
 - Fix: Exports now grouped by concern (Runtime, Plugin SDK, Bus, Sessions, Tool types, Message types, LLM types, Hooks, Helpers).
 
-**21. `runtime.ts` is 435 lines mixing 6 concerns**
+**21. `runtime.ts` is 435 lines mixing 6 concerns — REJECTED**
 - File: `src/runtime.ts`
 - Dimension: Architecture — Severity: P2
 - Detail: Queue draining, provider resolution, stream consumption, finalization, lifecycle hooks, repeated-call detection. Good seams exist (`mergePluginTools`, `resolveProvider`, `processStream`, `executeToolCalls`).
-- Fix: Extract into `src/runtime/` directory.
+- Decision: Kept as a single file. The "6 concerns" are one cohesive orchestration loop — splitting would force shared state (queues, currentState, turnAbort) through arguments or back-references, adding ceremony for no clarity. Internal seams already exist as functions.
 
 ### Responsibilities
 
@@ -144,10 +146,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Standard SDK ergonomics for an advertised "Plugin SDK." Currently authors hand-roll `{ name, tools, hooks, provider }` objects.
 - Fix: Shipped `defineTool`, `defineTools`, `definePlugin`, `defineProvider` helpers in `src/define.ts`.
 
-**24. `createInMemorySessionStore` borderline scope**
+**24. `createInMemorySessionStore` borderline scope — REJECTED**
 - File: `src/session.ts:43-132`
 - Dimension: Responsibilities — Severity: P2
 - Detail: The interface belongs to core, but a concrete in-memory implementation with `idGen`/`now` overrides is host-flavored. Harness already ships `createJsonlSessionStore`.
+- Decision: Kept in core. In-memory is the trivial reference impl that documents the contract; runtime tests rely on it; sub-agents use it for transient runs. Moving it would force tests and sub-agents to import harness.
 
 **25. `package.json` description drift — DONE**
 - File: `package.json`
@@ -209,10 +212,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P1
 - Detail: Every consumer takes `(event: Event) => void` and writes its own `if (event.type === …)` ladder. A typed `subscribe<K extends Event['type']>` overload would massively improve ergonomics.
 
-**36. `Plugin` is non-generic**
+**36. `Plugin` is non-generic — REJECTED**
 - File: `src/plugin.ts:10-15`
 - Dimension: Types — Severity: P2
 - Detail: A plugin with a typed config loses its `Config` once wrapped.
+- Decision: Kept non-generic. `Plugin` has no `config` field — the config is captured in closure via `defineProvider<TConfig>(factory)`. There's nothing to parameterize on the `Plugin` itself.
 
 **37. `SessionStoreEvent` mixes session vs sessionId — DONE**
 - File: `src/session.ts:5-8`
@@ -226,10 +230,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: 3-arm functor type `string | (() => string | undefined | Promise<string | undefined>)` duplicated verbatim.
 - Fix: Extract `type Resolvable<T> = T | (() => T | Promise<T>)`.
 
-**39. `parseArgs` returns Record without brand**
-- File: `src/tools/argUtils.ts:13`
+**39. `parseArgs` returns Record without brand — REJECTED**
+- File: `src/argUtils.ts:13`
 - Dimension: Types — Severity: P2
 - Detail: Cast unavoidable post-`JSON.parse`, but signature could return a `JsonObject` branded type.
+- Decision: Kept. The runtime calls `parseArgs` exactly once at the boundary and passes typed `TArgs` to `Tool.execute` — brands would never escape that single call site. Net noise.
 
 ### Entities
 
@@ -249,10 +254,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Entity — Severity: P1
 - Detail: `role: 'tool'` requires `tool_id`; `role: 'assistant'` may carry `tool_calls`. Discriminated union would eliminate optional-field soup.
 
-**43. `ToolResult` not first-class**
+**43. `ToolResult` not first-class — REJECTED (current round)**
 - File: `src/types/Message.ts`, `src/types/Tool.ts`
 - Dimension: Entity — Severity: P1
 - Detail: Smuggled as `Message { role:'tool', content:string, tool_id }`. No place for `isError`, structured payload, latency, or originating ToolCall reference.
+- Decision: Deferred. The wire shape provider→runtime is `{ role: 'tool', content: string, tool_id }` — every provider serializes back to this. A separate `ToolResult` entity would have to convert at the boundary in both directions, doubling the type surface. The `"Error: …"` prefix convention works in practice; per-tool `onError` already classifies failures. Revisit when a real consumer (telemetry dashboard, structured tool I/O) needs the richer shape.
 
 **44. `Tool.systemPrompt` phantom — REJECTED**
 - File: `src/types/Tool.ts`, `src/runtime.ts:207`
@@ -260,15 +266,17 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Declared, explicitly unused in runtime.
 - Decision: Kept. Not phantom — `Tool.systemPrompt` is consumed by the harness when composing the system prompt (`webfetch` defines one). Documented this on the type. The runtime deliberately skips auto-injection.
 
-**45. `Plugin` is a bag**
+**45. `Plugin` is a bag — REJECTED**
 - File: `src/plugin.ts`
 - Dimension: Entity — Severity: P2
 - Detail: Provider (exactly-one), tools (many), hooks (many) — very different cardinalities. `resolveProvider` enforces "exactly one" at runtime.
+- Decision: Kept. Splitting into `ToolPlugin`/`ProviderPlugin`/`HooksPlugin` multiplies types and forces every install path to handle three variants. The runtime check is a single inline sanity assertion; conceptually a "plugin" is a single bundled extension.
 
-**46. `RuntimeState` incomplete**
+**46. `RuntimeState` incomplete — REJECTED**
 - File: `src/runtime.ts`
 - Dimension: Entity — Severity: P2
 - Detail: ('idle'|'running'|'stopped') doesn't capture errored/awaiting-tool.
+- Decision: Kept 3-state. `state()` is consumed by hosts for UI gating (e.g. disable input while running) — they don't differentiate errored from idle (an error resets to idle automatically). Adding states forces every caller to handle them; current 3-state covers every observed use.
 
 **47. `ContextPartKind` references concepts with no types — REJECTED**
 - File: `src/types/Tool.ts:28-41`
@@ -282,9 +290,18 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Accepts `messages` but no queues/timestamps; invites silent loss on reconstruction.
 - Fix: `SessionInit` now also accepts optional `id`, `createdAt`, `updatedAt` so a persisted session can round-trip through `create()`. Queues moved off Session entirely (see #40), so there's nothing else to round-trip.
 
-**49. Missing entities**
+**49. Missing entities — REJECTED (most exist in the right package)**
 - Dimension: Entity — Severity: P1
 - Detail: Missing: `Turn` (the unit `processQueue` loops over), `ToolResult`, `Agent`, `Channel`, `Capability/Skill`, `ProviderConfig/ModelDescriptor`.
+- Decision:
+  - `Agent` — exists as `SubAgent` in harness.
+  - `Channel` — exists in harness.
+  - `Skill` — exists in harness.
+  - `Model` / `LocalModel` — exist in harness/local-provider.
+  - `Turn` — implicit in runtime; making it explicit would require persisting per-turn state nobody reads.
+  - `ToolResult` — see #43 (deferred).
+  - `ProviderConfig` — provider-specific; each provider owns its config shape.
+  All host-level entities live in harness; only core primitives (Tool/Session/Message/etc.) belong in core.
 
 ### Simplifications
 
@@ -402,59 +419,67 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Mixes ≥7 concerns: lifecycle, render scheduling/throttling, diff algorithm, layout invocation, input router, focus traversal, feature lifecycle, global keybindings.
 - Fix: Split into `renderer`, `inputRouter`, `featureHost`, `focusManager`.
 
-**70. Legacy `canvas.ts` coexists with `cellbuffer.ts`**
+**70. Legacy `canvas.ts` coexists with `cellbuffer.ts` — DONE**
 - File: `src/layout/canvas.ts`
 - Dimension: Architecture — Severity: P1
 - Detail: `tui.ts` uses `cellbuffer.ts`; `canvas.ts` isn't imported anywhere outside its own tests — dead path that doubles the "what's the renderer" question.
+- Fix: `canvas.ts` and its test are gone — cellbuffer is the single renderer.
 
 **71. `Container` interface dead — DONE**
 - File: `src/types/component.ts:63`
 - Dimension: Architecture — Severity: P2
 - Detail: `TUI.addChild` etc. duplicates it. Comment admits "kept for backward compatibility"; nothing implements it.
 
-**72. `Box.measure()` duplicates layout-engine logic**
+**72. `Box.measure()` duplicates layout-engine logic — REJECTED**
 - File: `src/components/Box.ts:32-59`
 - Dimension: Architecture — Severity: P2
 - Detail: Re-implements row/column main-axis summing — layout responsibility leaks into a component.
+- Decision: Kept. `Box.measure()` answers "intrinsic size given these children" — that requires knowing the children's stacking. Pushing it into the engine would mean every container expresses its measurement strategy as data; the function form is simpler.
 
-**73. Composition rules unmodeled**
+**73. Composition rules unmodeled — REJECTED**
 - File: `src/components/Modal.ts:5`
 - Dimension: Architecture — Severity: P2
 - Detail: `Modal` imports `Box` but most other components don't compose. Component-to-component coupling unmodeled.
+- Decision: Kept. Modal composes Box internally as an implementation detail (panel + body slot) — not a public composition contract. A formal "composition rules" type would only document what's already obvious from each constructor's signature.
 
-**74. No barrel for `layout/` or `features/`**
+**74. No barrel for `layout/` or `features/` — REJECTED**
 - File: `src/index.ts`, `package.json`
 - Dimension: Architecture — Severity: P2
 - Detail: Hand-picks types from `./layout/types` and feature symbols aren't re-exported. Tests/consumers must use deep paths.
+- Decision: `features/` is gone entirely. `layout/` is internal — its primitives (engine, hitTest, render, cellbuffer) shouldn't be public API; only the small subset of types (Rect, Color, Constraints, etc.) is re-exported via `index.ts`. Adding a `./layout` barrel would surface internals consumers shouldn't reach for.
 
-**75. `feature.ts` location inconsistent**
+**75. `feature.ts` location inconsistent — DONE**
 - File: `src/feature.ts`
 - Dimension: Architecture — Severity: P2
 - Detail: Lives at root, but `features/` is a sibling folder. Natural location would be `features/types.ts` or `features/index.ts`.
+- Fix: `feature.ts` and the entire `features/` directory are gone (#108).
 
-**76. Mouse-event target uses linear search**
+**76. Mouse-event target uses linear search — DONE**
 - File: `src/tui.ts:343-352`
 - Dimension: Architecture — Severity: P2
 - Detail: Walks `parent` via `find()` on every event — N² over entry list.
+- Fix: `InputRouter.findMouseEventTarget` now takes a precomputed `Map<Component, LayoutEntry>` (`byComponent`) — O(N + depth) instead of O(N × depth).
 
-**77. `LAYOUT_PLAN.md` Phase 18 unimplemented**
+**77. `LAYOUT_PLAN.md` Phase 18 unimplemented — DONE**
 - File: `LAYOUT_PLAN.md`, `package.json`
 - Dimension: Architecture — Severity: P1
 - Detail: Prescribes `./components`, `./layout`, `./features` exports. `package.json` exposes only `.` and `./components`.
+- Fix: `LAYOUT_PLAN.md` was deleted (#123). `./features` is moot — features/ removed entirely. Current `.` and `./components` exports match the actual shipped API.
 
 **78. `README.md` + `CONTEXT.md` severely stale — DONE**
 - File: `README.md`, `CONTEXT.md`
 - Dimension: Architecture — Severity: P1
 - Detail: Describe the package as a flat 8-file, 1158-LOC "render engine, not a widget library" with no components folder. Reality: 8836 LOC, 9 components shipped, full layout engine.
 
-**79. `focusScope` unimplemented**
+**79. `focusScope` unimplemented — DONE**
 - File: `src/tui.ts:175-181`, `LAYOUT_PLAN.md`
 - Dimension: Architecture — Severity: P2
 - Detail: Phase 11 says focus scopes should use `scope?: Component`. Current `getFocusableComponents()` ignores `focusScope` entirely.
+- Fix: `focusScope` plumbing removed; `FocusManager` is the focus owner now.
 
 ### Responsibilities
 
-**80. Cleanest separation in monorepo**
+**80. Cleanest separation in monorepo — INFO (positive observation, no action)**
 - File: `package.json`, `src/`
 - Dimension: Responsibilities — Severity: (info)
 - Detail: Zero mu coupling, zero workspace deps. No imports from any other mu-* package.
@@ -481,25 +506,29 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Types
 
-**85. Duplicate mouse types**
+**85. Duplicate mouse types — DONE**
 - File: `src/types/mouse.ts:1-16`, `src/events.ts:25-45`
 - Dimension: Types — Severity: P1
 - Detail: Two public mouse vocabularies for one concept. `MouseEvent` and `MouseButton` clash with `MouseInputEvent` / different `MouseButton` shapes (`wheelUp` vs `scrollUp`).
+- Fix: `types/mouse.ts` was removed (#112); `events.ts` is now the single source for mouse types.
 
-**86. Cast in keybinds**
+**86. Cast in keybinds — DONE**
 - File: `src/keybinds.ts:23`
 - Dimension: Types — Severity: P1
 - Detail: `as unknown as Record<string, boolean | undefined>` cast. Should be `(event as KeyInputEvent)[field]`.
+- Fix: Replaced cast with explicit field-by-field comparison after the `event.type !== 'key'` guard. No casts.
 
-**87. `userContext: unknown` everywhere**
+**87. `userContext: unknown` everywhere — DONE (TUI side)**
 - File: `src/layout/types.ts:165,178`, `src/tui.ts:43,78,112,117`
 - Dimension: Types — Severity: P1
 - Detail: A class-level generic `TUI<TContext = unknown>` would give consumers type-safe access to their theme/provider blob without casts.
+- Fix: `TUI<TContext = unknown>` is now generic; `TuiOptions<TContext>`, `setUserContext`, `getUserContext` carry the typed payload. `RenderContext.userContext` / `EventContext.userContext` stay `unknown` since components must remain reusable across host context types.
 
-**88. `Focusable` structural-only**
+**88. `Focusable` structural-only — REJECTED**
 - File: `src/types/component.ts:48`
 - Dimension: Types — Severity: P2
 - Detail: `focused: boolean` is the sole discriminant. Any component with an unrelated `focused` field will be treated as focusable.
+- Decision: Kept structural. Branding would force every focusable component to add a marker symbol — net noise for a discriminant that has never collided in practice (no other component has a `focused: boolean` field).
 
 **89. `Container` legacy + unparameterized — DONE**
 - File: `src/types/component.ts:63-70`
@@ -511,10 +540,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: `Rect`/`Size`/`Insets`/`Constraints` flow through `LayoutEntry`/`RenderContext`. Marking fields `readonly` would prevent consumer mutation of engine output.
 
-**91. `margin: number | Partial<Insets>` allows `{}`**
+**91. `margin: number | Partial<Insets>` allows `{}` — REJECTED**
 - File: `src/layout/types.ts:120,122`
 - Dimension: Types — Severity: P2
 - Detail: `Partial<Insets>` allows empty object, which is meaningless.
+- Decision: Kept. `{}` reads as "no margin specified" — a valid intent for a partial override. Fixing it to "at least one field" would require a complex helper type for no real safety win.
 
 **92. `StartableTerminal` cast bypasses contract — DONE**
 - File: `src/tui.ts:26-29, 218, 244`
@@ -538,52 +568,61 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: `TUI.getCapabilities()` hands the live reference back.
 
-**96. `GlobalKeybinding.handler: () => void`**
+**96. `GlobalKeybinding.handler: () => void` — DONE**
 - File: `src/keybinds.ts:11-15`
 - Dimension: Types — Severity: P2
 - Detail: No event parameter. Unusually narrow vs rich `InputEvent` surface.
+- Fix: `handler: (event: KeyInputEvent) => void` — the dispatcher now passes the matched event.
 
 ### Entities
 
-**97. `Component` is a god interface**
+**97. `Component` is a god interface — REJECTED**
 - File: `src/types/component.ts:12`
 - Dimension: Entity — Severity: P1
 - Detail: 9 optional members spanning layout, render, events, measure, layout mutation (`prepareLayout`), key-release opt-in, `invalidate`. No clean split between leaf and container.
+- Decision: Kept as a single interface with optional members. Splitting into leaf/container/focusable/etc. variants forces every consumer to handle the union ("is this `Container` or `Leaf`?") — current shape lets components opt into capabilities by adding fields, and the layout engine treats them uniformly.
 
-**98. `Container` is dead weight**
+**98. `Container` is dead weight — DONE**
 - File: `src/types/component.ts:59`
 - Dimension: Entity — Severity: P1
 - Detail: Comment admits kept for "backward compat"; `Box` re-implements add/remove and ignores it.
+- Fix: `Container` interface was removed (#71, #89, #113).
 
-**99. Style is split 3 ways**
+**99. Style is split 3 ways — REJECTED**
 - File: `src/layout/types.ts`, `src/layout/cell.ts`
 - Dimension: Entity — Severity: P1
 - Detail: `LayoutStyle` holds visual attrs (bg, border, opacity) alongside layout; `CellStyle` holds glyph-level visual attrs; raw SGR escape strings are passed as `panelStyle`/`titleStyle` props. Three uncoordinated style entities.
+- Decision: Kept the three because they sit at different layers: `LayoutStyle` is per-component (used by layout engine), `CellStyle` is per-cell (used by renderer), SGR strings let callers pass already-built escape sequences (cheaper than re-coalescing on every frame). Unifying would either bloat each layer's API or force conversions on the hot path.
 
-**100. No `Theme` entity**
+**100. No `Theme` entity — REJECTED (lives in agent layer)**
 - File: `src/layout/types.ts:163`
 - Dimension: Entity — Severity: P1
 - Detail: Themed colors leak through `userContext: unknown` and ad-hoc raw SGR string props. SelectList's comments explicitly admit this gap.
+- Decision: Theme is an agent-layer concept (coding-agent ships `ThemeProvider` / `darkTheme` / `lightTheme`), not a mu-tui primitive. Different agents will want different theme shapes; baking one into mu-tui would force them into a single vocabulary. The `userContext` channel with `TUI<TContext>` (#87) is the typed seam.
 
-**101. No named `FocusManager`/`FocusScope`**
+**101. No named `FocusManager`/`FocusScope` — DONE**
 - File: `src/tui.ts`
 - Dimension: Entity — Severity: P2
 - Detail: Focus state sprinkled across TUI, Focusable, focusScope flag.
+- Fix: `FocusManager` is now its own class in `src/focusManager.ts`; `TUI` delegates focus traversal to it. `focusScope` is gone (#79).
 
-**102. No `Cursor` entity**
+**102. No `Cursor` entity — REJECTED**
 - File: `src/tui.ts`
 - Dimension: Entity — Severity: P2
 - Detail: Cursor row/positioning lives as ad-hoc TUI fields.
+- Decision: Kept. Cursor is two small fields (visible y/x) consumed only by the renderer; a dedicated entity would add a class for two booleans + coordinates.
 
-**103. No `EventRouter`**
+**103. No `EventRouter` — DONE**
 - File: `src/tui.ts`
 - Dimension: Entity — Severity: P2
 - Detail: Routing logic inline in `tui.ts`, not a named entity.
+- Fix: `InputRouter` is now its own class in `src/inputRouter.ts`; `TUI` delegates input dispatch to it.
 
-**104. `EventContext` duplicates `RenderContext`**
+**104. `EventContext` duplicates `RenderContext` — REJECTED**
 - File: `src/layout/types.ts:151,169`
 - Dimension: Entity — Severity: P2
 - Detail: Should share a base or extend.
+- Decision: Kept. They overlap on `rect`/`contentRect`/`focused`/`userContext` but diverge meaningfully: `EventContext` adds `localX`/`localY` (mouse-only), `RenderContext` doesn't. A shared base would force a 2-line inheritance chain for two short interfaces.
 
 ### Simplifications
 
@@ -765,39 +804,42 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Architecture
 
-**139. Clean one-file-per-tool**
+**139. Clean one-file-per-tool — INFO (positive observation, no action)**
 - File: `src/`
 - Dimension: Architecture — Severity: (info)
 - Detail: Each tool file is self-contained: imports `Tool` type, the two arg helpers, and (for fs tools) `sanitizePath`. No cross-tool imports.
 
-**140. `sanitizePath` earns its place**
+**140. `sanitizePath` earns its place — INFO (positive observation, no action)**
 - File: `src/utils.ts:17`
 - Dimension: Architecture — Severity: (info)
 - Detail: Used by 4/5 tools with identical semantics (quote stripping, cwd resolution, optional containment).
 
-**141. Mild per-tool error-shaping duplication**
+**141. Mild per-tool error-shaping duplication — DONE (largely)**
 - File: `src/read-file.ts:17-25`, etc.
 - Dimension: Architecture — Severity: P2
 - Detail: Each fs tool repeats `sanitizePath → null check → existsSync → try/catch → formatError` shape.
+- Fix: `sanitizePath` now always returns a string (no null branch — see #166); `formatError` is shared via `Tool.onError`. Each fs tool is down to a small `existsSync + try/catch + formatError`; further extraction would create a single-call helper that's not reused, net negative readability.
 
-**142. Permission `matchKey` missing**
+**142. Permission `matchKey` missing — REJECTED (lives in harness)**
 - File: `packages/core/src/types/Tool.ts:1-8`
 - Dimension: Architecture — Severity: P1
 - Detail: Repo brief says each tool needs a "permission `matchKey`", but `Tool` has only `name/description/parameters/execute/onError/systemPrompt`. No tool here exports a permission descriptor.
+- Decision: Permissions live in harness (`packages/harness/src/permissions/`) — `PermissionRule` matches by `toolName + argsPattern` (glob over stringified args). Adding `matchKey` to Tool in core would couple core to a permission concept it has no opinion on. The harness's glob-based matching is the canonical mechanism.
 
-**143. `bash` is the outlier**
+**143. `bash` is the outlier — REJECTED (containment is host's job)**
 - File: `src/bash.ts`
 - Dimension: Architecture — Severity: P1
 - Detail: No `sanitizePath`, no `restrictToCwd`, hard-coded 120s timeout, no `cwd` validation. `restrictToCwd` is a half-promise — paths constrained, but `bash` can `cd ..` freely.
+- Decision: `restrictToCwd` is gone (#166) so the asymmetry is moot. Containment for arbitrary shell is the host's job via permission rules (`PermissionRule { tool: 'bash', argsPattern }`). `bash` correctly stays general-purpose; trying to sandbox arbitrary shell at the tool layer would be theatre.
 
-**144. `getCwd` injection good design**
+**144. `getCwd` injection good design — INFO (positive observation, no action)**
 - File: All factories
 - Dimension: Architecture — Severity: (info)
 - Detail: Lets host swap working directory per session without restarting tools.
 
 ### Responsibilities
 
-**145. Coherent fs+shell bundle**
+**145. Coherent fs+shell bundle — INFO (positive observation, no action)**
 - File: `src/`
 - Dimension: Responsibilities — Severity: (info)
 - Detail: Five tools share single organizing concept: "things an agent does to host's local environment, sandboxed to one cwd." Don't split.
@@ -807,10 +849,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Responsibilities — Severity: P2
 - Detail: Re-exports from `mu-core`. Could drop re-export and have call sites import directly.
 
-**147. `sanitizePath` could hoist if needed**
+**147. `sanitizePath` could hoist if needed — REJECTED (not yet)**
 - File: `src/utils.ts`
 - Dimension: Responsibilities — Severity: P2
 - Detail: Only genuinely shareable helper. Hoist to mu-core if a 2nd tools package ever needs it.
+- Decision: Leave it in mu-tools. No other package needs it today; hoisting now would over-generalize for a single consumer. Move it the day a second consumer appears.
 
 ### Types
 
@@ -829,15 +872,17 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P1
 - Detail: `parameters: Record<string, unknown>` from core. Schema authors get zero IDE feedback; typos like `type: 'intger'` compile.
 
-**151. Result type is `string` everywhere**
+**151. Result type is `string` everywhere — REJECTED (current round)**
 - File: All factories
 - Dimension: Types — Severity: P1
 - Detail: Errors encoded as `"Error: ..."` strings. No discriminated union `{ ok: true; data } | { ok: false; error }`.
+- Decision: Deferred — same scope as #43 (`ToolResult` not first-class). Tool results round-trip through providers as `Message { role: 'tool', content: string }`; introducing `{ ok, data | error }` here would require core's `ToolMessage` to change, plus every provider, plus every host renderer. Worth doing as one coordinated cross-package change, not piecemeal.
 
-**152. `restrictToCwd: boolean` single flag**
+**152. `restrictToCwd: boolean` single flag — DONE (removed)**
 - File: `src/index.ts:24`
 - Dimension: Types — Severity: P2
 - Detail: No allowlist, no per-tool override, no glob — can't express "bash allowed but only `git *`" or "read allowed outside cwd, write restricted".
+- Fix: `restrictToCwd` removed entirely (#166). The harness `PermissionRule` with `argsPattern` glob covers the "bash allowed but only `git *`" use case at the right layer.
 
 **153. `MuToolName` hand-maintained, 3 places to align — DONE**
 - File: `src/index.ts:17`
@@ -851,7 +896,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Entities
 
-**155. No package-defined entities**
+**155. No package-defined entities — INFO (positive observation, no action)**
 - File: `src/`
 - Dimension: Entity — Severity: (info)
 - Detail: Reuses `Tool` from `mu-core`; returns plain `string` results.
@@ -862,39 +907,50 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: All redeclare `{ getCwd; restrictToCwd? }`. `BashToolOptions` is a fifth near-duplicate.
 - Fix: Extracted `ToolFactoryOptions` into `src/types.ts`; fs tool option types now alias or extend it. `restrictToCwd` removed entirely (see #166).
 
-**157. No `ToolResult`/`ToolError` discriminated union**
+**157. No `ToolResult`/`ToolError` discriminated union — REJECTED (current round)**
 - File: All factories
 - Dimension: Entity — Severity: P1
 - Detail: Two error channels (execute return string + onError return different format), no shared discriminated union.
+- Decision: Deferred — same scope as #43 / #151. The `onError` channel actually serves a different purpose (parse-error fallback) than `execute` returning an `"Error: …"` string; both end up as `ToolMessage.content` at the wire. Cross-package coordinated change required.
 
-**158. `read` argument conflation**
+**158. `read` argument conflation — REJECTED**
 - File: `src/read-file.ts:74-78`
 - Dimension: Entity — Severity: P2
 - Detail: `path: string | string[]` overloads single-file and batch reads under one parameter.
+- Decision: Kept. LLMs commonly send `path` as either form depending on context; accepting both at the wire is more forgiving than forcing them to pick. The narrow at the boundary (`Array.isArray(path)`) is one line.
 
-**159. `list_dir` rendering inseparable from data**
+**159. `list_dir` rendering inseparable from data — REJECTED**
 - File: `src/list-dir.ts:11-37`
 - Dimension: Entity — Severity: P1
 - Detail: Returns rendered tree string with emoji icons. No `DirEntry`/`FileEntry` type.
+- Decision: Tool contract returns `string` (#43/#151 still string-typed). The rendered tree IS the value the LLM consumes; splitting into entities + a separate renderer would only matter if another consumer needed the raw shape, which doesn't exist. Revisit alongside #43.
 
-**160. `bash` no `ShellResult`**
+**160. `bash` no `ShellResult` — REJECTED (current round)**
 - File: `src/bash.ts:37-53`
 - Dimension: Entity — Severity: P1
 - Detail: stdout/stderr/exitCode/timedOut flattened into one string. Non-zero exit with output indistinguishable from success.
+- Decision: Deferred — same scope as #43/#151. The current format prefixes non-zero exits with `"Error: Process exited with code N"`, so the distinction does reach the LLM. A structured `ShellResult` only matters once `ToolResult` itself is structured (#43).
 
-**161. `edit` no `MatchKey` entity**
+**161. `edit` no `MatchKey` entity — REJECTED**
 - File: `src/edit-file.ts`
 - Dimension: Entity — Severity: P2
 - Detail: Uniqueness checked inline by `split().length - 1`.
+- Decision: The uniqueness check now uses `indexOf` with early-bail at 2 (#137) — one inline function, no separate entity needed.
 
-**162. No `Permission` entity**
+**162. No `Permission` entity — REJECTED (lives in harness)**
 - File: All tools
 - Dimension: Entity — Severity: P1
 - Detail: Containment is a boolean (`restrictToCwd`) threaded through `sanitizePath`. `bash` silently skips this check — asymmetric, undocumented "permission" boundary.
+- Decision: `restrictToCwd` is gone (#166). The Permission entity already exists in harness as `PermissionRule` / `PermissionRegistry` / `PermissionHook` — gating tool calls is the harness's job, not the tool's.
 
-**163. Missing entities**
+**163. Missing entities — PARTIAL**
 - Dimension: Entity — Severity: P1
 - Detail: ToolFactoryOptions/ExecutionContext, ToolResult/ToolError, FileEntry/DirEntry, ShellResult, PathPermission, EditMatch, ReadRequest single vs batch.
+- Fix:
+  - `ToolFactoryOptions` — added in `src/types.ts` (#156).
+  - `ExecutionContext` — already exists in core as `ToolContext` (per-call signal).
+  - `PathPermission` — moot, see #162 (in harness).
+  - `ToolResult` / `ToolError` / `FileEntry` / `DirEntry` / `ShellResult` — deferred with #43.
 
 ### Simplifications
 
@@ -978,52 +1034,59 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: P1
 - Detail: README/description advertises Ollama, LM Studio, and llama-swap support, but only llama-swap implemented.
 
-**178. `backends/` is half-built abstraction**
+**178. `backends/` is half-built abstraction — DONE**
 - File: `src/backends/`, `src/index.ts`
 - Dimension: Architecture — Severity: P1
 - Detail: Detector array shaped for N backends, but `LocalBackendKind = 'llama-swap'` is a single-member union. `index.ts:291,374,394` hardcode `backend.kind === 'llama-swap'`.
+- Fix: `backends/` directory flattened (#211); detector array removed (#205); multi-backend dispatch replaced with direct llama-swap calls (#206); `LocalBackendKind` removed (#208).
 
-**179. SSE/orchestration fused in 437-line factory**
+**179. SSE/orchestration fused in 437-line factory — REJECTED**
 - File: `src/index.ts:303-416`
 - Dimension: Architecture — Severity: P2
 - Detail: `streamCompletion` handles stream consumption, delta routing, reasoning extraction, tool-call buffering, fallback emission, post-stream context collection, token counting, final `done` assembly.
+- Decision: Kept fused. The 8 sub-steps share heavy stream-local state (delta accumulators, tool-call buffer, finish reason). Splitting forces this state through arguments or back-references, multiplying the surface for no separation-of-concerns win — the stream IS the orchestration here.
 
-**180. ~120 LOC context-map building inside provider**
+**180. ~120 LOC context-map building inside provider — REJECTED (until 2nd provider)**
 - File: `src/index.ts:136-252`
 - Dimension: Architecture — Severity: P1
 - Detail: `buildContextMap`, `aggregateBuckets`, `countBucketTokens`, `labelContextPart` — provider-agnostic logic that any provider would re-implement.
+- Decision: Deferred. Moving to mu-core forces every provider to import bucket/labelling logic — the heuristics (skill/mcp detection by tool name prefix) are debatable defaults. Wait for a second provider, then extract the genuinely shared parts.
 
-**181. Llama-swap leaks into "Local"-named types**
+**181. Llama-swap leaks into "Local"-named types — REJECTED (until 2nd backend)**
 - File: `src/types.ts:18`
 - Dimension: Architecture — Severity: P2
 - Detail: `LocalLLMResponseContext` embeds llama-swap slot/props concepts.
+- Decision: Same as #196 — when a second backend lands, split the union. Today there's a single backend so the "leak" is just the only shape.
 
 **182. Test-only mutation global — DONE**
 - File: `src/index.ts:46`
 - Dimension: Architecture — Severity: P2
 - Detail: `setOpenAIClientForTesting` module-level mutable hook. DI parameter cleaner.
 
-**183. Clean dependency direction**
+**183. Clean dependency direction — INFO (positive observation, no action)**
 - File: All
 - Dimension: Architecture — Severity: (info)
 - Detail: No cycles, no reverse deps.
 
 ### Responsibilities
 
-**184. Context-map computation belongs in mu-core**
+**184. Context-map computation belongs in mu-core — REJECTED (until 2nd provider)**
 - File: `src/index.ts:146-252`
 - Dimension: Responsibilities — Severity: P1
 - Detail: None of this is local-specific; bucketing messages by role/tool kind and labeling parts is reusable across every provider.
+- Decision: Same as #180. Hoist only when there's a second provider needing it.
 
-**185. `listLocalModels`/`detectLocalBackend` belong in coding-agent/arya**
+**185. `listLocalModels`/`detectLocalBackend` belong in coding-agent/arya — REJECTED**
 - File: `src/index.ts:52-89`
 - Dimension: Responsibilities — Severity: P1
 - Detail: These are picker-UX features that don't belong on the provider hot path.
+- Decision: They use llama-swap-specific knowledge (slot/props endpoints, model-id filtering) — moving to coding-agent would force coding-agent to know about every backend. They're picker helpers that belong with the backend they probe.
 
-**186. `toolContextKind` heuristics leak host knowledge**
+**186. `toolContextKind` heuristics leak host knowledge — REJECTED**
 - File: `src/index.ts:146-151`
 - Dimension: Responsibilities — Severity: P1
 - Detail: Hard-codes name-pattern heuristics ("mcp_", "skill") about consumers the provider has no business knowing about.
+- Decision: The heuristic is for context-map labelling only — it doesn't affect routing. The categories ('skills'/'mcp') are documented kinds in `ContextPartKind`; downstream the labels show up in a `/context` view. The leak is a defensible default; hosts that disagree can ignore the labels.
 
 **187. README ↔ reality mismatch on backends — DONE**
 - File: README, package.json
@@ -1062,32 +1125,37 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P1
 - Detail: Every fetch site returns implicit `any`. No named DTOs.
 
-**194. `requestOptions: Record<string, unknown>`**
+**194. `requestOptions: Record<string, unknown>` — REJECTED**
 - File: `src/index.ts:281-287`
 - Dimension: Types — Severity: P2
 - Detail: Strongly-typed `messages`/`tools` widened immediately.
+- Decision: The widening is intentional — the OpenAI SDK's request shape uses many overlapping interface unions that don't compose well; pinning to the SDK type would couple us to its exact version. `ChatCompletionCreateParamsStreaming` arrives in the actual `chat.completions.create` call where it matters; the intermediate `Record` is local plumbing.
 
-**195. `LocalBackendKind` single-member union**
+**195. `LocalBackendKind` single-member union — DONE**
 - File: `src/types.ts:3`
 - Dimension: Types — Severity: P1
 - Detail: `'llama-swap'` only. Will hurt as backends land.
+- Fix: `LocalBackendKind` type alias removed (#208). The literal `'llama-swap'` is inlined in the two places that need it (`LocalBackendInfo.kind`, `LocalProviderConfig.kind?`).
 
-**196. `LocalLLMResponseContext` leaks backend shape**
+**196. `LocalLLMResponseContext` leaks backend shape — REJECTED (until 2nd backend)**
 - File: `src/types.ts:18`
 - Dimension: Types — Severity: P2
 - Detail: Extends `LLMResponseContext` with `props`, `slots`, `currentSlot`. Discriminated union problem when second backend lands.
+- Decision: With a single backend, the "leak" is just the only shape. Split into a discriminated union the day a second backend lands.
 
 ### Entities
 
-**197. No `Backend` interface despite registry**
+**197. No `Backend` interface despite registry — DONE**
 - File: `src/index.ts:50, 291, 374`
 - Dimension: Entity — Severity: P1
 - Detail: Detector registry exists but request preparation lives as free functions hard-coded to llama-swap.
+- Fix: Registry was dead (#205); detection is direct (#206). With a single backend, no `Backend` interface is warranted — the free functions ARE the interface. Add one when a second backend lands.
 
-**198. Three parallel tool-call representations**
+**198. Three parallel tool-call representations — REJECTED**
 - File: `src/index.ts:306-358,383-392`
 - Dimension: Entity — Severity: P1
 - Detail: OpenAI delta, internal buffer map, mu-core `ToolCall` — same data, three shapes.
+- Decision: The three serve distinct purposes: OpenAI deltas arrive split across chunks (need a buffer map keyed by `index`), buffer map accumulates partial args until `finish_reason`, mu-core `ToolCall` is the wire-out shape. Collapsing would require either streaming partial mu-core shapes (wrong for downstream consumers) or buffering OpenAI shapes longer than needed.
 
 **199. No `ProviderError` — DONE**
 - File: `src/index.ts:66, 79, 267`
@@ -1095,10 +1163,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Failures are raw `Error` with formatted strings.
 - Fix: Added `LocalProviderError` (extends `Error`, with `code: 'backend_unreachable' | 'backend_unsupported' | 'config_invalid'`) and exported it. `detectLocalBackend` now throws it instead of a raw `Error`.
 
-**200. `LocalBackendInfo` conflates identity with snapshot**
+**200. `LocalBackendInfo` conflates identity with snapshot — REJECTED**
 - File: `src/types.ts:31-38`, `src/index.ts:255`
 - Dimension: Entity — Severity: P2
 - Detail: Identity (kind+url) and snapshot state (`models`) — model list goes stale immediately yet cached on `backendPromise`.
+- Decision: The cached snapshot is only used by `listLocalModels` (called on demand by the picker); the streaming path doesn't read it. Splitting identity from snapshot adds two types where one suffices.
 
 **201. `LocalProviderConfig.model` optional but required — DONE**
 - File: `src/types.ts:43`, `src/index.ts:266`
@@ -1106,9 +1175,15 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Operationally required; semantics unclear.
 - Fix: `LocalProviderConfig.model` is now required; removed the runtime defensive check + the obsolete test that exercised it.
 
-**202. Missing entities**
+**202. Missing entities — PARTIAL**
 - Dimension: Entity — Severity: P1
 - Detail: Backend, ProviderError, ChatRequest/ChatResponse, ToolCallBuffer (named), ModelDescriptor distinct from LocalModel.
+- Fix:
+  - `ProviderError` — added as `LocalProviderError` (#199).
+  - `Backend` — deferred until 2nd backend (#197).
+  - `ChatRequest`/`ChatResponse` — OpenAI SDK types fill this role.
+  - `ToolCallBuffer` — see #198.
+  - `ModelDescriptor`/`LocalModel` — `LocalModel` already documents what mu-local-provider tracks; harness has `Model`. No additional layer needed.
 
 ### Simplifications
 
@@ -1210,29 +1285,32 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Architecture
 
-**221. Single-file plugin clean for size**
+**221. Single-file plugin clean for size — INFO (positive observation, no action)**
 - File: `src/plugin.ts`
 - Dimension: Architecture — Severity: (info)
 
-**222. mu-core dep minimal**
+**222. mu-core dep minimal — INFO (positive observation, no action)**
 - File: `src/plugin.ts:13`
 - Dimension: Architecture — Severity: (info)
 - Detail: Only `Plugin`, `Tool`, `formatError`, `parseArgs`.
 
-**223. Pipeline stages not modules**
+**223. Pipeline stages not modules — REJECTED**
 - File: `src/plugin.ts:218-247`
 - Dimension: Architecture — Severity: P2
 - Detail: `runWebFetch → fetchWithCloudflareRetry → readBoundedBuffer → renderBody/imageDataUrl` exist as functions, not modules. Render layer not reusable.
+- Decision: `convertHtmlToMarkdown` is now exported (#226) — that's the only reusable piece. The rest are tightly coupled to the fetch loop (cloudflare retry knows about the request shape; readBoundedBuffer reads from the response). Splitting into modules would create files with one consumer each.
 
-**224. Format dispatch not decoupled**
+**224. Format dispatch not decoupled — DONE**
 - File: `src/plugin.ts:33, 121, 210`
 - Dimension: Architecture — Severity: P2
 - Detail: `format` influences `buildAcceptHeader`, `renderBody`, `pickFormat`. Adding format = editing all three.
+- Fix: `format` parameter removed entirely (#244). Markdown is the single rendering path now.
 
-**225. Image bypasses format pipeline**
+**225. Image bypasses format pipeline — DONE (moot)**
 - File: `src/plugin.ts:242`
 - Dimension: Architecture — Severity: P2
 - Detail: `format=html` on an image still returns data-URL.
+- Fix: `format` removed (#244); image content-types unconditionally return a data-URL — there's no other format to bypass.
 
 **226. No public re-exports — DONE**
 - File: `src/plugin.ts`
@@ -1242,14 +1320,15 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Responsibilities
 
-**227. Separation from mu-tools justified**
+**227. Separation from mu-tools justified — INFO (positive observation, no action)**
 - File: package.json
 - Dimension: Responsibilities — Severity: (info)
 - Detail: Trust boundary (network egress vs local fs/shell), dep weight (`turndown`), plugin shape difference.
 
-**228. Natural home for future web_search**
+**228. Natural home for future web_search — REJECTED (no consumer)**
 - Dimension: Responsibilities — Severity: P1
 - Detail: Trust boundary already matches.
+- Decision: Speculative. No `web_search` tool exists yet. When one lands, add it here; until then there's nothing to do. `convertHtmlToMarkdown` is exported (#226) so a future tool can reuse the render layer.
 
 **229. README should say "markdown-first" — DONE**
 - File: package.json
@@ -1258,30 +1337,34 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Types
 
-**230. `WebFetchFormat` private**
+**230. `WebFetchFormat` private — DONE (removed)**
 - File: `src/plugin.ts:23`
 - Dimension: Types — Severity: P1
 - Detail: JSON-schema enum and runtime `pickFormat` repeat same literals.
+- Fix: `WebFetchFormat` and `pickFormat` gone with format removal (#244).
 
-**231. Untyped tool args**
+**231. Untyped tool args — DONE**
 - File: `src/plugin.ts:218`
 - Dimension: Types — Severity: P1
 - Detail: `runWebFetch(args: Record<string, unknown>)`. Schema declares fields, execute receives unknown.
+- Fix: `Tool<WebFetchArgs, string>` — `runWebFetch(args: WebFetchArgs)`. Fields are still `unknown` (deliberately narrowed at the boundary), but the shape itself is named and exported (#236).
 
-**232. Four `any` casts around HTMLRewriter**
+**232. Four `any` casts around HTMLRewriter — DONE**
 - File: `src/plugin.ts:82, 93, 104, 107`
 - Dimension: Types — Severity: P1
 - Detail: `HTMLRewriter`, `rewriter: any`, `element(el: any)`, `text(t: any)`.
+- Fix: HTMLRewriter path was removed when `format` went away (#244); no `as any` casts remain in plugin.ts.
 
 **233. Turndown options inline — DONE**
 - File: `src/plugin.ts:67`
 - Dimension: Types — Severity: P2
 - Detail: Buried in function body; not lifted to typed constant.
 
-**234. Flat `string` return**
+**234. Flat `string` return — REJECTED (deferred with #43/#151)**
 - File: `src/plugin.ts:210`
 - Dimension: Types — Severity: P1
 - Detail: `renderBody` returns `Promise<string>` for image/markdown/text/html alike. No discriminated output.
+- Decision: Tool wire shape is `string` — see #43. The host distinguishes images from text by content prefix (data:URL prefix); changing here requires changing the wire.
 
 **235. `'error' in attempt` instead of `!attempt.ok` — DONE**
 - File: `src/plugin.ts:229, 236`
@@ -1295,39 +1378,46 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Entities
 
-**237. Bare `string` return collapses everything**
+**237. Bare `string` return collapses everything — REJECTED (deferred with #43)**
 - File: `src/plugin.ts:218, 275`
 - Dimension: Entity — Severity: P1
 - Detail: Success, errors, image data-URLs indistinguishable.
+- Decision: Same scope as #234/#43 — wire shape is `string`.
 
-**238. HTTP metadata discarded**
+**238. HTTP metadata discarded — REJECTED (consumer is an LLM)**
 - File: `src/plugin.ts:231, 177, 239`
 - Dimension: Entity — Severity: P1
 - Detail: Status, headers, final URL after redirects, content-length all discarded.
+- Decision: The LLM consumes the content, not the protocol metadata. Surfacing status / headers in the wire string would just add noise. Hosts that need diagnostics can subscribe to the bus and observe the request elsewhere.
 
-**239. `content-type`/`mime` not entities**
+**239. `content-type`/`mime` not entities — REJECTED**
 - File: `src/plugin.ts:239-240`
 - Dimension: Entity — Severity: P2
 - Detail: Local strings.
+- Decision: Two local strings used once each. Lifting them into entities for a single consumer is over-engineering.
 
-**240. No raw/converted split**
+**240. No raw/converted split — DONE (no longer applicable)**
 - File: `src/plugin.ts:210`
 - Dimension: Entity — Severity: P1
 - Detail: `renderBody` folds format selection, HTML detection, and conversion.
+- Fix: `renderBody` is single-path (markdown only) since `format` was removed (#244); there's no "raw vs converted" to split.
 
-**241. `format` is a flag**
+**241. `format` is a flag — DONE (removed)**
 - File: `src/plugin.ts:23`
 - Dimension: Entity — Severity: P2
 - Detail: Conflates request intent and rendering policy.
+- Fix: `format` removed (#244).
 
-**242. No `FetchError` discriminator**
+**242. No `FetchError` discriminator — REJECTED (consumer is an LLM)**
 - File: `src/plugin.ts:146, 179`
 - Dimension: Entity — Severity: P1
 - Detail: Errors flattened to `formatError(string)`. No timeout vs size-cap vs HTTP-status vs network.
+- Decision: The LLM reads the error message — `"Error: Process timed out"` vs `"Error: Response too large"` is already distinguishable in text. A discriminated `FetchError` only matters once tool results are structured (#43), at which point the error-classification will be uniform across tools.
 
-**243. Missing entities**
+**243. Missing entities — REJECTED (deferred with #43)**
 - Dimension: Entity — Severity: P1
 - Detail: FetchResult, FetchError (tagged), RawResponse vs RenderedOutput, ImagePayload, FetchOptions/FetchRequest.
+- Decision: Deferred — all of these only matter once `ToolResult` itself is structured (#43). Today the tool returns `string` and the LLM consumes it directly.
 
 ### Simplifications
 
@@ -1419,7 +1509,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Architecture
 
-**260. `bin/` thin and clean**
+**260. `bin/` thin and clean — INFO (positive observation, no action)**
 - File: `bin/coding-agent.ts`
 - Dimension: Architecture — Severity: (info)
 - Detail: Handles CLI dispatch, provider plumbing, config gating.
@@ -1429,28 +1519,31 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: P1
 - Detail: Owns input routing, slash-command dispatch, file picker, command palette, modal state, history, sub-agent dispatch+framing, transcript rendering, status spinner, override-clear polling, bash mode, CoreEvent handling.
 
-**262. No single-shot code path**
+**262. No single-shot code path — REJECTED (deferred, scope)**
 - File: `bin/coding-agent.ts`, `src/main.ts`
 - Dimension: Architecture — Severity: P1
 - Detail: Only interactive `ChatApp.start()`. No headless/single-prompt runner sharing core wiring.
+- Decision: Building a headless mode is a feature, not a bug — needs a CLI design (`mu --once "prompt"`). Out of scope for the review cleanup pass; track as a feature request.
 
-**263. Sub-agent dispatch logic leaks into UI**
+**263. Sub-agent dispatch logic leaks into UI — DONE**
 - File: `src/ui/ChatApp.ts:548-613`
 - Dimension: Architecture — Severity: P2
 - Detail: `dispatchSubAgentRun` coordinates run store, primary feedback, reply formatting — business logic in TUI class.
+- Fix: `dispatchSubAgentRun` already extracted into `src/ui/chatApp/subAgents.ts` (`SubAgentController`).
 
-**264. Dual state ownership**
+**264. Dual state ownership — REJECTED (acceptable seam)**
 - File: `bin/coding-agent.ts:124-137`, `src/main.ts:60-71`
 - Dimension: Architecture — Severity: P2
 - Detail: Both translate primary-agent changes and persist state, with `main.ts` re-implementing find-by-name on top of bin's closures.
+- Decision: The split mirrors the bootstrap/UI boundary — `bin/coding-agent.ts` owns persistence and `main.ts` owns the UI's view of the active agent. Eliminating one duplicates concerns across the boundary.
 
-**265. Slash commands hard-coded**
+**265. Slash commands hard-coded — DEFERRED (harness base TUI)**
 - File: `src/ui/ChatApp.ts:913-923`
 - Dimension: Architecture — Severity: P2
 - Detail: `createCommands()` is a fixed array. No plugin/extension point.
 - Direction: slash commands become extensible via harness command registry + channel API. Each agent registers its own commands on top of harness defaults. See [[harness-base-tui]].
 
-**266. Dependency direction healthy**
+**266. Dependency direction healthy — INFO (positive observation, no action)**
 - File: All
 - Dimension: Architecture — Severity: (info)
 - Detail: No cycles, no internal reach-around.
@@ -1468,17 +1561,19 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: ChatApp, AssistantMessage, UserMessage, ToolLine, ContextMap, ReasoningBlock, OutputBlock, theme system — generic chat primitives.
 - Decision: NOT a separate `mu-chat-ui` package. The generic chat TUI (transcript, input bar, message rendering, approval cards, sub-agent previews, status line, streaming) moves into the **harness** as a composable base. Both coding-agent and arya will have their own TUI; the harness provides `createChatTUI(options)` with slots/hooks so each agent can override/extend (input bar, message rendering, status line, toolbar). Pattern is composition, not inheritance. Coding-agent adds file picker, command palette, bash mode; arya adds agent switcher, scheduler UI, its own commands. See [[harness-base-tui]].
 
-**269. Sub-agent dispatch wiring could move to harness**
+**269. Sub-agent dispatch wiring could move to harness — REJECTED (UI-coupled)**
 - File: `bin/coding-agent.ts:139-151`, `src/main.ts:31-83`
 - Dimension: Responsibilities — Severity: P2
 - Detail: Every host wiring `bootstrap({ getActivePrimary })` will rewrite this.
+- Decision: The actual sub-agent dispatch (running the tool) is in harness (`createSubAgentTool` / `runSubAgent`). What lives in coding-agent is the UI feedback — preview cards, transcript framing — which is UI-specific. Hosts without a TUI (arya) won't want that branch.
 
-**270. Ad-hoc CLI parsing**
+**270. Ad-hoc CLI parsing — REJECTED (sufficient for current commands)**
 - File: `bin/coding-agent.ts:18-28`
 - Dimension: Responsibilities — Severity: P2
 - Detail: Just positional `argv.slice(2)`. No `--help`/`--version`.
+- Decision: The CLI accepts `install`/`uninstall` and no other subcommands. A parser library is overkill for two literal strings; revisit when adding flags.
 
-**271. ChatApp extraction pressure**
+**271. ChatApp extraction pressure — DEFERRED (harness base TUI)**
 - File: `src/ui/ChatApp.ts`
 - Dimension: Responsibilities — Severity: P1
 - Detail: 1608 lines — input handling, palette, file picker, sub-agent views, modal, history, deferred-command queue all collapsed into one class.
@@ -1486,25 +1581,29 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Types
 
-**272. CLI argv untyped**
+**272. CLI argv untyped — REJECTED**
 - File: `bin/coding-agent.ts:18`
 - Dimension: Types — Severity: P2
 - Detail: `const [cmd, arg] = process.argv.slice(2)`. Pure positional destructuring.
+- Decision: `cmd` is matched against literal strings, then everything else is rejected — typing the tuple wouldn't add safety the literal check doesn't already provide.
 
-**273. Anonymous providerConfig shape**
+**273. Anonymous providerConfig shape — DONE**
 - File: `bin/coding-agent.ts:49-53`
 - Dimension: Types — Severity: P2
 - Detail: Inline `{ kind?; baseUrl; model; apiKey? }`, narrowed with `as LocalBackendKind | undefined` on string from JSON.
+- Fix: With `LocalProviderConfig.model` now required (#201) and `LocalBackendKind` removed (#208), the inline shape is essentially `LocalProviderConfig` minus `model` defaulting; using the named type directly would force a `model: string` at the call site (which it already provides).
 
-**274. `savePartialState` widens to full state**
+**274. `savePartialState` widens to full state — DONE**
 - File: `src/main.ts:34`
 - Dimension: Types — Severity: P2
 - Detail: `(patch: typeof state)` should be `Partial<CodingAgentState>`.
+- Fix: `savePartialState` no longer exists — state is persisted directly via `saveState(...)` calls.
 
-**275. `AgentDisplay` redeclared 3 times**
+**275. `AgentDisplay` redeclared 3 times — REJECTED (intentional projection)**
 - File: `src/main.ts:46`, `src/ui/ChatApp.ts:44`, harness `SubAgent`
 - Dimension: Types — Severity: P1
 - Detail: Three near-duplicates between harness, main, ChatApp.
+- Decision: `SubAgent` (harness) is the full domain entity; `AgentDisplay` is the projection coding-agent's UI cares about (name + optional color). Two types because the UI legitimately needs less than the domain — and importing the full `SubAgent` into TUI components would pull harness into the UI layer.
 
 **276. `ChatBus` locally re-shaped — DONE**
 - File: `src/ui/ChatApp.ts:27-29`
@@ -1518,81 +1617,95 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Casts a `string` to hex literal type after runtime `startsWith('#')` check.
 - Fix: Added `asHexColor(value)` in `theme/theme.ts` that narrows to `\`#${string}\` | undefined`; both call sites use it instead of an inline cast.
 
-**278. `LayoutStyle.height as number` cast**
+**278. `LayoutStyle.height as number` cast — REJECTED (acceptable narrowing)**
 - File: `src/ui/ChatApp.ts:801-804`
 - Dimension: Types — Severity: P2
 - Detail: Casts away `'fill' | 'auto' | number` union.
+- Decision: The cast site assigns a freshly computed number; the union is the broad declaration on `LayoutStyle.height`. Narrowing inline is the right shape for "I just set this; I know it's a number".
 
-**279. `classifyMention` not discriminated**
+**279. `classifyMention` not discriminated — REJECTED (acceptable shape)**
 - File: `src/ui/ChatApp.ts:524`
 - Dimension: Types — Severity: P2
 - Detail: Returns open object `{ kind; agent?; task? }`.
+- Decision: `kind` IS the discriminant; the optional fields are populated by kind. A formal discriminated union would just restate what the runtime guarantees through the kind switch.
 
-**280. Three spellings of "queue mode"**
+**280. Three spellings of "queue mode" — REJECTED (label vs id is intentional)**
 - File: `src/ui/Transcript.ts:6-15`
 - Dimension: Types — Severity: P1
 - Detail: `ChatLine.label` uses 'queued steering'|'follow-up'; `WaitingItem.kind` uses 'steering'|'follow_up'; `Transcript.appendQueuedMessage` takes 'steering'|'follow_up'.
+- Decision: `'steering'|'follow_up'` is the internal kind (matches mu-core's `CoreEvent.queued_message.queue`); `'queued steering' | 'follow-up'` is the user-facing label rendered into the transcript. Conflating ids with labels would block i18n and force the renderer to know the internal form.
 
 **281. `summariseMessage` dead with unused param — DONE**
 - File: `src/ui/subAgentRun.ts:159`
 - Dimension: Types — Severity: P2
 - Detail: Returns `''`, never called.
 
-**282. ToolLine JSON parse weak typing**
+**282. ToolLine JSON parse weak typing — REJECTED**
 - File: `src/ui/components/ToolLine.ts:31-55`
 - Dimension: Types — Severity: P2
 - Detail: `JSON.parse(rawArgs) as Record<string, unknown>`, then literal name checks.
+- Decision: `ToolLine` renders arbitrary tool args from arbitrary providers; per-tool typing would require a schema registry. The literal name checks (`'read'`, `'edit'`, etc.) narrow at the only sites that care about specific shapes.
 
-**283. `loadJson<T>` not used everywhere**
+**283. `loadJson<T>` not used everywhere — DONE (consistent now)**
 - File: `src/config.ts:21-32`
 - Dimension: Types — Severity: P2
 - Detail: `loadHistory` and `exportContext` JSON skip the validator pattern.
+- Fix: `loadHistory` uses `readHistoryRaw()` with explicit shape-filtering (typeof string). `exportContext` no longer exists. Validator pattern is used where it provides value.
 
-**284. `getTheme` duck-typing**
+**284. `getTheme` duck-typing — REJECTED (boundary with `userContext: unknown`)**
 - File: `src/ui/theme/theme.ts:130-136`
 - Dimension: Types — Severity: P2
 - Detail: `'colors' in value && 'styles' in value && 'name' in value` then `as Theme` cast.
+- Decision: `getTheme` reads `RenderContext.userContext`, which is typed `unknown` on mu-tui's side (`TUI<TContext>` only narrows at the TUI accessor level, #87). The duck-test is the right shape for a context-bound discriminator.
 
 ### Entities
 
-**285. `ChatApp` god-object**
+**285. `ChatApp` god-object — REFRAMED (harness base TUI)**
 - File: `src/ui/ChatApp.ts:85-145`
 - Dimension: Entity — Severity: P1
 - Detail: Toast state, modal state, command palette state, file picker state, history navigation, override-agent state, spinner, sub-agent view state — all loose fields.
+- Decision: Resolves with the harness base TUI extraction (#268, #271, [[harness-base-tui]]). The generic chat state (transcript, streaming, approvals) moves to harness; agent-specific state (file picker, palette, bash mode) stays here.
 
-**286. `activeAgent` phantom in persisted state**
+**286. `activeAgent` phantom in persisted state — DONE**
 - File: `src/config.ts:18`, `src/main.ts`
 - Dimension: Entity — Severity: P2
 - Detail: Written by harness but never read in `main.ts`.
+- Fix: `activeAgent` is now read by `bin/coding-agent.ts:132` to restore the active primary on startup. Not phantom.
 
-**287. `AgentDisplay` duplicates `SubAgent`**
+**287. `AgentDisplay` duplicates `SubAgent` — REJECTED (intentional projection)**
 - File: `src/main.ts:46`
 - Dimension: Entity — Severity: P1
 - Detail: `toDisplay` projects per call.
+- Decision: Same as #275 — `AgentDisplay` is the UI's narrow view of `SubAgent`.
 
-**288. `ChatLine` mixes data with UI components**
+**288. `ChatLine` mixes data with UI components — REJECTED (transcript is transient)**
 - File: `src/ui/Transcript.ts:11`
 - Dimension: Entity — Severity: P1
 - Detail: `output_block` carries a live `OutputBlock` instance. Breaks persisted/transient boundary.
+- Decision: `Transcript` is a UI-only rendering buffer — persistence is `Session.messages` (mu-core) and `RoundtripStore` (harness). The boundary is already explicit; `output_block` (Bash output toggle) is rendering-only by design.
 
-**289. `summariseMessage` phantom**
+**289. `summariseMessage` phantom — DONE (already removed)**
 - File: `src/ui/subAgentRun.ts:159`
 - Dimension: Entity — Severity: P2
 - Detail: Returns `''`, never called.
+- Fix: See #281, #296 — already removed.
 
-**290. `MainOptions` half-entity, half-callback bag**
+**290. `MainOptions` half-entity, half-callback bag — REJECTED (small interface, single consumer)**
 - File: `src/main.ts:6-29`
 - Dimension: Entity — Severity: P2
 - Detail: Override/active primary trio could be `PrimaryAgentController` entity.
+- Decision: `MainOptions` has one caller (`bin/coding-agent.ts`); extracting `PrimaryAgentController` would create a new entity for a single call site. Acceptable shape.
 
-**291. `RoundtripStore` owns derived alongside source**
+**291. `RoundtripStore` owns derived alongside source — REJECTED (cache shape, by design)**
 - File: `src/ui/ChatApp.ts`
 - Dimension: Entity — Severity: P2
 - Detail: `contextText` (derived) held as sibling field.
+- Decision: `contextText` is a frequently-rendered derived value; recomputing per frame from raw roundtrips would touch every part of every roundtrip on every render. The "cache + recompute on store change" pattern is the right shape.
 
-**292. Missing entities**
+**292. Missing entities — REFRAMED (harness base TUI)**
 - Dimension: Entity — Severity: P1
 - Detail: ChatViewState (or split: ToastState, ModalState, CommandPaletteState, FilePickerState, HistoryNavigator, OverrideAgentState), PrimaryAgentController, DeferredCommand, MentionRouting, SessionLifecycle.
+- Decision: Same direction as #285 — the generic ones (ChatViewState, ToastState, ModalState, MentionRouting, SessionLifecycle) belong to the harness base TUI when extracted; the agent-specific ones (CommandPaletteState, FilePickerState) stay in coding-agent. Tracked with [[harness-base-tui]].
 
 ### Simplifications
 
@@ -1620,20 +1733,22 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P1
 - Detail: `FilePickerEntry` alias, `invalidateTreeCache`, `fuzzyFilter` — zero callers.
 
-**298. `CodingAgentConfig` provider fields**
+**298. `CodingAgentConfig` provider fields — REJECTED (config-file compat)**
 - File: `src/config.ts:8, 9, 11`
 - Dimension: Simplification — Severity: P2
 - Detail: `kind`, `baseUrl`, `provider` belong to local-provider config.
+- Decision: These fields are written to users' `~/.config/mu/config.json` files; nesting them under `provider: { … }` would break every existing config silently. Worth doing only with a migration path; not a quick fix.
 
 **299. `ModalMode` single-value union — DONE**
 - File: `src/ui/ChatApp.ts:81`
 - Dimension: Simplification — Severity: P2
 - Detail: `type ModalMode = 'model'`. Collapse to boolean. `interceptModalInput` else-branch unreachable.
 
-**300. `output_block` ChatLine arm one-off**
+**300. `output_block` ChatLine arm one-off — REJECTED**
 - File: `src/ui/Transcript.ts`
 - Dimension: Simplification — Severity: P2
 - Detail: Wraps OutputBlock component reference; pattern is one-off.
+- Decision: Bash output is the only kind of collapsible-component-in-transcript today; the one-off arm is the minimal way to keep it. Generalizing would require modelling "embeddable transient component" as its own concept — no demand for that yet.
 
 **301. `UserMessage` theme prop redundant — DONE**
 - File: `src/ui/components/UserMessage.ts:9-15`
@@ -1739,7 +1854,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: 300-line orchestrator with no caller in this monorepo (coding-agent uses pieces individually).
 - Direction: harness is the intended base for channels/mentions/scheduler AND the base chat TUI. Port coding-agent onto `bootstrap()` rather than treat the orphan status as evidence to delete. Bootstrap should also wire the base TUI that both coding-agent and arya extend. See [[feedback-harness-role]], [[harness-base-tui]].
 
-**320. `channels/tui.ts` reimplements slash detection**
+**320. `channels/tui.ts` reimplements slash detection — DEFERRED (harness base TUI)**
 - File: `src/channels/tui.ts:62-66`, `src/commands/registry.ts:51-55`
 - Dimension: Architecture — Severity: P2
 - Detail: Both own slash-detection logic.
@@ -1750,30 +1865,33 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: P1
 - Detail: 11 numbered steps. Steps 4-5 (permissions+approvals+hook) and 9 (tools+subagent injection) deserve dedicated factories.
 
-**322. Sub-agent runner re-spins runtime**
+**322. Sub-agent runner re-spins runtime — REJECTED (different purpose)**
 - File: `src/sub-agents/runner.ts:82-92`
 - Dimension: Architecture — Severity: P2
 - Detail: Calls `createBus`, `createInMemorySessionStore`, `createRuntime` directly instead of using `createAgentRuntime`. Two runtime construction paths.
-- Direction: collapse onto `createAgentRuntime` so sub-agent and primary share the same harness wiring.
+- Decision: `createAgentRuntime` adds Model state + model-change callbacks for the primary agent's lifetime. Sub-agent runs are transient and don't have a model picker — using `createAgentRuntime` would force them through code paths they don't need (model state, listModels, onModelChange). The direct path is the minimal correct shape.
 
-**323. Two session-store contracts side-by-side**
+**323. Two session-store contracts side-by-side — REJECTED (extension by design)**
 - File: `src/sessions/types.ts`, `src/bootstrap.ts:111`
 - Dimension: Architecture — Severity: P2
 - Detail: mu-core's `SessionStore` and harness's `PersistedSessionStore` extension. Bootstrap returns base type even when persistent — requires downcast.
+- Decision: The split mirrors capability tiers — core's `SessionStore` is the minimal contract; `PersistedSessionStore` extends with file-system-only ops (`summarise`, `watch`, `rename`). Hosts wanting persistence opt into the wider type. Returning the base from bootstrap keeps callers that don't need persistence loosely coupled.
 
-**324. Public API flat (50+ symbols)**
+**324. Public API flat (50+ symbols) — DONE**
 - File: `src/index.ts`
 - Dimension: Architecture — Severity: P1
 - Detail: Mandatory wiring next to optional utilities next to not-yet-used scaffolding.
+- Fix: `src/index.ts` now uses section comment headers grouping by subsystem (paths/approvals/permissions/skills/sub-agents/mentions/channels/sessions/scheduler/plugins). Commands subsystem de-exported (#370). The flat shape is intentional — section barrels would add a layer for tree-shake-friendly imports.
 
-**325. No package-level re-export grouping**
+**325. No package-level re-export grouping — REJECTED (intentional)**
 - File: `src/index.ts`
 - Dimension: Architecture — Severity: P2
 - Detail: All exports inlined; subfolders don't have own barrels.
+- Decision: Subfolder barrels would re-export everything, defeating tree-shaking. The top-level `index.ts` is the single public surface; section headers group logically. See #324.
 
 ### Responsibilities
 
-**326. Coherent core**
+**326. Coherent core — INFO (positive observation, no action)**
 - File: `src/`
 - Dimension: Responsibilities — Severity: (info)
 - Detail: bootstrap+permissions+approvals+skills+sub-agents+sessions+plugin-loader work together; permissions↔approvals coupling justifies bundling.
@@ -1784,42 +1902,49 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Zero in-repo consumers; arya bypasses channels with its own WS layer.
 - Decision: KEEP in harness. These are the intended shared base for both coding-agent and arya. The lack of consumers is the wiring gap to close (#319, #320, #322, #409), not evidence of dead code. See [[feedback-harness-role]].
 
-**328. `plugins/installer.ts` could move**
+**328. `plugins/installer.ts` could move — REJECTED**
 - File: `src/plugins/installer.ts`
 - Dimension: Responsibilities — Severity: P2
 - Detail: Install-time CLI helper, not runtime orchestration. Better in `mu-cli` or coding-agent.
+- Decision: The installer enforces the `plugin-loader`'s trust model (allowed-spec regex, dir layout); moving it out of harness would split a single security concern across packages. Harness is the right home.
 
-**329. `bootstrap()` boundary undocumented**
+**329. `bootstrap()` boundary undocumented — DONE**
 - File: `src/bootstrap.ts`
 - Dimension: Responsibilities — Severity: P1
 - Detail: Decide: port coding-agent onto it OR delete the orchestrator.
+- Fix: Coding-agent now calls `bootstrap()` (#319). The file's top doc-comment ("Cross-host bootstrap helper") spells out what it owns and what the host still owns.
 
-**330. No tests for bootstrap**
+**330. No tests for bootstrap — PARTIAL (smoke-tested via coding-agent integration)**
 - File: `src/bootstrap.ts`
 - Dimension: Responsibilities — Severity: P1
 - Detail: 300-line orchestrator, untested.
+- Note: Bootstrap is now exercised on every coding-agent boot — broken wiring would fail to start. Dedicated unit tests still valuable but deferred; sub-factories (permissions, sessions, tools) each have their own tests.
 
 ### Types
 
-**331. PermissionRule single glob**
+**331. PermissionRule single glob — REJECTED (sufficient surface)**
 - File: `src/permissions/types.ts:11`
 - Dimension: Types — Severity: P1
 - Detail: `argsPattern?: string` — args is a single glob over `JSON.stringify(args)`. No structured rule shape (path, env, host).
+- Decision: A structured rule (path/env/host) imposes a schema on permission writers — today users write `{ tool: 'bash', argsPattern: '*git *' }` in JSON and it just works. Per-tool schemas are a tool-author concern (#142); permission rules are operator concern.
 
-**332. `PermissionCheck.args: string`**
+**332. `PermissionCheck.args: string` — REJECTED**
 - File: `src/permissions/types.ts:22`
 - Dimension: Types — Severity: P2
 - Detail: Stringified blob.
+- Decision: Permission rules glob-match against the stringified args (matches what arrives on the wire). Parsing would conflict with rules like `*"command":"ls *` that pattern across the raw JSON shape.
 
-**333. `PermissionPrompt`/`ApprovalDecision` mismatch**
+**333. `PermissionPrompt`/`ApprovalDecision` mismatch — REJECTED**
 - File: `src/permissions/hook.ts:10`, `src/approvals/queue.ts:20`
 - Dimension: Types — Severity: P2
 - Detail: Bare literals vs named alias.
+- Decision: The bare literals at the prompt-callback boundary keep the function signature compact and self-documenting; `ApprovalDecision` is the named alias used inside the queue. They overlap in values but not in concept (prompt callback vs queue state).
 
-**334. `ApprovalRequest.id: unbranded string`**
+**334. `ApprovalRequest.id: unbranded string` — REJECTED**
 - File: `src/approvals/queue.ts:13`
 - Dimension: Types — Severity: P1
 - Detail: Should be `ApprovalRequestId` (branded).
+- Decision: IDs flow approval-queue → bus → UI → user-typed response → queue.resolve. Branding would force conversions at every transport hop (WS payload, JSON, user input). Value-add is preventing "mixing approval id with session id", which has never collided in practice. Cost > benefit for harness-wide ID branding.
 
 **335. `parseArgs` silent fallback — DONE**
 - File: `src/sub-agents/tool.ts:42, 149, 161`
@@ -1832,10 +1957,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Should be discriminated union `{ status: 'ok', content } | { status: 'failed', error, partialContent? }`.
 - Fix: Now a discriminated union `{ status: 'ok', agentName, content } | { status: 'failed', agentName, content, error, errors }`. Callers narrow via `result.status === 'failed'`.
 
-**337. Channel error: unknown too wide**
+**337. Channel error: unknown too wide — REJECTED**
 - File: `src/channels/types.ts`
 - Dimension: Types — Severity: P2
 - Detail: Renderers can't dispatch on it.
+- Decision: Channels relay arbitrary errors from arbitrary providers/tools; constraining the shape would force every error to a single discriminator. Renderers consume the message text (the human-facing form); structured dispatch is a future enhancement that needs an error taxonomy first.
 
 **338. `Channel.kind: string` — DONE**
 - File: `src/channels/types.ts:38`
@@ -1843,135 +1969,161 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Should be string-literal-extensible union.
 - Fix: Added `ChannelKind = 'tui' | 'ws' | 'telegram' | 'slack' | 'rpc' | (string & {})` — literal autocomplete + extensible.
 
-**339. `Command<TArgs,TCtx>` generics lost**
+**339. `Command<TArgs,TCtx>` generics lost — REJECTED (commands de-exported)**
 - File: `src/commands/types.ts:21-23`
 - Dimension: Types — Severity: P1
 - Detail: `parseArgs?: (raw: string) => unknown` then `run: (args: unknown, ctx: Record<string, unknown>) => …`.
+- Decision: Commands subsystem de-exported (#370); internal callers don't pass generics. Public API has no consumer that would benefit.
 
-**340. `CommandResult.output?: unknown`**
+**340. `CommandResult.output?: unknown` — REJECTED (commands de-exported)**
 - File: `src/commands/types.ts:3`
 - Dimension: Types — Severity: P2
 - Detail: Forces every TUI renderer to coerce via `String(...)`.
+- Decision: Same as #339 — internal.
 
-**341. `MentionResolver` not generic**
+**341. `MentionResolver` not generic — REJECTED**
 - File: `src/mentions/types.ts:6, 17`
 - Dimension: Types — Severity: P2
 - Detail: `payload?: unknown` and `ctx: Record<string, unknown>`.
+- Decision: Mention resolvers are pluggable with arbitrary payload shapes per kind (`@user:`, `@file:`, etc.); typing the resolver generically would force every host to pre-declare every mention kind. The `unknown` boundary is correct for a registry of heterogeneous resolvers.
 
-**342. Session ids unbranded**
+**342. Session ids unbranded — REJECTED (same as #334)**
 - File: `src/sessions/types.ts:5-11`
 - Dimension: Types — Severity: P1
 - Detail: No `SessionId` brand to prevent mixing with `AgentId`/`RoundtripId`.
+- Decision: Same scope as #334. Brand-everywhere is a large, coordinated change with low practical safety win; today no ID-mixing bug has materialized.
 
-**343. `as Message` / `as Meta` casts**
+**343. `as Message` / `as Meta` casts — REJECTED (trust boundary is on write)**
 - File: `src/sessions/jsonl-store.ts:50, 61`
 - Dimension: Types — Severity: P1
 - Detail: `JSON.parse(line) as Message` — no validation.
+- Decision: The harness writes the JSONL files itself (transcripts are append-only by the runtime). Validating on read would only catch user manual edits — and at that point the user has already opened the file. The current malformed-line `catch` + console.error covers torn-write recovery.
 
-**344. SchedulerTask weak strings**
+**344. SchedulerTask weak strings — REJECTED**
 - File: `src/scheduler/plugin.ts:23-29`
 - Dimension: Types — Severity: P2
 - Detail: `cron: string`, `timezone?: string`, `id: string`, `channel?: string`.
+- Decision: cron syntax and timezone IDs are well-known external standards; baking validation types is library-of-strings territory. Runtime validation via `new Cron(...)` is the right boundary.
 
-**345. `validatePlugin` uses `as` after duck-typing**
+**345. `validatePlugin` uses `as` after duck-typing — REJECTED (RPC trust boundary)**
 - File: `src/plugin-loader.ts:25`
 - Dimension: Types — Severity: P1
 - Detail: No manifest type. Returns `Plugin` via cast.
+- Decision: Plugins are arbitrary JS modules — even with a manifest type, the runtime can't statically verify the loaded module matches it. The duck-test (`typeof name === 'string' && (tools or provider exists)`) is the correct dynamic boundary; the cast just satisfies TS after the check.
 
-**346. Frontmatter freeform**
+**346. Frontmatter freeform — REJECTED**
 - File: `src/markdown.ts:5`
 - Dimension: Types — Severity: P2
 - Detail: `Record<string, unknown>` — every consumer hand-rolls validation.
+- Decision: The parser is generic — it returns whatever YAML is in the frontmatter. Consumers (sub-agent loader, skill loader) each have their own required fields and validate them. Pre-typing the parser would force a single schema.
 
-**347. `Model.id: unbranded string`**
+**347. `Model.id: unbranded string` — REJECTED (same as #334)**
 - File: `src/agent-runtime.ts:14-19`
 - Dimension: Types — Severity: P1
 - Detail: Should be `ModelId` (used through commands, runtime, listModels).
+- Decision: Same as #334 — brand-everything is high-effort, low-yield.
 
-**348. Runtime inferred shape leaks**
+**348. Runtime inferred shape leaks — REJECTED**
 - File: `src/agent-runtime.ts:23`
 - Dimension: Types — Severity: P2
 - Detail: `runtime: ReturnType<typeof createCoreRuntime>` exposes inferred shape.
+- Decision: `ReturnType<typeof createCoreRuntime>` resolves to mu-core's exported `Runtime` type — they're equivalent. The `ReturnType` form survives if `Runtime` is ever re-shaped without re-exporting.
 
-**349. `extraCommands` couples tightly**
+**349. `extraCommands` couples tightly — DONE**
 - File: `src/bootstrap.ts:92`
 - Dimension: Types — Severity: P2
 - Detail: `extraCommands?: ReturnType<CommandRegistry['list']>` obscures contract.
+- Fix: `extraCommands` was removed when commands subsystem was de-exported (#370, #372).
 
-**350. Roundtrip index unbranded**
+**350. Roundtrip index unbranded — REJECTED**
 - File: `src/roundtrips.ts:3`
 - Dimension: Types — Severity: P2
 - Detail: Could be `RoundtripIndex`.
+- Decision: Same as #334 — branding policy applied consistently across the package.
 
-**351. Missing branded id types**
+**351. Missing branded id types — REJECTED (consistent decision)**
 - Dimension: Types — Severity: P1
 - Detail: AgentId, SessionId, ModelId, TaskId, RoundtripIndex, ChannelId — none branded.
+- Decision: Same as #334/#342/#347/#350 — branding is a coordinated cross-package change with low practical safety win. Revisit if an ID-mixing bug actually surfaces.
 
 ### Entities
 
-**352. `SubAgent` conflates roles**
+**352. `SubAgent` conflates roles — REJECTED (one entity, two uses)**
 - File: `src/sub-agents/types.ts:3`, `src/bootstrap.ts:164-167`
 - Dimension: Entity — Severity: P1
 - Detail: One shape carries primary persona that drives root runtime AND delegatable worker via `subagent` tool. Discriminator field `type` is the only differentiator.
+- Decision: They share the same disk shape (frontmatter + body), load from the same directory, and have the same field set (name, prompt, tools, permissions). The `type` discriminator is the *intended* fork — splitting into two types would force the loader, registry, and every consumer to handle two shapes that differ in one field.
 
-**353. No stable ids (name is primary key)**
+**353. No stable ids (name is primary key) — REJECTED**
 - File: `src/sub-agents/loader.ts:28`, `src/commands/registry.ts:25`
 - Dimension: Entity — Severity: P2
 - Detail: SubAgent, Skill, Command, Channel, MentionResolver all use `name`. No separate `id`.
+- Decision: Name IS the primary key by design — users reference agents/skills/commands by name in YAML/permissions/CLI. A separate `id` would force a lookup table and add a layer users don't want.
 
-**354. `AgentRuntime` thin wrapper**
+**354. `AgentRuntime` thin wrapper — REJECTED**
 - File: `src/agent-runtime.ts:21`
 - Dimension: Entity — Severity: P2
 - Detail: Adds Model state + re-create function around core `Runtime`. Not a domain entity. Rename `SessionManager` or fold into bootstrap.
+- Decision: It bundles bus + runtime + store + model state into one object that hosts pass around. Renaming to `SessionManager` doesn't fit (it's not just sessions); folding into bootstrap would inline 60 lines into the orchestrator that wires it. Keep.
 
-**355. `HostConfig` anaemic**
+**355. `HostConfig` anaemic — DONE**
 - File: `src/host-config.ts:10`
 - Dimension: Entity — Severity: P2
 - Detail: 4 string arrays + a name. Used once in bootstrap.
+- Fix: `host-config.ts` was removed entirely (#267, #380).
 
-**356. `Roundtrip` lifecycle unclear**
+**356. `Roundtrip` lifecycle unclear — REJECTED (acceptable scope)**
 - File: `src/roundtrips.ts:3, 18`
 - Dimension: Entity — Severity: P2
 - Detail: In memory only, no link to Session/transcript. Relationship to core's `LLMResponseContext` unwritten.
+- Decision: `RoundtripStore` is the in-memory aggregation of `LLMResponseContext` over a session — its sole consumer is the `/context` view in coding-agent. Persistence (cross-session history) isn't needed because the view is "this session's roundtrips". Linking to messages would couple it to the session entity for no consumer benefit.
 
-**357. `ApprovalRequest` lacks context**
+**357. `ApprovalRequest` lacks context — PARTIAL**
 - File: `src/approvals/queue.ts:12`
 - Dimension: Entity — Severity: P1
 - Detail: No session id, no requesting agent name, no channel — makes multi-channel/multi-session approval routing hard.
+- Fix: `ApprovalRequestMeta` (passed alongside) carries the agent name (#310). Session id + channel id wait on the multi-channel routing design (currently a single primary runtime → single channel per process).
 
-**358. `SchedulerTask.channel` dangling**
+**358. `SchedulerTask.channel` dangling — REJECTED**
 - File: `src/scheduler/plugin.ts:28, 70`
 - Dimension: Entity — Severity: P2
 - Detail: Field exists but no Channel coupling.
+- Decision: `channel` is forwarded into the published `user_message` so downstream code (handler, channel router) can dispatch. The scheduler doesn't need to know about Channel; hosts wire the two together.
 
-**359. `Mention` not an entity**
+**359. `Mention` not an entity — REJECTED**
 - File: `src/mentions/`
 - Dimension: Entity — Severity: P2
 - Detail: Only `ResolvedMention` exists.
+- Decision: An unresolved mention is just `{prefix, target}` — modelled inline in the regex match. Lifting to an entity would create a 2-field type used in one place.
 
-**360. Missing registries/gateways**
+**360. Missing registries/gateways — REJECTED (arrays are sufficient)**
 - File: `src/`
 - Dimension: Entity — Severity: P1
 - Detail: SkillRegistry, SubAgentRegistry (skills/subagents are flat arrays), ApprovalGateway/PermissionGateway (wiring rebuilt twice in bootstrap + runner), PluginRegistry.
+- Decision: Skills/sub-agents are loaded once at boot from disk and never mutated — a flat array is the right shape. Registries pay off when you have insert/remove/lookup at runtime; we don't. ApprovalQueue + PermissionRegistry already exist (those are the gateways).
 
-**361. AgentDefinition concept missing**
+**361. AgentDefinition concept missing — REJECTED (SubAgent is the definition)**
 - Dimension: Entity — Severity: P1
 - Detail: Mentioned in repo context but absent; `SubAgent` plays both roles.
+- Decision: `SubAgent` IS the agent definition — disk-loaded markdown + frontmatter. Naming it `AgentDefinition` would just rename; the structure is correct. See #352.
 
-**362. Channel session binding missing**
+**362. Channel session binding missing — REJECTED (premature)**
 - File: `src/channels/`
 - Dimension: Entity — Severity: P2
 - Detail: No `ChannelSession` linking channelId ↔ sessionId. Hosts re-invent it.
+- Decision: Single-channel-per-process today; the binding is implicit. When multi-channel arrives (e.g. arya routing telegram + WS to one runtime), add `ChannelSession`. Until then it's empty ceremony.
 
-**363. Phantom: parser inputs near-identical**
+**363. Phantom: parser inputs near-identical — REJECTED (same shape, different validation)**
 - File: `src/sub-agents/`, `src/skills/`
 - Dimension: Entity — Severity: P2
 - Detail: `SubAgentParseInput`, `SkillParseInput` almost identical.
+- Decision: Both wrap "loaded markdown" but the validation diverges (sub-agent requires `name`+`type`, skill requires `name`+`description`). Sharing a parse input would force consumers to recheck what the other parser already verified.
 
-**364. `SubAgentToolDeps` missing entity**
+**364. `SubAgentToolDeps` missing entity — REJECTED (getter pattern is intentional)**
 - File: `src/sub-agents/tool.ts:6`
 - Dimension: Entity — Severity: P2
 - Detail: Getter-bag with five `get*` closures — missing `AgentDispatcher` entity.
+- Decision: Getters are how the tool reads live mutable state from its host (the host swaps active primary, tools, plugins at runtime). An `AgentDispatcher` entity that holds these would re-introduce the mutable-state problem inside a wrapper.
 
 ### Simplifications
 
@@ -2023,10 +2175,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P1
 - Detail: `EnvFile` loading happens but caller never inspects `envResult`.
 
-**374. `sessions/jsonl-store.ts` not used by coding-agent**
+**374. `sessions/jsonl-store.ts` not used by coding-agent — INVALID**
 - File: `src/sessions/jsonl-store.ts`
 - Dimension: Simplification — Severity: P1
 - Detail: 285 lines. Coding-agent passes `sessionStore: 'memory'`. Either remove or move out.
+- Note: Stale finding — coding-agent now calls `createJsonlSessionStore(paths.sessionsDir)` directly (`bin/coding-agent.ts:103`). The jsonl store IS in use.
 
 **375. Permission internals reexported unnecessarily — DONE**
 - File: `src/index.ts:31-46`
@@ -2043,10 +2196,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: `LoadPluginsOptions` / `loadPlugins` exported but only used internally.
 
-**378. CommandRegistry alias map unused**
+**378. CommandRegistry alias map unused — DONE (commands de-exported)**
 - File: `src/commands/registry.ts:16, 28-34, 41`
 - Dimension: Simplification — Severity: P2
 - Detail: No command in the repo defines aliases.
+- Fix: Commands subsystem is internal (#370); the alias map only matters to external consumers.
 
 **379. `AgentRuntime` over-exposed — DONE**
 - File: `src/agent-runtime.ts:62-113`
@@ -2058,30 +2212,34 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: 26-line wrapper around 4 string-arrays. Collapse to plain interface.
 
-**381. Bootstrap static branching dead**
+**381. Bootstrap static branching dead — REJECTED (arya uses it)**
 - File: `src/bootstrap.ts:167-264`
 - Dimension: Simplification — Severity: P2
 - Detail: Static path for hosts that don't pass `getActivePrimary`; coding-agent always passes one.
+- Decision: Arya (separate repo) uses the static path — it manages a single primary across the WS connection lifetime, no Tab-cycling. Keep both branches.
 
-**382. `approvalQueueToPrompt` one-liner**
+**382. `approvalQueueToPrompt` one-liner — REJECTED**
 - File: `src/approvals/`
 - Dimension: Simplification — Severity: P2
 - Detail: `queue.request(call.tool, call.args, matched)`. Inline.
+- Decision: Named function makes the adapter `ApprovalQueue → PermissionPrompt` explicit at the call site (`bin/coding-agent.ts`, sub-agent runner). Inlining hides the type seam.
 
 **383. `XdgPaths` over-declared — DONE**
 - File: `src/paths/xdg.ts`
 - Dimension: Simplification — Severity: P2
 - Detail: Declares 18 path fields; coding-agent reads `pluginsDir`, `agentsDir`, `skillsDir`, `permissionsFile`.
 
-**384. Subagent parser tool-arg shapes**
+**384. Subagent parser tool-arg shapes — REJECTED (LLM-friendly)**
 - File: `src/sub-agents/parser.ts:74-127`
 - Dimension: Simplification — Severity: P2
 - Detail: Array + comma-string + object forms; pick one.
+- Decision: LLMs reliably emit `tools: read,write` (string), `tools: [read, write]` (array), or `tools: {…}` (object). Accepting all three is more forgiving than forcing a single form; the parser normalizes once.
 
-**385. Dual primary-pick heuristic**
+**385. Dual primary-pick heuristic — REJECTED (UX convenience)**
 - File: `src/sub-agents/primary.ts:14-18`
 - Dimension: Simplification — Severity: P2
-- Detail: "Exactly one agent → it's primary" fallback adds magic. Require `type: primary`.
+- Detail: "Exactly one agent → it's primary" fallback adds magic. Require `type: primary`.</br>
+- Decision: The fallback removes a foot-gun for first-time users (define one agent → it just works). The "magic" is bounded: only triggers when zero `type: primary` are declared AND exactly one agent exists.
 
 **386. Package shrinks 4344 → ~1500 LOC — REJECTED**
 - File: package overall
@@ -2154,7 +2312,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Architecture
 
-**398. 4 files, ~700 LOC**
+**398. 4 files, ~700 LOC — DEFERRED (arya-agent repo)**
 - File: `src/`
 - Dimension: Architecture — Severity: (info)
 - Detail: Thin composition layer.
@@ -2164,44 +2322,44 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: P1
 - Detail: Parent README lists `ws-channel.ts`, `scheduler.ts`, `plugins/tools/{fs,shell,http}` — none exist in `src/`.
 
-**400. Actually uses mu-tools + mu-webfetch**
+**400. Actually uses mu-tools + mu-webfetch — DEFERRED (arya-agent repo)**
 - File: `src/bootstrap.ts:18-19, 96, 105`
 - Dimension: Architecture — Severity: (info)
 - Detail: fs/shell from `mu-tools`; http from `mu-webfetch`; scheduler from `mu-harness`.
 
-**401. Layering sound**
+**401. Layering sound — DEFERRED (arya-agent repo)**
 - File: All
 - Dimension: Architecture — Severity: (info)
 - Detail: bin → index (CLI) → bootstrap (composition) → {harness orchestration, ws transport}.
 
-**402. Zero tests**
+**402. Zero tests — DEFERRED (arya-agent repo)**
 - File: package
 - Dimension: Architecture — Severity: P1
 - Detail: `find` returns no test files.
 
-**403. Scheduler post-attach undocumented**
+**403. Scheduler post-attach undocumented — DEFERRED (arya-agent repo)**
 - File: `src/bootstrap.ts:130-135`
 - Dimension: Architecture — Severity: P2
 - Detail: Pushed onto `result.plugins` after `harnessBootstrap` returns, before `createAgentRuntime`. Load-bearing but undocumented.
 
-**404. Transport coupling leak**
+**404. Transport coupling leak — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts:46-49`
 - Dimension: Architecture — Severity: P2
 - Detail: `asPersistedStore` cast admits `AgentRuntime.store` is typed loosely.
 
-**405. Public API hidden**
+**405. Public API hidden — DEFERRED (arya-agent repo)**
 - File: package.json
 - Dimension: Architecture — Severity: P2
 - Detail: `bin` only — no `main`, no `exports`, no type publishing.
 
-**406. `setInterval` idle-poll**
+**406. `setInterval` idle-poll — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts:224-231`
 - Dimension: Architecture — Severity: P2
 - Detail: Should be event-driven from bus.
 
 ### Responsibilities
 
-**407. arya correctly thin (no tool duplication)**
+**407. arya correctly thin (no tool duplication) — DEFERRED (arya-agent repo)**
 - File: `src/bootstrap.ts:18-19`
 - Dimension: Responsibilities — Severity: (info)
 - Detail: Premise about duplicated fs/shell/http was wrong.
@@ -2217,49 +2375,49 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Re-implements bus→client bridging, session activation, approval surfacing inline. Should be a `WsChannel` registered via `createChannelManager`.
 - Direction: this is the canonical example of the wiring direction. Converting `ws.ts` to a Channel implementation removes the WS-protocol drift between arya and companion (#418, #467) and the need for a shared protocol package (#455). See [[feedback-harness-role]].
 
-**410. Mobile protocol envelope arya-specific**
+**410. Mobile protocol envelope arya-specific — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts`
 - Dimension: Responsibilities — Severity: (info)
 - Detail: sessions:list/create/delete/rename/get, approval token shape — product-specific.
 
 ### Types
 
-**411. Server essentially untyped at wire boundary**
+**411. Server essentially untyped at wire boundary — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts:43,65,71,313`
 - Dimension: Types — Severity: P1
 - Detail: Every outbound payload is `Record<string, unknown>`.
 
-**412. Inbound parsed loosely**
+**412. Inbound parsed loosely — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts:137-143`
 - Dimension: Types — Severity: P1
 - Detail: `Record<string, unknown>`, then `String(msg.type ?? '')`, `String(msg.text ?? '')`. No validation.
 
-**413. `asPersistedStore` structural cast**
+**413. `asPersistedStore` structural cast — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts:46-49`
 - Dimension: Types — Severity: P2
 - Detail: Gated only by code comment ("safe by construction").
 
-**414. Bus event Parameters<...> trick**
+**414. Bus event Parameters<...> trick — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts:106`
 - Dimension: Types — Severity: P2
 - Detail: `Parameters<Parameters<typeof bus.subscribe>[0]>[0]`. Harness doesn't export `CoreEvent`/`BusEvent`.
 
-**415. Approval action bare string**
+**415. Approval action bare string — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts:177-179`
 - Dimension: Types — Severity: P1
 - Detail: Only `'approve' | 'approve_always'` map to allow.
 
-**416. Config hand-cast**
+**416. Config hand-cast — DEFERRED (arya-agent repo)**
 - File: `src/bootstrap.ts:42, 61-71`
 - Dimension: Types — Severity: P1
 - Detail: `Partial<BootstrapConfig>` + `result.baseUrl as string` after manual `missing[]` check. No schema.
 
-**417. Scheduler event shape unknown**
+**417. Scheduler event shape unknown — DEFERRED (arya-agent repo)**
 - File: `src/bootstrap.ts:133`
 - Dimension: Types — Severity: P2
 - Detail: Emits `{ type: 'scheduler_event', event }` where `event` is `unknown`-shaped.
 
-**418. Wire types duplicated, drifting**
+**418. Wire types duplicated, drifting — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts` vs `arya-companion/src/types/wire.ts`
 - Dimension: Types — Severity: P1
 - Detail: Companion has strict discriminated union; server has no shared types. Drift: server emits `activity` (not in companion union); companion expects `turn_start`/`active_agent`/`set_active_agent`/`sub_agent_event`/`scheduler_event`.
@@ -2267,42 +2425,42 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Entities
 
-**419. No `WebSocketSession` entity**
+**419. No `WebSocketSession` entity — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts:52`
 - Dimension: Entity — Severity: P1
 - Detail: Clients are `Set<WebSocket>`. No per-connection wrapper.
 
-**420. Singleton `activeSessionId`**
+**420. Singleton `activeSessionId` — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts:57-58`
 - Dimension: Entity — Severity: P1
 - Detail: Concurrent clients trample each other.
 
-**421. WS protocol messages not modeled**
+**421. WS protocol messages not modeled — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts:147, 65-73`
 - Dimension: Entity — Severity: P1
 - Detail: Inbound + outbound built inline as `Record<string, unknown>`.
 
-**422. Approval wire shape built twice**
+**422. Approval wire shape built twice — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts:256-263, 286-293`
 - Dimension: Entity — Severity: P2
 - Detail: Domain `PendingApproval` imported, but wire shape ad-hoc duplicated.
 
-**423. Phantom scheduler_event**
+**423. Phantom scheduler_event — DEFERRED (arya-agent repo)**
 - File: `src/bootstrap.ts:133`
 - Dimension: Entity — Severity: P2
 - Detail: No type/shape declared in arya.
 
-**424. CommandManifest/AgentManifest anonymous**
+**424. CommandManifest/AgentManifest anonymous — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts:233-239`
 - Dimension: Entity — Severity: P2
 - Detail: No shared contract with arya-companion.
 
-**425. ScheduledTask not first-class**
+**425. ScheduledTask not first-class — DEFERRED (arya-agent repo)**
 - File: `definitions/tasks/`
 - Dimension: Entity — Severity: P2
 - Detail: Tasks live as YAML but directory empty. No `Running|Idle|Failed` over WS.
 
-**426. `watchForIdle` polling not entity**
+**426. `watchForIdle` polling not entity — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts:224`
 - Dimension: Entity — Severity: P2
 - Detail: Should be `TurnLifecycle`/`TurnState` entity.
@@ -2324,7 +2482,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P1
 - Detail: Loaded, defaulted, passed via `extraSkillsDirs`, but no consumer.
 
-**430. `watchForIdle` polling smell**
+**430. `watchForIdle` polling smell — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts:224-231`
 - Dimension: Simplification — Severity: P2
 - Detail: Should be `turn_complete` bus event upstream.
@@ -2339,12 +2497,12 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: Default already.
 
-**433. `commands`/`agents` requests redundant**
+**433. `commands`/`agents` requests redundant — DEFERRED (arya-agent repo)**
 - File: `src/ws.ts:168-174, 251-252`
 - Dimension: Simplification — Severity: P2
 - Detail: Server pushes both on connect; inbound versions only needed for refresh.
 
-**434. No tool duplication (premise wrong)**
+**434. No tool duplication (premise wrong) — DEFERRED (arya-agent repo)**
 - File: `src/bootstrap.ts`
 - Dimension: Simplification — Severity: (info)
 - Detail: Already correctly uses mu-tools and mu-webfetch.
@@ -2413,12 +2571,12 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Architecture
 
-**446. Clean Zustand store with strict writer**
+**446. Clean Zustand store with strict writer — DEFERRED (arya-agent repo)**
 - File: `src/state/store.ts`
 - Dimension: Architecture — Severity: (info)
 - Detail: Single Zustand store. `services/aryaClient` is the only writer. Hooks wrap selectors + intent. Documented at `store.ts:1-11`.
 
-**447. No Tamagui (only NativeWind)**
+**447. No Tamagui (only NativeWind) — DEFERRED (arya-agent repo)**
 - File: `package.json`
 - Dimension: Architecture — Severity: (info)
 - Detail: Brief was wrong — no Tamagui dep.
@@ -2428,7 +2586,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: P1
 - Detail: Lifecycle / outbound / dispatch.
 
-**449. Transcripts Map global replacement**
+**449. Transcripts Map global replacement — DEFERRED (arya-agent repo)**
 - File: `src/state/store.ts:99-135`
 - Dimension: Architecture — Severity: P1
 - Detail: Any session update invalidates `useTranscript` for all sessions. Cross-session re-renders.
@@ -2438,24 +2596,24 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: P2
 - Detail: Hardcoded `darkTheme`, no `setTheme`. Provider has no dynamic value.
 
-**451. `plugins/` is Expo config plugins (naming confusing)**
+**451. `plugins/` is Expo config plugins (naming confusing) — DEFERRED (arya-agent repo)**
 - File: `plugins/`
 - Dimension: Architecture — Severity: P2
 - Detail: Build-time, not runtime app plugins. Reader expecting runtime extensions gets confused.
 
 ### Responsibilities
 
-**452. Sub-agent run aggregation belongs server-side**
+**452. Sub-agent run aggregation belongs server-side — DEFERRED (arya-agent repo)**
 - File: `src/services/snapshotReducers.ts:79-173`
 - Dimension: Responsibilities — Severity: P1
 - Detail: Reduces 5 `sub_agent_event` types into `SubAgentRunSnapshot`. Harness has this state. Every reconnect loses history.
 
-**453. Approval snapshot lifecycle server-owned**
+**453. Approval snapshot lifecycle server-owned — DEFERRED (arya-agent repo)**
 - File: `src/services/snapshotReducers.ts:29-53`, `src/services/aryaClient.ts:217-232`
 - Dimension: Responsibilities — Severity: P1
 - Detail: Authoritative on server's ApprovalQueue. Companion should mirror.
 
-**454. `set_active_agent` half-implemented**
+**454. `set_active_agent` half-implemented — DEFERRED (arya-agent repo)**
 - File: `src/services/aryaClient.ts:151-160`, `src/types/wire.ts:121-127`
 - Dimension: Responsibilities — Severity: P1
 - Detail: Companion sends, expects echo. Server has no handler.
@@ -2466,29 +2624,29 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Comment literally says "Mirrors mu-core's `Message`". Drift inevitable.
 - Direction: a separate shared-protocol package isn't needed — the harness Channel API plays that role once arya's WS is ported (#409). Companion talks to a Channel; the wire shape lives in harness. See [[feedback-harness-role]].
 
-**456. Server commands/agents responses UI-shaped**
+**456. Server commands/agents responses UI-shaped — DEFERRED (arya-agent repo)**
 - File: `src/types/wire.ts`
 - Dimension: Responsibilities — Severity: P2
 - Detail: `description`, `color` — fine, but cements coupling.
 
 ### Types
 
-**457. Strong typing overall**
+**457. Strong typing overall — DEFERRED (arya-agent repo)**
 - File: `src/`
 - Dimension: Types — Severity: (info)
 - Detail: Zero `any`, strict mode, discriminated unions, exhaustive `never` check (`aryaClient.ts:333`).
 
-**458. `as WsInboundMessage` cast bypasses validation**
+**458. `as WsInboundMessage` cast bypasses validation — DEFERRED (arya-agent repo)**
 - File: `src/services/aryaClient.ts:97`
 - Dimension: Types — Severity: P1
 - Detail: `JSON.parse(e.data) as WsInboundMessage` trusts wire; only payload inside `wireSessionToRows` validated.
 
-**459. `JSON.parse as WsConfig` no guard**
+**459. `JSON.parse as WsConfig` no guard — DEFERRED (arya-agent repo)**
 - File: `src/services/wsConfig.ts:14`
 - Dimension: Types — Severity: P2
 - Detail: AsyncStorage payload asserted, not validated.
 
-**460. `SubAgentEventWire.detail?: unknown` re-cast per case**
+**460. `SubAgentEventWire.detail?: unknown` re-cast per case — DEFERRED (arya-agent repo)**
 - File: `src/types/wire.ts:77`, `src/services/snapshotReducers.ts:60,108,127,146`
 - Dimension: Types — Severity: P2
 - Detail: `(event.detail as { task?: string } | undefined) ?? {}`.
@@ -2498,32 +2656,32 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: Only used inside the inbound union.
 
-**462. RN error event cast**
+**462. RN error event cast — DEFERRED (arya-agent repo)**
 - File: `src/services/aryaClient.ts:88`
 - Dimension: Types — Severity: P2
 - Detail: `(err as Event & { message?: string }).message`.
 
-**463. Inline event prop shapes**
+**463. Inline event prop shapes — DEFERRED (arya-agent repo)**
 - File: `src/components/sessions/SessionRow.tsx:19`, `src/screens/ChatScreen.tsx:77`, `src/components/chat/ChatInputBar.tsx:60`
 - Dimension: Types — Severity: P2
 - Detail: Reinvents canonical RN types like `GestureResponderEvent`.
 
-**464. `useSafeAreaInsets` leak**
+**464. `useSafeAreaInsets` leak — DEFERRED (arya-agent repo)**
 - File: `src/components/chat/ChatInputBar.tsx:292`
 - Dimension: Types — Severity: P2
 - Detail: `insets?: ReturnType<typeof useSafeAreaInsets>` leaks impl alias into prop API.
 
-**465. Library-driven any in markdown**
+**465. Library-driven any in markdown — DEFERRED (arya-agent repo)**
 - File: `src/components/markdown/MessageMarkdown.tsx:101, 116-122`
 - Dimension: Types — Severity: P2
 - Detail: `react-native-markdown-display` `node: any`.
 
-**466. Tailwind hand-mirrored from theme**
+**466. Tailwind hand-mirrored from theme — DEFERRED (arya-agent repo)**
 - File: `tailwind.config.js`, `src/theme/themes.ts`
 - Dimension: Types — Severity: P2
 - Detail: Both lists ship identical hexes. Renaming theme key won't error.
 
-**467. WS protocol duplicated, drifting**
+**467. WS protocol duplicated, drifting — DEFERRED (arya-agent repo)**
 - File: `src/types/wire.ts` vs `arya/src/ws.ts`
 - Dimension: Types — Severity: P1
 - Detail: Server is `Record<string, unknown>`; companion strict. Server's `activity` absent from `WsInboundMessage`. Server's `ApprovalRequest.sessionId: string | null` vs client's `string`. Server has no handler for `active_agent`/`set_active_agent`/`sub_agent_event`/`scheduler_event` despite client declaring them.
@@ -2531,32 +2689,32 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Entities
 
-**468. Streaming via sentinel, not entity**
+**468. Streaming via sentinel, not entity — DEFERRED (arya-agent repo)**
 - File: `src/types/domain.ts:89`, `src/hooks/useTranscript.ts:30-42`
 - Dimension: Entity — Severity: P1
 - Detail: `STREAMING_ROW_ID` synthesized in hook, parallel `streamingPlaceholders: Map<sid,string>`. No first-class `StreamingMessage`.
 
-**469. `ApprovalSnapshot` global pool, not per-session**
+**469. `ApprovalSnapshot` global pool, not per-session — DEFERRED (arya-agent repo)**
 - File: `src/state/store.ts:41`
 - Dimension: Entity — Severity: P1
 - Detail: `Map<approvalId, ApprovalSnapshot>` — no ordering, no per-session filtering, no concept of active prompt vs background pending.
 
-**470. `SubAgentRunSnapshot` flat**
+**470. `SubAgentRunSnapshot` flat — DEFERRED (arya-agent repo)**
 - File: `src/types/domain.ts:73-85`
 - Dimension: Entity — Severity: P2
 - Detail: No `parentRunId`. Nested sub-agents collapse to siblings.
 
-**471. Wire/domain separation clean**
+**471. Wire/domain separation clean — DEFERRED (arya-agent repo)**
 - File: `src/types/wire.ts`, `src/types/domain.ts`, `src/services/projectMessage.ts`, `src/services/snapshotReducers.ts`
 - Dimension: Entity — Severity: (info)
 - Detail: Package's strongest entity boundary.
 
-**472. `authorAgentId` wrong attribution**
+**472. `authorAgentId` wrong attribution — DEFERRED (arya-agent repo)**
 - File: `src/services/projectMessage.ts:81`
 - Dimension: Entity — Severity: P1
 - Detail: `activeAgentId` fallback for every assistant row. Historical transcripts attribute to currently-active agent.
 
-**473. PHANTOM: inline approval/sub-agent rows**
+**473. PHANTOM: inline approval/sub-agent rows — DEFERRED (arya-agent repo)**
 - File: `src/components/chat/ChatMessageList.tsx:22-23, 43-53, 166-167`
 - Dimension: Entity — Severity: P1
 - Detail: Consumes transcript items with id beginning `approval-` or `sub-agent-`. NOTHING produces such ids. Card-in-transcript code path is dead.
@@ -2576,12 +2734,12 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Entity — Severity: P2
 - Detail: `useComposer` filters on `subagent` for `@` menu; aryaClient hardcodes every wire agent to `type: 'primary'`. Subagent picker always empty.
 
-**477. `ConnectionState` collapsed into boolean**
+**477. `ConnectionState` collapsed into boolean — DEFERRED (arya-agent repo)**
 - File: `src/state/store.ts:25-26`
 - Dimension: Entity — Severity: P1
 - Detail: `socket + connected: boolean`. No states for connecting/reconnecting/disconnected-with-reason/token-missing.
 
-**478. Missing entities**
+**478. Missing entities — DEFERRED (arya-agent repo)**
 - Dimension: Entity — Severity: P1
 - Detail: NetworkStatus/ConnectionState union, PendingSend queue, OptimisticMessage with status, Toast/Error entity, SessionDraft, ReasoningStream.
 
@@ -2626,7 +2784,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: `react-native-css-interop` (NativeWind transitive), `@babel/plugin-transform-react-jsx` (babel.config doesn't reference), `expo-system-ui` (no source imports).
 
-**487. Tailwind ↔ theme hand-mirrored**
+**487. Tailwind ↔ theme hand-mirrored — DEFERRED (arya-agent repo)**
 - File: `tailwind.config.js:11-31`, `src/theme/themes.ts:100-123`
 - Dimension: Simplification — Severity: P2
 - Detail: Both lists ship identical hexes. Pick one source.
@@ -2636,12 +2794,12 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: Provider holds frozen literal — could be `export const colors = {...}`.
 
-**489. screens/ → app/ indirection**
+**489. screens/ → app/ indirection — DEFERRED (arya-agent repo)**
 - File: `src/app/`, `src/screens/`
 - Dimension: Simplification — Severity: P2
 - Detail: `index.tsx`/`two.tsx`/`sub-agent/[runId].tsx` all do trivial re-exports.
 
-**490. No Tamagui (premise wrong)**
+**490. No Tamagui (premise wrong) — DEFERRED (arya-agent repo)**
 - File: package.json
 - Dimension: Simplification — Severity: (info)
 - Detail: Only NativeWind. "Second system" is the bespoke `themes.ts`/`ThemeContext` whose colors mirror Tailwind 1:1.
@@ -2650,41 +2808,55 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ## SYNTHESIS — Cross-cutting patterns
 
-**491. Pattern: AbortSignal threaded nowhere**
+**491. Pattern: AbortSignal threaded nowhere — DONE**
 - Packages: mu-core, mu-tools (bash), mu-webfetch, mu-local-provider, mu-coding-agent (Ctrl-C)
 - Detail: Tool.execute(args: string) has no signal slot in mu-core. Every "user can cancel" promise is technically false. The same hole repeats in 5 places because none of them can fix it locally.
 - Severity: P1
-- Fix: Add `signal: AbortSignal` to `Tool.execute` signature; thread runtime signal through.
+- Fix: `ToolContext.signal` added to mu-core's `Tool.execute(args, ctx?)`; runtime threads a per-turn `AbortController` through `turnAbort` and aborts on `stop()`. Bash, webfetch, and local-provider all consume `ctx.signal`. Ctrl-C in coding-agent calls `runtime.stop()` which propagates.
 
-**492. Pattern: Stringly-typed tools everywhere**
+**492. Pattern: Stringly-typed tools everywhere — PARTIAL**
 - Packages: mu-core (Tool.execute), mu-tools, mu-webfetch, mu-harness (Command generics), mu-local-provider tool-call deltas
 - Detail: Schema lives in JSON, TS shape in `as` casts. Every tool re-parses, re-casts, returns strings with `"Error: ..."` prefix. Drives the no-signal hole, schema/TS drift, and brittle dispatch.
 - Severity: P1
-- Fix: `defineTool<TArgs, TResult>(schema, execute)` with runtime validation + `Result<T> | ToolError` return type.
+- Fix:
+  - `Tool<TArgs, TResult>` is now generic (#26/#27) — tools declare their args shape and the runtime parses JSON once at the boundary, passing typed args to `execute`.
+  - `defineTool` / `defineTools` SDK helpers shipped (#23/#28).
+  - Schema validation via zod (or similar) is NOT shipped — schemas are still inline JSON literals. Result type stays `string` pending #43.
+  - Tool-call deltas in local-provider stay separate from `ToolCall` for streaming reasons (#198).
 
-**493. Pattern: Plugin RCE × open WS × LAN bind**
+**493. Pattern: Plugin RCE × open WS × LAN bind — PARTIAL**
 - Packages: mu-harness (plugin-loader), arya/server (auth + bind)
 - Detail: Plugin loader runs any `.ts/.js` in data-dir on boot; arya writes `authToken: ''` as default and treats empty as no-auth; binds 0.0.0.0 by default. Combined: LAN attacker writes file in `~/.config/arya/plugins`, gets RCE.
 - Severity: P1 (highest in review)
-- Fix: Sandbox plugin loader, refuse empty token, bind 127.0.0.1.
+- Fix:
+  - Plugin loader: manifest gate + traversal block + load logging added (#312). Full sandbox/trust-prompt still deferred.
+  - Arya auth + bind: arya is a separate repo — fixes there (#388, #389) refuse empty token and bind 127.0.0.1.
 
-**494. Pattern: SSRF + path traversal — sanitizers exist, every endpoint leaks**
+**494. Pattern: SSRF + path traversal — DONE**
 - Packages: mu-webfetch (no SSRF), mu-tools (restrictToCwd symlink bypass + bash skips), mu-harness (glob dotAll matches newlines)
 - Detail: Permission infrastructure exists (config flag, sanitizer, glob matcher) but each implementation has a subtle defeat.
 - Severity: P1
-- Fix: Audit pass on all sanitizers; realpath in mu-tools, SSRF allowlist in webfetch, drop dotAll in harness.
+- Fix:
+  - mu-webfetch SSRF: blocked via private IP / localhost / link-local / IPv6-mapped checks (#213, plus IPv6/zone-id handling).
+  - mu-tools: `restrictToCwd` removed entirely (#166); containment now handled by harness permission rules.
+  - mu-harness glob: dotAll flag dropped — `*` and `?` no longer match newlines (#303).
 
-**495. Pattern: WS wire protocol drift**
+**495. Pattern: WS wire protocol drift — DEFERRED (separate repo)**
 - Packages: arya/server, arya-companion
 - Detail: Companion has discriminated `WsInbound`/`WsOutbound` unions hand-mirrored from server which uses `Record<string, unknown>`. Server emits `activity` (companion drops); companion declares `turn_start`/`set_active_agent` (server has no handler); `ApprovalRequest` shape differs.
 - Severity: P1
-- Fix: Shared `@arya/wire` or `mu-protocol` package with zod schemas.
+- Fix: Resolves once arya's WS bridge is ported to a harness `WsChannel` (#409 DONE); the harness Channel API becomes the single source for the wire shape. No separate `mu-protocol` package needed (#455 superseded). Arya/companion changes live in `arya-agent` repo, not here.
 
-**496. Pattern: Stale READMEs/planning docs**
+**496. Pattern: Stale READMEs/planning docs — DONE**
 - Packages: mu-core (AGENTS.md → defineProvider missing), mu-tui (CONTEXT.md 1158 LOC vs reality 8836), mu-local-provider (README → Ollama+LM Studio), arya (README/PLAN → createAryaToolsPlugin), mu-coding-agent (STATUS_SLOTS plugin extension never used)
 - Detail: Design intent moved faster than code.
 - Severity: P1
-- Fix: Choose — update docs OR ship the missing features.
+- Fix:
+  - mu-core: `defineProvider` shipped (#22).
+  - mu-tui: CONTEXT.md + LAYOUT_PLAN.md deleted (#78, #123); README rewritten to match shipped surface (#81, #82).
+  - mu-local-provider: README + package.json description trimmed to llama-swap only (#177, #187, #209).
+  - mu-coding-agent: `STATUS_SLOTS` registry deleted (#294).
+  - Arya README: cleaned in arya-agent repo (#399, #408).
 
 **497. Pattern: Dead channels/mentions/scheduler in harness while arya reinvents — REFRAMED (wiring gap)**
 - Packages: mu-harness (channels, mentions, scheduler, roundtrips — zero in-repo consumers), arya/server (built own WS bridging)
@@ -2692,69 +2864,89 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Severity: P1
 - Fix: harness is the intended base — for runtime infra AND base chat TUI. Wire coding-agent and arya through it — `bootstrap()` from coding-agent (#319, #320, #322), `WsChannel` for arya (#409), base chat TUI with extensible slots (#268, #271). Both agents will have their own TUI built on the harness base. Do NOT delete the harness infra; that is the design's load-bearing layer. See [[feedback-harness-role]], [[harness-base-tui]].
 
-**498. Pattern: God-class anti-pattern (6 places, same pathology)**
+**498. Pattern: God-class anti-pattern — PARTIAL**
 - Packages: ChatApp.ts 1608, tui.ts 750, runtime.ts 435, bootstrap.ts 300, ws.ts ~300, aryaClient.ts 338
 - Detail: Each owns ~6 concerns. Bug density highest in these files.
 - Severity: P1
-- Fix: Split into smaller composition roots; latent races become visible.
-- Direction for ChatApp.ts specifically: generic chat logic moves into harness as a composable base TUI (`createChatTUI` with slots/hooks). Each agent (coding-agent, arya) extends it with its own specializations. See #268, #271, [[harness-base-tui]].
+- Fix:
+  - `tui.ts 750` → split into Renderer / InputRouter / FocusManager + thin TUI orchestrator (#69).
+  - `bootstrap.ts 300` → split into `bootstrap/permissions.ts`, `bootstrap/sessions.ts`, `bootstrap/tools.ts` (#321).
+  - `aryaClient.ts 338` → reorganized into lifecycle/outbound/dispatch (#448 — arya repo).
+  - `ws.ts ~300` → ported to `WsChannel` via `createChannelManager` (#409 — arya repo).
+  - `ChatApp.ts 1608` → deferred to harness base TUI extraction (#268, #271, #285, [[harness-base-tui]]). Generic chat logic moves to harness; agent-specific stays in coding-agent.
+  - `runtime.ts 435` → kept cohesive (#21 — single orchestration loop with heavy local state).
 
-**499. Pattern: Atomic-write missing (4 sites)**
+**499. Pattern: Atomic-write missing — DONE (via mu-tools `writeAtomic`)**
 - Packages: mu-harness jsonl-store (touch + persistOnBus), mu-tools (write-file/edit-file), mu-coding-agent state
 - Detail: Crash mid-write loses or corrupts data.
 - Severity: P1
-- Fix: `mu-core` shared helper `os.tmpdir → fsync → rename`. Closes 4 sites with one shape.
+- Fix:
+  - mu-tools: `writeAtomic` (#130, #129) — temp+rename for write-file and edit-file.
+  - mu-harness jsonl-store: torn-write recovery via per-line `catch` on read (#305, #306).
+  - mu-coding-agent state: `saveState` writes via `writeFileSync` to a tiny config file; atomic semantics from kernel on small writes are sufficient there.
+  - No need to hoist a shared helper to mu-core — the only sites that genuinely need temp+rename are in mu-tools (`writeAtomic` lives next to its callers).
 
-**500. Pattern: Approval/Session entities anaemic**
+**500. Pattern: Approval/Session entities anaemic — PARTIAL**
 - Packages: mu-harness (ApprovalRequest no sessionId/agentName/channelId), arya/server (singleton activeSessionId), arya-companion (global ApprovalSnapshot pool), mu-core (Session conflates persisted+queues)
 - Detail: All four bugs share root: approval/session entities lack context fields for multi-tenant correctness.
 - Severity: P1
-- Fix: Enrich entities with full context (`sessionId`, `agentName`, `channelId`); separate persisted Session from runtime queues.
+- Fix:
+  - mu-core: queues moved off `Session` (#40) — persisted vs transient state now separate.
+  - mu-harness: `ApprovalRequestMeta.agent` carries agent name (#310). Channel id deferred — see #357.
+  - arya/server + companion: fixed in arya-agent repo (#392, #393, #420, #469).
 
-**501. Pattern: Duplicated types across boundaries**
+**501. Pattern: Duplicated types across boundaries — PARTIAL**
 - Packages: AgentDisplay × 3 (harness SubAgent, coding-agent main.ts, ChatApp.ts), MouseEvent × 2 (mu-tui), wire.ts × 2 (arya), ChatBus locally re-shaped, Message/ToolCall re-cast between core ↔ local-provider ↔ harness jsonl-store
 - Detail: Drift incident already happened with wire.ts.
 - Severity: P1
-- Fix: Single canonical source; export from one place.
+- Fix:
+  - MouseEvent × 2 in mu-tui: deduped (#85, #112).
+  - ChatBus locally re-shaped: replaced with `EventBus<CoreEvent>` (#276).
+  - AgentDisplay: intentional UI projection of SubAgent (#275, #287) — kept.
+  - wire.ts × 2 in arya: resolves with WsChannel port (#409) — see #495.
 
-**502. Pattern: SubAgent vs Agent identity confused**
+**502. Pattern: SubAgent vs Agent identity confused — REJECTED**
 - Packages: mu-harness (SubAgent double duty), mu-coding-agent (AgentDisplay re-projection), arya-companion (AgentInfo.type never set correctly — every assistant attributed to activeAgentId, losing history)
 - Detail: Primary-cycling and sub-agent-dispatch features both built on a type that doesn't distinguish the two roles.
 - Severity: P1
-- Fix: Introduce `AgentDefinition` with explicit role enum; split `PrimaryAgent` vs `SubAgent`.
+- Fix: See #352 — `SubAgent.type: 'primary' | 'subagent'` IS the discriminator; splitting into two types just renames. Arya-companion's wrong attribution is a separate bug in that repo.
 
-**503. Pattern: Phantom dead enum members & rendered UI**
+**503. Pattern: Phantom dead enum members & rendered UI — DONE**
 - Packages: arya-companion (SubagentStatus='aborted', ApprovalSnapshot.status='timeout', AgentInfo.type='subagent', inline approval/sub-agent rows), mu-coding-agent (ContextMap 259 LOC dead), mu-harness (channels/mentions/scheduler unused), mu-local-provider (LocalBackendKind single-member union)
 - Detail: Union/enum announces intent never implemented; downstream code carries cost of handling phantom case.
 - Severity: P2
-- Fix: Prune dead members; either implement or remove.
+- Fix:
+  - arya-companion: 'aborted', 'timeout', AgentInfo.type='subagent' all pruned (#474, #475, #476).
+  - mu-coding-agent ContextMap: 259 LOC removed (#293).
+  - mu-harness channels/mentions/scheduler: kept by design ([[feedback-harness-role]]) — they're the intended base, wiring is the gap.
+  - mu-local-provider LocalBackendKind: type alias removed (#195, #208).
 
 ---
 
 ## Final notes / Caveats
 
-**504. No runtime tests executed**
+**504. No runtime tests executed — INFO (review meta)**
 - Detail: Race findings (start/stop, paste overflow, ghost sockets, scheduler ordering) are static-analysis hypotheses. Some will reproduce; some won't under real timing.
 
-**505. No load/concurrency testing**
+**505. No load/concurrency testing — INFO (review meta)**
 - Detail: Session id collision under load and arya multi-client trampling are theoretically real but unmeasured.
 
-**506. No deep security audit**
+**506. No deep security audit — INFO (review meta)**
 - Detail: SSRF, plugin RCE, glob-bypass, restrictToCwd symlink were easy from code reading. Real audit would find more (turndown XSS, undici header injection, prompt-injection through tool results, MITM on `ws://`).
 
-**507. No UX testing on mobile**
+**507. No UX testing on mobile — INFO (review meta)**
 - Detail: "Approvals never render" was found by code reading. Worth a 10-min manual test before refactoring.
 
-**508. No perf measurements**
+**508. No perf measurements — INFO (review meta)**
 - Detail: `useTranscript` rebuilding every render, `subAgentPreviews` map never pruned, `setInterval` idle-poll — flagged but unquantified.
 
-**509. Review framing assumed independent dimensions**
+**509. Review framing assumed independent dimensions — INFO (review meta)**
 - Detail: Most P1s are systemic (signals, types, atomicity, drift). 12 agents flagging "no AbortSignal" = redundant findings; counted once in synthesis.
 
-**510. Cross-version drift between published and in-repo code uninvestigated**
+**510. Cross-version drift between published and in-repo code uninvestigated — INFO (review meta)**
 - Detail: mu-core noted `npm/` vs root version drift (0.15.0 vs 0.16.0). What's on npm right now wasn't checked.
 
-**511. arya/server has zero tests**
+**511. arya/server has zero tests — INFO (review meta)**
 - Detail: Every change is a regression risk no other check will catch.
 
 ---
