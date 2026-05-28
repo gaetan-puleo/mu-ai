@@ -1735,10 +1735,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - File: `src/ui/subAgentRun.ts:159-161`
 - Dimension: Simplification — Severity: P1
 
-**297. FilePicker back-compat exports unused — PARTIAL (removed `invalidateTreeCache` + `fuzzyFilter`; `FilePickerEntry` alias kept because `ChatApp` actually uses it)**
+**297. FilePicker back-compat exports unused — DONE**
 - File: `src/ui/components/FilePicker.ts:18-19, 75-78, 122-125`
 - Dimension: Simplification — Severity: P1
 - Detail: `FilePickerEntry` alias, `invalidateTreeCache`, `fuzzyFilter` — zero callers.
+- Fix: `FilePickerEntry` alias is also gone now (ChatApp stopped using it); all three back-compat exports removed.
 
 **298. `CodingAgentConfig` provider fields — REJECTED (config-file compat)**
 - File: `src/config.ts:8, 9, 11`
