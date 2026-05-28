@@ -72,8 +72,6 @@ export function createInMemorySessionStore(options: InMemorySessionStoreOptions 
         id: idGen(),
         title: init.title,
         messages: init.messages ? structuredClone(init.messages) : [],
-        steeringQueue: [],
-        followUpQueue: [],
         createdAt: ts,
         updatedAt: ts,
       };
@@ -102,8 +100,6 @@ export function createInMemorySessionStore(options: InMemorySessionStoreOptions 
         id: idGen(),
         title: init.title,
         messages: structuredClone(source.messages.slice(0, atIndex + 1)),
-        steeringQueue: [],
-        followUpQueue: [],
         createdAt: ts,
         updatedAt: ts,
         forkedFrom: { sessionId: sourceId, atIndex },

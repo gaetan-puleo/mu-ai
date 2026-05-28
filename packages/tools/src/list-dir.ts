@@ -5,7 +5,6 @@ import { sanitizePath, validatedCwd } from './utils';
 
 interface ListDirToolOptions {
   getCwd: () => string;
-  restrictToCwd?: boolean;
 }
 
 interface ListDirArgs {
@@ -52,7 +51,6 @@ function listDirRecursive(dir: string, prefix: string, depth: number, maxDepth: 
 }
 
 export function createListDirTool(opts: ListDirToolOptions): Tool<ListDirArgs, string> {
-  const { restrictToCwd = false } = opts;
   const getCwd = validatedCwd(opts.getCwd);
   return {
     name: 'list_dir',
@@ -73,10 +71,7 @@ export function createListDirTool(opts: ListDirToolOptions): Tool<ListDirArgs, s
       }
       const rawPath = args.path;
       const cwd = getCwd();
-      const path = sanitizePath(rawPath, cwd, restrictToCwd);
-      if (path === null) {
-        return `Error: Invalid or disallowed path: ${rawPath}`;
-      }
+      const path = sanitizePath(rawPath, cwd);
       if (!existsSync(path)) {
         return `Error: Directory not found: ${path}`;
       }

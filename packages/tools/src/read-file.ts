@@ -4,7 +4,6 @@ import { looksBinary, readLineRange, sanitizePath, validatedCwd } from './utils'
 
 interface ReadFileToolOptions {
   getCwd: () => string;
-  restrictToCwd?: boolean;
 }
 
 /** Wire-level shape declared in `parameters` below. Narrowed at the boundary. */
@@ -17,14 +16,10 @@ interface ReadFileArgs {
 function executeReadFileSingle(
   rawPath: string,
   cwd: string,
-  restrictToCwd: boolean,
   start?: number,
   end?: number,
 ): string {
-  const path = sanitizePath(rawPath, cwd, restrictToCwd);
-  if (path === null) {
-    return `Error: Invalid or disallowed path: ${rawPath}`;
-  }
+  const path = sanitizePath(rawPath, cwd);
   if (!existsSync(path)) {
     return `Error: File not found: ${path}`;
   }
@@ -66,7 +61,6 @@ function executeReadFileSingle(
 }
 
 export function createReadFileTool(opts: ReadFileToolOptions): Tool<ReadFileArgs, string> {
-  const { restrictToCwd = false } = opts;
   const getCwd = validatedCwd(opts.getCwd);
   return {
     name: 'read',
@@ -99,7 +93,7 @@ export function createReadFileTool(opts: ReadFileToolOptions): Tool<ReadFileArgs
       const cwd = getCwd();
 
       return paths
-        .map((p) => executeReadFileSingle(p, cwd, restrictToCwd, start, end))
+        .map((p) => executeReadFileSingle(p, cwd, start, end))
         .join('\n\n');
     },
     onError: formatError,

@@ -108,8 +108,6 @@ export function createJsonlSessionStore(dir: string): PersistedSessionStore {
       id,
       title: meta?.title ?? id,
       messages,
-      steeringQueue: [],
-      followUpQueue: [],
       createdAt: meta?.createdAt ?? Date.now(),
       updatedAt: meta?.updatedAt ?? Date.now(),
     };
@@ -170,8 +168,6 @@ export function createJsonlSessionStore(dir: string): PersistedSessionStore {
         id,
         title: init.title,
         messages: init.messages ? [...init.messages] : [],
-        steeringQueue: [],
-        followUpQueue: [],
         createdAt: now,
         updatedAt: now,
       };
@@ -204,8 +200,6 @@ export function createJsonlSessionStore(dir: string): PersistedSessionStore {
         id,
         title: init.title,
         messages: source.messages.slice(0, atIndex + 1),
-        steeringQueue: [],
-        followUpQueue: [],
         createdAt: now,
         updatedAt: now,
         forkedFrom: { sessionId: sourceId, atIndex },

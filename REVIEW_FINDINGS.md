@@ -79,7 +79,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Architecture
 
-**13. `types/Tool.ts` is a junk drawer**
+**13. `types/Tool.ts` is a junk drawer — DONE**
 - File: `src/types/Tool.ts`
 - Dimension: Architecture — Severity: P1
 - Detail: Owns `Tool`, `ToolCall`, but also `LLMResponse`, `LLMStreamEvent`, `LLMResponseContext`, `ContextMap`, `ContextPart`. Provider-side response types do not belong in a file named `Tool.ts`.
@@ -96,7 +96,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: `npm/` and `dist/` still export `defineProvider`; live `src/provider.ts` does not. `npm/package.json` is at v0.15.0 with a different description than `package.json` v0.16.0.
 - Fix: Either ship `defineProvider` or remove the AGENTS.md reference; drop checked-in build artifacts.
 
-**16. `provider.ts` re-exports types it doesn't own**
+**16. `provider.ts` re-exports types it doesn't own — DONE**
 - File: `src/provider.ts`
 - Dimension: Architecture — Severity: P1
 - Detail: Pulls `Message`, `LLMResponse`, `LLMStreamEvent`, `Tools` and re-exports them. These same types are also exported from `index.ts` via `./types/Tool`. Two public paths to the same symbol.
@@ -199,7 +199,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: Workaround for TS not re-widening a closure-captured `let`. Casts hide that compiler can no longer help.
 
-**35. `EventBus<Event>` has no filtering primitive**
+**35. `EventBus<Event>` has no filtering primitive — DONE**
 - File: `src/bus.ts:3-6`
 - Dimension: Types — Severity: P1
 - Detail: Every consumer takes `(event: Event) => void` and writes its own `if (event.type === …)` ladder. A typed `subscribe<K extends Event['type']>` overload would massively improve ergonomics.
@@ -227,7 +227,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Entities
 
-**40. `Session` conflates persisted state + runtime queues**
+**40. `Session` conflates persisted state + runtime queues — DONE**
 - File: `src/types/Session.ts`
 - Dimension: Entity — Severity: P1
 - Detail: `steeringQueue` / `followUpQueue` are runtime-only working memory but live on the persisted entity. They round-trip through any serializer.
@@ -894,7 +894,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P1
 - Detail: No caller filters tools; tree-shaking handles "don't ship what you don't want".
 
-**166. `restrictToCwd` never set true**
+**166. `restrictToCwd` never set true — DONE**
 - File: `src/index.ts:23,35`, all tools
 - Dimension: Simplification — Severity: P1
 - Detail: Both call sites use default `false`. The whole `restrictToCwd` branch in `utils.ts:25-30` is dead in practice.
@@ -1101,7 +1101,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P1
 - Detail: Defined but never called.
 
-**204. `setOpenAIClientForTesting` global mutation**
+**204. `setOpenAIClientForTesting` global mutation — DONE**
 - File: `src/index.ts:46-48`
 - Dimension: Simplification — Severity: P2
 - Detail: Test-only; inject via constructor option.
@@ -1111,7 +1111,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P1
 - Detail: Inline `detectLlamaSwap` directly.
 
-**206. Multi-backend dance dead**
+**206. Multi-backend dance dead — DONE**
 - File: `src/index.ts:59-77`
 - Dimension: Simplification — Severity: P1
 - Detail: "Find detector by kind" then "iterate detectors" reduces to: try `detectLlamaSwap`; if not found, throw.
@@ -1431,6 +1431,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - File: `src/ui/ChatApp.ts:913-923`
 - Dimension: Architecture — Severity: P2
 - Detail: `createCommands()` is a fixed array. No plugin/extension point.
+- Direction: slash commands become extensible via harness command registry + channel API. Each agent registers its own commands on top of harness defaults. See [[harness-base-tui]].
 
 **266. Dependency direction healthy**
 - File: All
@@ -1444,10 +1445,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Responsibilities
 
-**268. `src/ui/` could be `mu-chat-ui` package**
+**268. `src/ui/` could be `mu-chat-ui` package — REFRAMED (harness base TUI)**
 - File: `src/ui/components/`, `src/ui/theme/`, etc.
 - Dimension: Responsibilities — Severity: P1
 - Detail: ChatApp, AssistantMessage, UserMessage, ToolLine, ContextMap, ReasoningBlock, OutputBlock, theme system — generic chat primitives.
+- Decision: NOT a separate `mu-chat-ui` package. The generic chat TUI (transcript, input bar, message rendering, approval cards, sub-agent previews, status line, streaming) moves into the **harness** as a composable base. Both coding-agent and arya will have their own TUI; the harness provides `createChatTUI(options)` with slots/hooks so each agent can override/extend (input bar, message rendering, status line, toolbar). Pattern is composition, not inheritance. Coding-agent adds file picker, command palette, bash mode; arya adds agent switcher, scheduler UI, its own commands. See [[harness-base-tui]].
 
 **269. Sub-agent dispatch wiring could move to harness**
 - File: `bin/coding-agent.ts:139-151`, `src/main.ts:31-83`
@@ -1463,6 +1465,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - File: `src/ui/ChatApp.ts`
 - Dimension: Responsibilities — Severity: P1
 - Detail: 1608 lines — input handling, palette, file picker, sub-agent views, modal, history, deferred-command queue all collapsed into one class.
+- Direction: generic chat logic (transcript, streaming, approval rendering, sub-agent previews, base input) moves into harness base TUI. Agent-specific logic (file picker, command palette, bash mode, model picker) stays in coding-agent. See [[harness-base-tui]], #268.
 
 ### Types
 
@@ -1715,7 +1718,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - File: `src/bootstrap.ts`
 - Dimension: Architecture — Severity: P1
 - Detail: 300-line orchestrator with no caller in this monorepo (coding-agent uses pieces individually).
-- Direction: harness is the intended base for channels/mentions/scheduler. Port coding-agent onto `bootstrap()` rather than treat the orphan status as evidence to delete. See [[feedback-harness-role]].
+- Direction: harness is the intended base for channels/mentions/scheduler AND the base chat TUI. Port coding-agent onto `bootstrap()` rather than treat the orphan status as evidence to delete. Bootstrap should also wire the base TUI that both coding-agent and arya extend. See [[feedback-harness-role]], [[harness-base-tui]].
 
 **320. `channels/tui.ts` reimplements slash detection**
 - File: `src/channels/tui.ts:62-66`, `src/commands/registry.ts:51-55`
@@ -1979,7 +1982,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P1
 - Detail: `loadEnvFile`/`maskEnvValue` exported, no consumer.
 
-**370. Delete commands subsystem**
+**370. Delete commands subsystem — PARTIAL (de-exported from index.ts; internal code kept for future channel integration)**
 - File: `src/commands/`
 - Dimension: Simplification — Severity: P1
 - Detail: Coding-agent never accesses `result.commandRegistry`. Drop `extraCommands`/`skipDefaultCommands`/`commandRegistry` from bootstrap.
@@ -2666,13 +2669,14 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Packages: mu-harness (channels, mentions, scheduler, roundtrips — zero in-repo consumers), arya/server (built own WS bridging)
 - Detail: Worst-of-both-worlds: ~1000+ LOC of channel/mention/scheduler infra that arya re-implements ad-hoc.
 - Severity: P1
-- Fix: harness is the intended base. Wire coding-agent and arya through it — `bootstrap()` from coding-agent (#319, #320, #322), `WsChannel` for arya (#409). Do NOT delete the harness infra; that is the design's load-bearing layer. See [[feedback-harness-role]].
+- Fix: harness is the intended base — for runtime infra AND base chat TUI. Wire coding-agent and arya through it — `bootstrap()` from coding-agent (#319, #320, #322), `WsChannel` for arya (#409), base chat TUI with extensible slots (#268, #271). Both agents will have their own TUI built on the harness base. Do NOT delete the harness infra; that is the design's load-bearing layer. See [[feedback-harness-role]], [[harness-base-tui]].
 
 **498. Pattern: God-class anti-pattern (6 places, same pathology)**
 - Packages: ChatApp.ts 1608, tui.ts 750, runtime.ts 435, bootstrap.ts 300, ws.ts ~300, aryaClient.ts 338
 - Detail: Each owns ~6 concerns. Bug density highest in these files.
 - Severity: P1
 - Fix: Split into smaller composition roots; latent races become visible.
+- Direction for ChatApp.ts specifically: generic chat logic moves into harness as a composable base TUI (`createChatTUI` with slots/hooks). Each agent (coding-agent, arya) extends it with its own specializations. See #268, #271, [[harness-base-tui]].
 
 **499. Pattern: Atomic-write missing (4 sites)**
 - Packages: mu-harness jsonl-store (touch + persistOnBus), mu-tools (write-file/edit-file), mu-coding-agent state
@@ -2747,7 +2751,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 | 7 | Split runtime.ts and tui.ts | core, tui | M–L | medium | latent races become visible |
 | 8 | Make `Session`/`ApprovalRequest` first-class with branded ids and full context | core, harness, arya | M | medium | fixes multi-agent attribution + arya multi-client |
 | 9 | Decide channels' fate — delete + scheduler-as-plugin | harness, arya | M | medium | ~3000 LOC + ends two-architectures drift |
-| 10 | Extract `mu-chat-ui` from coding-agent; split ChatApp.ts into 5-6 component owners | coding-agent + new pkg | L | medium | shrinks 1608-LOC god class |
+| 10 | Move base chat TUI into harness (`createChatTUI` with extensible slots); split ChatApp.ts — generic parts to harness, agent-specific stays in coding-agent/arya | harness, coding-agent, arya | L | medium | shared base TUI for all agents; each agent owns its own specialization |
 
 ---
 

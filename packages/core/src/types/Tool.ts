@@ -35,13 +35,12 @@ export interface Tool<TArgs = any, TResult = string> {
   name: string;
   description: Resolvable<string | undefined>;
   parameters: Record<string, unknown>;
+  /**
+   * Per-tool system prompt fragment. The core runtime does NOT auto-inject
+   * this — it's consumed by the harness when composing the full system prompt.
+   */
   systemPrompt?: Resolvable<string | undefined>;
   execute: (args: TArgs, ctx?: ToolContext) => TResult | Promise<TResult>;
-  /**
-   * Optional. The runtime calls this when `execute` throws, or when arg-parse
-   * fails. Implementations should never throw — if they do, the runtime falls
-   * back to a generic error message. Omit to use the runtime default.
-   */
   onError?: (error: unknown, ctx?: ToolContext) => TResult | Promise<TResult>;
 }
 
@@ -58,49 +57,3 @@ export interface ToolCall {
   name: string;
   args: string;
 }
-
-export type ContextPartKind =
-  | 'system'
-  | 'tools'
-  | 'messages'
-  | 'tool_results'
-  | 'skills'
-  | 'mcp'
-  | 'other';
-
-export interface ContextPart {
-  kind: ContextPartKind;
-  label: string;
-  tokens: number;
-  estimated: boolean;
-}
-
-export interface ContextMap {
-  model?: string;
-  usedTokens?: number;
-  windowTokens?: number;
-  estimated: boolean;
-  parts: ContextPart[];
-}
-
-export interface LLMResponseContext {
-  usage?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  };
-  contextMap?: ContextMap;
-}
-
-export interface LLMResponse {
-  content?: string;
-  tool_calls?: ToolCall[];
-  reasoning?: string;
-  context?: LLMResponseContext;
-}
-
-export type LLMStreamEvent =
-  | { type: 'delta'; content: string }
-  | { type: 'reasoning_delta'; content: string }
-  | { type: 'tool_call'; call: ToolCall }
-  | { type: 'done'; response?: LLMResponse };

@@ -3,17 +3,10 @@ import type { Plugin } from './plugin';
 import type { LLMProvider, LLMProviderResult } from './provider';
 import { callTool } from './tools/callTool';
 import type { ToolHooks } from './types/Hook';
+import type { LLMResponse, LLMResponseContext, LLMStreamEvent } from './types/LLM';
 import type { AssistantMessage, Message, ToolMessage } from './types/Message';
 import type { Session } from './types/Session';
-import type {
-  LLMResponse,
-  LLMResponseContext,
-  LLMStreamEvent,
-  Resolvable,
-  ToolCall,
-  ToolContext,
-  Tools,
-} from './types/Tool';
+import type { Resolvable, ToolCall, ToolContext, Tools } from './types/Tool';
 
 export type RuntimeState = 'idle' | 'running' | 'stopped';
 
@@ -53,8 +46,8 @@ export interface RuntimeConfig {
   bus: EventBus<CoreEvent>;
   /**
    * The session this runtime operates on. The runtime mutates
-   * `session.messages`, `session.steeringQueue`, and `session.followUpQueue`
-   * in place — callers can observe progress by reading the same arrays.
+   * `session.messages` in place — callers can observe progress by reading
+   * the same array. Steering/follow-up queues are runtime-internal.
    */
   session: Session;
   systemPrompt?: Resolvable<string>;
@@ -120,8 +113,8 @@ export function createRuntime(config: RuntimeConfig): Runtime {
 
   const messages = session.messages;
   const queue: Message[] = [];
-  const steeringQueue = session.steeringQueue;
-  const followUpQueue = session.followUpQueue;
+  const steeringQueue: Message[] = [];
+  const followUpQueue: Message[] = [];
 
   let currentState: RuntimeState = 'idle';
   let unsubscribe: Unsubscribe | undefined;

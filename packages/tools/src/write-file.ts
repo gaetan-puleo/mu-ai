@@ -4,7 +4,6 @@ import { looksBinary, sanitizePath, validatedCwd, writeAtomic } from './utils';
 
 interface WriteFileToolOptions {
   getCwd: () => string;
-  restrictToCwd?: boolean;
 }
 
 interface WriteFileArgs {
@@ -13,7 +12,6 @@ interface WriteFileArgs {
 }
 
 export function createWriteFileTool(opts: WriteFileToolOptions): Tool<WriteFileArgs, string> {
-  const { restrictToCwd = false } = opts;
   const getCwd = validatedCwd(opts.getCwd);
   return {
     name: 'write',
@@ -35,10 +33,7 @@ export function createWriteFileTool(opts: WriteFileToolOptions): Tool<WriteFileA
         return 'Error: write requires a string `content`';
       }
       const rawPath = args.path;
-      const path = sanitizePath(rawPath, getCwd(), restrictToCwd);
-      if (path === null) {
-        return `Error: Invalid or disallowed path: ${rawPath}`;
-      }
+      const path = sanitizePath(rawPath, getCwd());
       const content = args.content;
       try {
         // Refuse to overwrite an existing binary file: doing so silently turns

@@ -75,15 +75,4 @@ describe('bash tool', () => {
     }
   });
 
-  it('respects restrictToCwd by anchoring relative paths', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'bash-restrict-'));
-    try {
-      const tool = createBashTool({ getCwd: () => cwd, restrictToCwd: true });
-      // `pwd` should be the contained cwd, even if the user tries `cd /` first.
-      const result = await tool.execute({ cmd: 'pwd' });
-      expect(result).toContain(cwd);
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-    }
-  });
 });

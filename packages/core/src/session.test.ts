@@ -16,8 +16,6 @@ describe('createInMemorySessionStore', () => {
     const store = fixedTimeStore();
     const s = store.create();
     expect(s.messages).toEqual([]);
-    expect(s.steeringQueue).toEqual([]);
-    expect(s.followUpQueue).toEqual([]);
     expect(s.createdAt).toBe(s.updatedAt);
   });
 

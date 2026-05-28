@@ -55,18 +55,6 @@ export {
 export { filterToolsByPrimary, pickPrimaryAgent } from './sub-agents/primary';
 export type { SubAgent } from './sub-agents/types';
 
-// ── commands ─────────────────────────────────────────────────────────
-export { type CommandRegistry, createCommandRegistry } from './commands/registry';
-export type { Command, CommandResult, ParsedInput } from './commands/types';
-export {
-  type AgentsCommandDeps,
-  createAgentsCommand,
-  createHelpCommand,
-  createSessionsCommand,
-  type HelpCommandDeps,
-  type SessionsCommandDeps,
-} from './commands/defaults';
-
 // ── mentions ─────────────────────────────────────────────────────────
 export { createMentionEngine, type MentionEngine } from './mentions/engine';
 export type {

@@ -21,7 +21,6 @@ import {
   collectLlamaSwapContext,
   detectLlamaSwap,
   getLlamaSwapOpenAIBaseUrl,
-  LLAMA_SWAP_KIND,
   prepareLlamaSwapChatRequest,
   tokenizeLlamaSwap,
 } from './llama-swap';
@@ -51,15 +50,6 @@ export type {
 
 const DEFAULT_BASE_URL = 'http://localhost:8080';
 const DEFAULT_STREAM_TIMEOUT_MS = 30000;
-let testingOpenAIClient: typeof OpenAI | undefined;
-
-/**
- * @deprecated Pass `openAIClient` on `LocalProviderConfig` instead. The global
- * setter remains only as a back-compat shim and will be removed.
- */
-export function setOpenAIClientForTesting(client: typeof OpenAI): void {
-  testingOpenAIClient = client;
-}
 
 export async function detectLocalBackend(config: {
   kind?: LocalProviderConfig['kind'];
@@ -67,10 +57,6 @@ export async function detectLocalBackend(config: {
   apiKey?: string;
 }): Promise<LocalBackendInfo> {
   const baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
-
-  if (config.kind && config.kind !== LLAMA_SWAP_KIND) {
-    throw new Error(`Unknown backend kind: ${config.kind}`);
-  }
 
   const result = await detectLlamaSwap({ baseUrl, apiKey: config.apiKey });
   if (result) {
@@ -293,7 +279,7 @@ const createLocalProvider = (config: LocalProviderConfig): LLMProvider => {
     }
     const model = config.model;
 
-    const ClientCtor = config.openAIClient ?? testingOpenAIClient ?? OpenAI;
+    const ClientCtor = config.openAIClient ?? OpenAI;
     client ??= new ClientCtor({
       baseURL: getLlamaSwapOpenAIBaseUrl(backend.baseUrl),
       apiKey: config.apiKey ?? 'local',

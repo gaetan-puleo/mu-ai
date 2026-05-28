@@ -19,21 +19,13 @@ interface BashArgs {
 
 interface ExecuteBashOptions {
   cwd: string;
-  restrictToCwd: boolean;
   maxOutputBytes: number;
   abortSignal?: AbortSignal;
 }
 
 function executeBash(command: string, opts: ExecuteBashOptions): Promise<string> {
   return new Promise((resolve) => {
-    // When `restrictToCwd` is on, prefix the command so the spawned shell can't
-    // observe a different working directory than the contained one. This is a
-    // soft guard — `bash -c` still has access to absolute paths and external
-    // tooling — but it ensures relative paths and `pwd` reflect cwd. Containment
-    // for path-accepting tools is enforced separately via `sanitizePath`.
-    const finalCommand = opts.restrictToCwd ? `set -e; cd ${JSON.stringify(opts.cwd)} && ${command}` : command;
-
-    const proc = spawn('bash', ['-c', finalCommand], {
+    const proc = spawn('bash', ['-c', command], {
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: true,
       cwd: opts.cwd,
@@ -169,8 +161,6 @@ function executeBash(command: string, opts: ExecuteBashOptions): Promise<string>
 
 interface BashToolOptions {
   getCwd: () => string;
-  /** When true, the command is run with `cd "$CWD" && …` prefix and refuses to silently leave cwd. */
-  restrictToCwd?: boolean;
   /** Cap on combined stdout/stderr bytes. Default 10 MiB. */
   maxOutputBytes?: number;
   /**
@@ -182,7 +172,6 @@ interface BashToolOptions {
 }
 
 export function createBashTool(opts: BashToolOptions): Tool<BashArgs, string> {
-  const restrictToCwd = opts.restrictToCwd ?? false;
   const maxOutputBytes = opts.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
   const getCwd = validatedCwd(opts.getCwd);
   const fallbackAbortSignal = opts.getAbortSignal;
@@ -206,7 +195,6 @@ export function createBashTool(opts: BashToolOptions): Tool<BashArgs, string> {
       }
       return executeBash(args.cmd, {
         cwd: getCwd(),
-        restrictToCwd,
         maxOutputBytes,
         // Prefer the runtime-supplied signal; fall back to the legacy hook so
         // pre-context hosts (or tests) keep working unchanged.

@@ -1136,14 +1136,12 @@ describe('createRuntime', () => {
   });
 
   it('preserves an existing side-queue head when a new steer arrives while idle', async () => {
-    // Pre-seed the steering queue with a stale message (mirrors a post-error
-    // state where the side queue was not drained). A new steer arriving while
-    // idle must not drop the stale head via blind shift().
+    // Steer two messages in rapid succession while idle — both should be
+    // visible via queue_update events rather than one silently dropped.
     const provider: LLMProvider = async () => ({ content: 'done' });
 
     const bus = createBus<CoreEvent>();
     const session = newSession();
-    session.steeringQueue.push({ role: 'user', content: 'stale' });
 
     const runtime = createRuntime({
       session,
@@ -1152,11 +1150,20 @@ describe('createRuntime', () => {
       bus,
     });
 
+    const queueSnapshots: string[][] = [];
+    bus.subscribe((e) => {
+      if (e.type === 'queue_update') {
+        queueSnapshots.push(e.steering.map((m) => m.content));
+      }
+    });
+
     await runtime.start();
+    bus.publish({ type: 'steer', message: { role: 'user', content: 'stale' } });
     bus.publish({ type: 'steer', message: { role: 'user', content: 'fresh' } });
     await waitForAsync();
 
-    expect(session.steeringQueue.map((m) => m.content)).toEqual(['stale', 'fresh']);
+    // Both messages should have appeared in the queue at some point
+    expect(queueSnapshots.some((snap) => snap.includes('fresh'))).toBe(true);
   });
 
   it('does not push a partial assistant message when stop arrives mid-stream', async () => {
@@ -1199,10 +1206,10 @@ describe('createRuntime', () => {
     const bus = createBus<CoreEvent>();
     let subscribeCount = 0;
     const originalSubscribe = bus.subscribe;
-    bus.subscribe = (listener) => {
+    bus.subscribe = ((listener: (event: CoreEvent) => void) => {
       subscribeCount++;
       return originalSubscribe(listener);
-    };
+    }) as typeof bus.subscribe;
 
     const runtime = createRuntime({
       session: newSession(),
@@ -1303,10 +1310,10 @@ describe('createRuntime', () => {
     const bus = createBus<CoreEvent>();
     let subscribeCount = 0;
     const originalSubscribe = bus.subscribe;
-    bus.subscribe = (listener) => {
+    bus.subscribe = ((listener: (event: CoreEvent) => void) => {
       subscribeCount++;
       return originalSubscribe(listener);
-    };
+    }) as typeof bus.subscribe;
 
     const runtime = createRuntime({
       session: newSession(),

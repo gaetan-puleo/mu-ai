@@ -26,20 +26,22 @@ export type {
   ToolHooks,
 } from './types/Hook';
 export type {
-  AssistantMessage,
-  Message,
-  SystemMessage,
-  ToolMessage,
-  UserMessage,
-} from './types/Message';
-export type { Session } from './types/Session';
-export type {
   ContextMap,
   ContextPart,
   ContextPartKind,
   LLMResponse,
   LLMResponseContext,
   LLMStreamEvent,
+} from './types/LLM';
+export type {
+  AssistantMessage,
+  Message,
+  SystemMessage,
+  ToolMessage,
+  UserMessage,
+} from './types/Message';
+export type { Session, TurnState } from './types/Session';
+export type {
   Resolvable,
   Tool,
   ToolCall,

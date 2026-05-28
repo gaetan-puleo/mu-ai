@@ -1,92 +1,35 @@
 import { expect } from '@std/expect';
 import { describe, it } from '@std/testing/bdd';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { looksBinary, readLineRange, sanitizePath, validatedCwd, writeAtomic } from './utils';
 
 describe('sanitizePath', () => {
-  it('returns null when a symlink in cwd points outside cwd', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'sanitize-symlink-'));
-    const outside = mkdtempSync(join(tmpdir(), 'sanitize-outside-'));
-    try {
-      symlinkSync(outside, join(cwd, 'link'));
-      const result = sanitizePath('link', cwd, true);
-      expect(result).toBeNull();
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-      rmSync(outside, { recursive: true, force: true });
-    }
-  });
-
-  it('returns null when traversing through a symlink that escapes cwd', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'sanitize-traverse-'));
-    const outside = mkdtempSync(join(tmpdir(), 'sanitize-target-'));
-    try {
-      writeFileSync(join(outside, 'secret.txt'), 'secret');
-      symlinkSync(outside, join(cwd, 'link'));
-      const result = sanitizePath('link/secret.txt', cwd, true);
-      expect(result).toBeNull();
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-      rmSync(outside, { recursive: true, force: true });
-    }
-  });
-
-  it('returns null for non-existent paths whose existing ancestor is a symlink outside cwd', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'sanitize-newfile-'));
-    const outside = mkdtempSync(join(tmpdir(), 'sanitize-newtarget-'));
-    try {
-      symlinkSync(outside, join(cwd, 'link'));
-      const result = sanitizePath('link/new-file.txt', cwd, true);
-      expect(result).toBeNull();
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-      rmSync(outside, { recursive: true, force: true });
-    }
-  });
-
-  it('returns null for ".." escapes', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'sanitize-escape-'));
-    try {
-      const result = sanitizePath('../etc/passwd', cwd, true);
-      expect(result).toBeNull();
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-    }
-  });
-
-  it('accepts paths that stay inside cwd', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'sanitize-ok-'));
-    try {
-      writeFileSync(join(cwd, 'file.txt'), 'ok');
-      const result = sanitizePath('file.txt', cwd, true);
-      expect(result).not.toBeNull();
-      expect(result).toContain('file.txt');
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-    }
-  });
-
-  it('accepts non-existent write targets inside cwd', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'sanitize-write-'));
-    try {
-      const result = sanitizePath('subdir/new-file.txt', cwd, true);
-      expect(result).not.toBeNull();
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-    }
-  });
-
   it('strips surrounding quotes', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'sanitize-quote-'));
     try {
-      const result = sanitizePath('"file.txt"', cwd, false);
+      const result = sanitizePath('"file.txt"', cwd);
       expect(result).toContain('file.txt');
       expect(result).not.toContain('"');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
+  });
+
+  it('resolves relative paths against cwd', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'sanitize-rel-'));
+    try {
+      const result = sanitizePath('subdir/file.txt', cwd);
+      expect(result).toBe(join(cwd, 'subdir/file.txt'));
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('returns absolute paths unchanged', () => {
+    const result = sanitizePath('/tmp/absolute.txt');
+    expect(result).toBe('/tmp/absolute.txt');
   });
 });
 
@@ -158,14 +101,13 @@ describe('readLineRange', () => {
     const dir = mkdtempSync(join(tmpdir(), 'range-stop-'));
     try {
       const p = join(dir, 'big.txt');
-      // ~1 MiB across 1024 lines; range request only touches first chunk.
       const longLine = 'x'.repeat(1024);
       const content = Array.from({ length: 1024 }, (_, i) => `${i + 1}-${longLine}`).join('\n');
       writeFileSync(p, content);
       const r = readLineRange(p, 1, 3);
       expect(r.lines.length).toBe(3);
       expect(r.lines[0].startsWith('1-')).toBe(true);
-      expect(r.totalKnown).toBe(false); // proved we didn't read to EOF
+      expect(r.totalKnown).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -247,7 +189,6 @@ describe('validatedCwd', () => {
     try {
       const accessor = validatedCwd(() => dir);
       expect(accessor()).toBe(dir);
-      // Second call short-circuits via cache — still returns same value.
       expect(accessor()).toBe(dir);
     } finally {
       rmSync(dir, { recursive: true, force: true });

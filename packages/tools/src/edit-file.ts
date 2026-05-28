@@ -4,7 +4,6 @@ import { looksBinary, sanitizePath, validatedCwd, writeAtomic } from './utils';
 
 interface EditFileToolOptions {
   getCwd: () => string;
-  restrictToCwd?: boolean;
 }
 
 interface EditFileArgs {
@@ -14,7 +13,6 @@ interface EditFileArgs {
 }
 
 export function createEditFileTool(opts: EditFileToolOptions): Tool<EditFileArgs, string> {
-  const { restrictToCwd = false } = opts;
   const getCwd = validatedCwd(opts.getCwd);
   return {
     name: 'edit',
@@ -45,10 +43,7 @@ export function createEditFileTool(opts: EditFileToolOptions): Tool<EditFileArgs
         return 'Error: edit requires a string `to`';
       }
       const rawPath = args.path;
-      const path = sanitizePath(rawPath, getCwd(), restrictToCwd);
-      if (path === null) {
-        return `Error: Invalid or disallowed path: ${rawPath}`;
-      }
+      const path = sanitizePath(rawPath, getCwd());
       const oldString = args.from;
       const newString = args.to;
 

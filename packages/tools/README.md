@@ -6,7 +6,5 @@ Filesystem + shell tools for mu-core runtimes. `createMuTools()` returns a
 Options:
 
 - `getCwd` — working-directory accessor (default `process.cwd()`).
-- `restrictToCwd` — opt-in containment check for path-accepting tools; also
-  prefixes `bash` commands with `cd "$CWD" && …`.
 - `bashMaxOutputBytes` — cap on combined stdout/stderr (default 10 MiB).
 - `getBashAbortSignal` — per-call abort source for `bash`.
