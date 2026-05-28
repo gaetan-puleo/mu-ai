@@ -244,10 +244,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: `steeringQueue` / `followUpQueue` are runtime-only working memory but live on the persisted entity. They round-trip through any serializer.
 - Fix: Move to `Runtime` or `TurnState`.
 
-**41. `Message` has no identity — PARTIAL (discriminated by role; id/timestamp/metadata deferred)**
+**41. `Message` has no identity — DONE**
 - File: `src/types/Message.ts`
 - Dimension: Entity — Severity: P1
 - Detail: No id, no timestamp, no provenance. Forking by `Session.forkedFrom.atIndex` is brittle.
+- Fix: Every Message variant now extends a shared `MessageMetadata` with optional `id?: string` and `timestamp?: number`. The runtime never reads them — it round-trips whatever the host writes. Hosts that want fork-by-id, idempotent re-publishing, or telemetry can populate. Provenance lands at the event level via `MessageSource` (#315) so it stays close to the originating publish.
 
 **42. `Message` role/payload union is implicit — DONE**
 - File: `src/types/Message.ts`
