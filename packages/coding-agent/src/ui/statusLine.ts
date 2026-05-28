@@ -1,26 +1,14 @@
+import { buildStatusParts, formatTokens, spinnerFrame, type StatusParts } from 'mu-harness';
 import type { Component, LayoutStyle, RenderContext } from 'mu-tui';
 import { visibleWidth } from 'mu-tui';
 import { getTheme, styleToAnsi } from './theme';
 
 const RESET = '\x1b[0m';
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
-export function formatTokens(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
-  return String(Math.round(n));
-}
-
-export interface StatusParts {
-  left: string[];
-  right: string[];
-}
-
-export function buildStatusParts(contextText: string | undefined): StatusParts {
-  return { left: [], right: contextText ? [contextText] : [] };
-}
+export { buildStatusParts, formatTokens, type StatusParts };
 
 function renderSpinnerFrame(tick: number): string {
-  return `\x1b[2m${SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}${RESET}`;
+  return `\x1b[2m${spinnerFrame(tick)}${RESET}`;
 }
 
 export class StatusLine implements Component {

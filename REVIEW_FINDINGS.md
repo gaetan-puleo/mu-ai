@@ -1555,11 +1555,17 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Responsibilities
 
-**268. `src/ui/` could be `mu-chat-ui` package — REFRAMED (harness base TUI)**
+**268. `src/ui/` could be `mu-chat-ui` package — PARTIAL (harness base TUI extraction started)**
 - File: `src/ui/components/`, `src/ui/theme/`, etc.
 - Dimension: Responsibilities — Severity: P1
 - Detail: ChatApp, AssistantMessage, UserMessage, ToolLine, ContextMap, ReasoningBlock, OutputBlock, theme system — generic chat primitives.
-- Decision: NOT a separate `mu-chat-ui` package. The generic chat TUI (transcript, input bar, message rendering, approval cards, sub-agent previews, status line, streaming) moves into the **harness** as a composable base. Both coding-agent and arya will have their own TUI; the harness provides `createChatTUI(options)` with slots/hooks so each agent can override/extend (input bar, message rendering, status line, toolbar). Pattern is composition, not inheritance. Coding-agent adds file picker, command palette, bash mode; arya adds agent switcher, scheduler UI, its own commands. See [[harness-base-tui]].
+- Decision: NOT a separate `mu-chat-ui` package. The generic chat TUI primitives move into harness's `tui/` subfolder; rendering stays per-agent.
+- Fix (first pass — data models only, no rendering):
+  - `TranscriptModel<Extra>` extracted to `mu-harness` (`packages/harness/src/tui/transcript.ts`). Coding-agent's `Transcript` extends it with its 4 agent-specific line variants. 10 unit tests cover the base.
+  - `buildStatusParts`, `formatTokens`, `spinnerFrame`, `StatusParts` moved to `mu-harness` (`packages/harness/src/tui/status.ts`).
+  - `SubAgentRunStore` + types moved to `mu-harness` (`packages/harness/src/tui/subAgentRun.ts`). Coding-agent re-exports for compat.
+  - Rendering (mu-tui components, theme system) stays in each agent — what each agent renders, how, and with which visual treatment is the agent's call. Harness owns the data shape, agents own the visuals.
+- Remaining: deeper extensibility seam (`createChatTUI(slots)`) once arya has its own TUI to validate the slot contract against.
 
 **269. Sub-agent dispatch wiring could move to harness — REJECTED (UI-coupled)**
 - File: `bin/coding-agent.ts:139-151`, `src/main.ts:31-83`

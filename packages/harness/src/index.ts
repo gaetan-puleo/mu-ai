@@ -87,3 +87,21 @@ export {
   installNpmPlugin,
   PLUGIN_TRUST_WARNING,
 } from './plugins/installer';
+
+// ── base TUI primitives ──────────────────────────────────────────────
+export {
+  type BaseChatLine,
+  buildStatusParts,
+  formatTokens,
+  spinnerFrame,
+  type StatusParts,
+  type SubAgentRun,
+  type SubAgentRunListener,
+  type SubAgentRunStatus,
+  SubAgentRunStore,
+  type SubAgentTranscriptEntry,
+  type ToolCallFormatter,
+  TranscriptModel,
+  type TranscriptOptions,
+  type UserChatLine,
+} from './tui';
