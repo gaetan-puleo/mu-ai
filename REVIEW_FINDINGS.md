@@ -173,10 +173,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: No way for downstream packages to express "the tool map produced by this plugin contains `read` and `write`". A const-friendly helper would preserve literal keys.
 - Fix: Added `defineTools<T extends Record<string, Tool>>(tools: T): T` — preserves the literal key set so `keyof` stays narrow.
 
-**29. Escape hatches in public response shape**
+**29. Escape hatches in public response shape — DONE**
 - File: `src/types/Tool.ts:50-51`
 - Dimension: Types — Severity: P2
 - Detail: `timings?: Record<string, unknown>; raw?: Record<string, unknown>` are pure escape hatches.
+- Fix: `LLMResponseContext` no longer has `timings`/`raw` — only `usage` and `contextMap`.
 
 **30. `ToolCall.args: string` stringly-typed — PARTIAL (wire stays string; runtime now parses before execute, tools receive typed args)**
 - File: `src/types/Tool.ts:12-17`
@@ -253,10 +254,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Entity — Severity: P1
 - Detail: Smuggled as `Message { role:'tool', content:string, tool_id }`. No place for `isError`, structured payload, latency, or originating ToolCall reference.
 
-**44. `Tool.systemPrompt` phantom**
+**44. `Tool.systemPrompt` phantom — REJECTED**
 - File: `src/types/Tool.ts`, `src/runtime.ts:207`
 - Dimension: Entity — Severity: P2
 - Detail: Declared, explicitly unused in runtime.
+- Decision: Kept. Not phantom — `Tool.systemPrompt` is consumed by the harness when composing the system prompt (`webfetch` defines one). Documented this on the type. The runtime deliberately skips auto-injection.
 
 **45. `Plugin` is a bag**
 - File: `src/plugin.ts`
@@ -268,10 +270,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Entity — Severity: P2
 - Detail: ('idle'|'running'|'stopped') doesn't capture errored/awaiting-tool.
 
-**47. `ContextPartKind` references concepts with no types**
+**47. `ContextPartKind` references concepts with no types — REJECTED**
 - File: `src/types/Tool.ts:28-41`
 - Dimension: Entity — Severity: P2
 - Detail: Enumerates 'mcp' and 'skills' but mu-core has no MCP or Skills entities — leaked concerns from downstream.
+- Decision: Kept. mu-local-provider actively buckets tools as 'mcp' or 'skills' based on naming heuristics for context-window accounting. The kinds are categorical labels at the bucket layer, not tied to entity types. Lives in `types/LLM.ts` now.
 
 **48. `SessionInit` asymmetric with `Session` — DONE**
 - File: `src/session.ts`
@@ -310,20 +313,22 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P2
 - Detail: Only ever defaulted to `'one-at-a-time'`. The `'all'` branch reachable only by tests.
 
-**55. Standalone hook type aliases redundant**
+**55. Standalone hook type aliases redundant — REJECTED**
 - File: `src/types/Hook.ts:17-18`, `src/index.ts:23,26`
 - Dimension: Simplification — Severity: P2
 - Detail: `BeforeToolHook` / `AfterToolHook` aliases redundant with `ToolHooks` shape.
+- Decision: Kept. Aliases are actively imported by harness (`permissions/hook.ts`, `sub-agents/runner.ts`) — `BeforeToolHook` as a named return type is much more readable than the inline function signature.
 
 **56. `consumeResult` IIFE-generator wrap — DONE**
 - File: `src/runtime.ts:293-300`
 - Dimension: Simplification — Severity: P2
 - Detail: Wraps non-stream result in a `done`-only async generator. Handle inline; avoids 5-line wrapper + `isAsyncIterable` predicate.
 
-**57. `seenCallIds` reconciliation dead defensive code**
+**57. `seenCallIds` reconciliation dead defensive code — REJECTED**
 - File: `src/runtime.ts:262-273`
 - Dimension: Simplification — Severity: P2
 - Detail: Local-provider only does one or the other per turn.
+- Decision: Kept. Other providers (Anthropic, OpenAI) may legitimately emit tool calls via both streaming events AND `done.response.tool_calls`. Defensive dedup is cheap; removing it would break those providers.
 
 **58. Inlinable helpers — DONE**
 - File: `src/runtime.ts:302-311, 182-185, 144-151, 134-142`
@@ -511,15 +516,17 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: `Partial<Insets>` allows empty object, which is meaningless.
 
-**92. `StartableTerminal` cast bypasses contract**
+**92. `StartableTerminal` cast bypasses contract — DONE**
 - File: `src/tui.ts:26-29, 218, 244`
 - Dimension: Types — Severity: P2
 - Detail: `this.terminal as StartableTerminal` bypasses public Terminal contract.
+- Fix: `start?`/`stop?` are now first-class optional members of the public `Terminal` interface; the private `StartableTerminal` alias + casts are gone.
 
-**93. Inline `capabilities` shape cast**
+**93. Inline `capabilities` shape cast — DONE**
 - File: `src/tui.ts:94`
 - Dimension: Types — Severity: P2
 - Detail: `(terminal as { capabilities?: Capabilities })` ad-hoc.
+- Fix: `Terminal.capabilities?` is now a first-class optional member; the cast is gone.
 
 **94. `Component.render` returns mutable array — DONE**
 - File: `src/types/component.ts:23`

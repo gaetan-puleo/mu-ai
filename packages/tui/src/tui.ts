@@ -14,11 +14,6 @@ import { Renderer } from './renderer';
 import type { Component } from './types/component';
 import type { Terminal } from './types/terminal';
 
-interface StartableTerminal extends Terminal {
-  start?: (onInput: (data: string) => void, onResize: () => void) => void;
-  stop?: () => void;
-}
-
 export interface TuiOptions {
   capabilities?: PartialCapabilities;
   synchronizedOutput?: boolean;
@@ -54,8 +49,7 @@ export class TUI {
     this.terminal = terminal;
     this.userContext = options.userContext;
 
-    const terminalCaps = (terminal as { capabilities?: Capabilities }).capabilities;
-    this.capabilities = mergeCapabilities(terminalCaps ?? createDefaultCapabilities(), options.capabilities);
+    this.capabilities = mergeCapabilities(terminal.capabilities ?? createDefaultCapabilities(), options.capabilities);
 
     this.focusManager = new FocusManager({
       getLayoutEntries: () => this.layoutEntries,
@@ -145,8 +139,7 @@ export class TUI {
     this.started = true;
     this.renderer.setStopped(false);
     this.inputRouter.setStopped(false);
-    const t = this.terminal as StartableTerminal;
-    t.start?.(
+    this.terminal.start?.(
       (data: string) => this.inputRouter.feed(data),
       () => this.handleResize(),
     );
@@ -162,8 +155,7 @@ export class TUI {
 
     this.renderer.moveCursorAfterRenderedContent();
 
-    const t = this.terminal as StartableTerminal;
-    t.stop?.();
+    this.terminal.stop?.();
     this.terminal.showCursor();
   }
 
