@@ -30,6 +30,14 @@ export interface XdgPaths {
   stateFile: string;
   /** $XDG_STATE_HOME/<host>/history.json */
   historyFile: string;
+  /**
+   * $XDG_CONFIG_HOME/<host>/plugins-trust.json
+   *
+   * Trust map for local plugin entrypoints — separate from `pluginsDir` so
+   * an attacker who can write the plugins dir cannot also forge their own
+   * trust entries. See plugin-loader's TOFU model.
+   */
+  pluginsTrustFile: string;
 }
 
 export function createXdgPaths(hostName: string): XdgPaths {
@@ -52,5 +60,6 @@ export function createXdgPaths(hostName: string): XdgPaths {
     sessionsDir: join(dataDir, 'sessions'),
     stateFile: join(stateDir, 'state.json'),
     historyFile: join(stateDir, 'history.json'),
+    pluginsTrustFile: join(configDir, 'plugins-trust.json'),
   };
 }

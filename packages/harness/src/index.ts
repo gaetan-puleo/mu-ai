@@ -94,6 +94,7 @@ export {
   buildStatusParts,
   formatTokens,
   spinnerFrame,
+  statusFromEvent,
   type StatusParts,
   type SubAgentRun,
   type SubAgentRunListener,

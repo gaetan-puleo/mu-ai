@@ -86,6 +86,16 @@ describe('TranscriptModel', () => {
     expect(handled).toBe(false);
   });
 
+  it('activates the queued user line on the first turn-start event', () => {
+    const t = new TranscriptModel();
+    t.appendQueuedMessage({ role: 'user', content: 'q' }, 'steering');
+    // While queued, the line carries a label.
+    expect(t.lines[0]).toEqual({ role: 'user', content: 'q', label: 'queued steering' });
+    // assistant_start should un-fade.
+    t.apply({ type: 'assistant_start' });
+    expect(t.lines[0]).toEqual({ role: 'user', content: 'q' });
+  });
+
   it('resets pending state without dropping past lines', () => {
     const t = new TranscriptModel();
     t.apply({ type: 'user_message', message: { role: 'user', content: 'hi' } });

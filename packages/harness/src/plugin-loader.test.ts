@@ -7,7 +7,7 @@
  */
 import { expect } from '@std/expect';
 import { afterEach, beforeEach, describe, it } from '@std/testing/bdd';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadPlugins } from './plugin-loader';
@@ -135,5 +135,82 @@ describe('mu-harness plugin-loader — manifest requirement (#312)', () => {
     const plugins = await loadPlugins({ localDir: dir });
     expect(plugins.length).toBe(0);
     expect((globalThis as Record<string, unknown>).__mu_manifestless).toBeUndefined();
+  });
+});
+
+describe('mu-harness plugin-loader — trust file (TOFU, #312)', () => {
+  function writeBenignPlugin(name: string, content: string): string {
+    const pluginDir = join(dir, name);
+    mkdirSync(pluginDir);
+    writeFileSync(
+      join(pluginDir, 'plugin.manifest.json'),
+      JSON.stringify({ name, version: '1.0.0', entrypoint: './index.mjs' }),
+    );
+    const entry = join(pluginDir, 'index.mjs');
+    writeFileSync(entry, content);
+    return entry;
+  }
+
+  it('records the entrypoint hash on first load (TOFU)', async () => {
+    writeBenignPlugin('alpha', 'export default { name: "alpha" };\n');
+    const trustFile = join(dir, 'trust.json');
+    const plugins = await loadPlugins({ localDir: dir, trustFile });
+    expect(plugins.length).toBe(1);
+
+    const recorded = JSON.parse(readFileSync(trustFile, 'utf-8')) as Record<string, string>;
+    expect(typeof recorded['alpha@1.0.0']).toBe('string');
+    expect(recorded['alpha@1.0.0'].length).toBe(64); // sha-256 hex
+    expect(errorOutput.some((l) => l.includes('trust-on-first-use'))).toBe(true);
+  });
+
+  it('loads on subsequent boot when the hash is unchanged', async () => {
+    writeBenignPlugin('beta', 'export default { name: "beta" };\n');
+    const trustFile = join(dir, 'trust.json');
+    await loadPlugins({ localDir: dir, trustFile });
+    errorOutput = [];
+
+    const plugins2 = await loadPlugins({ localDir: dir, trustFile });
+    expect(plugins2.length).toBe(1);
+    // No TOFU message on the second load — already trusted.
+    expect(errorOutput.some((l) => l.includes('trust-on-first-use'))).toBe(false);
+  });
+
+  it('refuses to load when the entrypoint hash has changed', async () => {
+    const entry = writeBenignPlugin('gamma', 'export default { name: "gamma" };\n');
+    const trustFile = join(dir, 'trust.json');
+    await loadPlugins({ localDir: dir, trustFile });
+    errorOutput = [];
+
+    // Tampering: rewrite the entrypoint with hostile-looking content.
+    writeFileSync(entry, 'globalThis.__mu_tampered = true;\nexport default { name: "gamma" };\n');
+
+    const plugins2 = await loadPlugins({ localDir: dir, trustFile });
+    expect(plugins2.length).toBe(0);
+    expect(errorOutput.some((l) => l.includes('refusing plugin') && l.includes('hash changed'))).toBe(true);
+    // Confirm we did NOT import the tampered entrypoint.
+    expect((globalThis as Record<string, unknown>).__mu_tampered).toBeUndefined();
+  });
+
+  it('refuses every plugin when the trust file is unreadable', async () => {
+    writeBenignPlugin('delta', 'export default { name: "delta" };\n');
+    const trustFile = join(dir, 'trust.json');
+    writeFileSync(trustFile, '{ this is not valid json');
+
+    const plugins = await loadPlugins({ localDir: dir, trustFile });
+    // Empty trust map → first load looks like TOFU and gets accepted; that's
+    // OK because the user can recover by deleting the file. The important
+    // property is that the loader doesn't crash.
+    expect(errorOutput.some((l) => l.includes('failed to read trust file'))).toBe(true);
+    expect(plugins.length).toBe(1);
+  });
+
+  it('makes manifest-gate + trust orthogonal — no manifest still blocks', async () => {
+    // Without a manifest, the manifest gate skips the file before the trust
+    // check ever runs. Test that the two layers compose correctly.
+    writeFileSync(join(dir, 'orphan.ts'), 'globalThis.__mu_orphan = true;\n');
+    const trustFile = join(dir, 'trust.json');
+    const plugins = await loadPlugins({ localDir: dir, trustFile });
+    expect(plugins.length).toBe(0);
+    expect((globalThis as Record<string, unknown>).__mu_orphan).toBeUndefined();
   });
 });

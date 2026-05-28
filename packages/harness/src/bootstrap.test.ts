@@ -23,6 +23,7 @@ function makePaths(root: string): XdgPaths {
     sessionsDir: join(dataDir, 'sessions'),
     stateFile: join(stateDir, 'state.json'),
     historyFile: join(stateDir, 'history.json'),
+    pluginsTrustFile: join(configDir, 'plugins-trust.json'),
   };
 }
 

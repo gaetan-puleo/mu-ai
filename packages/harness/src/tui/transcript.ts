@@ -183,6 +183,12 @@ export class TranscriptModel<Extra = never> {
    * mutated state (so the host knows to re-render). Events not recognized by
    * the base transcript (e.g. `tool_result`, `queue_update`) return `false`
    * — hosts can either handle them themselves or ignore.
+   *
+   * Side-effect: on any "turn started" signal (`assistant_*`,
+   * `reasoning_*`, `tool_call`) the head of the queued-user-lines is
+   * un-faded via `activateNextQueuedUserMessage()`. This matches what every
+   * chat UI wants: as soon as the model responds, the previously-queued
+   * user line stops looking pending.
    */
   apply(event: CoreEvent): boolean {
     switch (event.type) {
@@ -190,20 +196,26 @@ export class TranscriptModel<Extra = never> {
         this.appendUser(event.message.content);
         return true;
       case 'assistant_start':
+        this.activateNextQueuedUserMessage();
         return false;
       case 'assistant_delta':
+        this.activateNextQueuedUserMessage();
         this.appendAssistantDelta(event.content);
         return true;
       case 'assistant_message':
+        this.activateNextQueuedUserMessage();
         this.appendAssistantMessage(event.message);
         return true;
       case 'reasoning_delta':
+        this.activateNextQueuedUserMessage();
         this.appendReasoningDelta(event.content);
         return true;
       case 'reasoning_message':
+        this.activateNextQueuedUserMessage();
         this.appendReasoningMessage(event.content);
         return true;
       case 'tool_call':
+        this.activateNextQueuedUserMessage();
         this.appendToolCall(event.call);
         return true;
       case 'queued_message':

@@ -1,6 +1,6 @@
 import type { CoreEvent, EventBus, LLMResponseContext, Message, Runtime } from 'mu-core';
 import { appendHistory, loadHistory } from '../config';
-import { type Model, RoundtripStore } from 'mu-harness';
+import { type Model, RoundtripStore, statusFromEvent } from 'mu-harness';
 import { type Component, type InputEvent, ProcessTerminal, TUI } from 'mu-tui';
 import { Box, Input, type InputHighlight, ScrollView, Text } from 'mu-tui/components';
 import { CommandPalette } from './components/CommandPalette';
@@ -1067,53 +1067,23 @@ export class ChatApp {
   // --- Event handling ---
 
   private handleEvent(event: CoreEvent): void {
+    // Generic shared behavior — appending to transcript, activating queued
+    // user lines on turn-start, status labels — comes from harness.
+    this.transcript.apply(event);
+    const status = statusFromEvent(event);
+    if (status !== undefined) this.setStatus(status);
+
+    // Agent-specific side effects.
     switch (event.type) {
-      case 'assistant_start':
-        this.transcript.activateNextQueuedUserMessage();
-        this.setStatus('streaming...');
-        break;
-      case 'assistant_delta':
-        this.transcript.activateNextQueuedUserMessage();
-        this.transcript.appendAssistantDelta(event.content);
-        this.setStatus('streaming...');
-        break;
-      case 'assistant_message':
-        this.transcript.activateNextQueuedUserMessage();
-        this.transcript.appendAssistantMessage(event.message);
-        this.setStatus('ready');
-        break;
-      case 'reasoning_delta':
-        this.transcript.activateNextQueuedUserMessage();
-        this.transcript.appendReasoningDelta(event.content);
-        this.setStatus('reasoning...');
-        break;
-      case 'reasoning_message':
-        this.transcript.activateNextQueuedUserMessage();
-        this.transcript.appendReasoningMessage(event.content);
-        this.setStatus('reasoning...');
-        break;
-      case 'tool_call':
-        this.transcript.activateNextQueuedUserMessage();
-        this.transcript.appendToolCall(event.call);
-        this.setStatus(`tool: ${event.call.name}`);
-        break;
-      case 'tool_result':
-        this.setStatus('ready');
-        break;
       case 'context_update':
         this.setContext(event.context);
         break;
       case 'queued_message':
-        this.transcript.appendQueuedMessage(event.message, event.queue);
         this.updateWaitingList();
-        break;
-      case 'queue_update':
         break;
       case 'error': {
         const msg = event.error instanceof Error ? event.error.message : String(event.error);
-        this.transcript.appendError(msg);
         this.showErrorToast(msg);
-        this.setStatus('error');
         break;
       }
     }

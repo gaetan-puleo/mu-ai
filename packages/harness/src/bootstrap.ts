@@ -115,6 +115,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   const userPlugins = await loadPlugins({
     localDir: paths.pluginsDir,
     npmSpecs: opts.npmPlugins,
+    trustFile: paths.pluginsTrustFile,
   });
   const subAgentsAll = loadSubAgents(subAgentsDirs);
   const skills = loadSkills(skillsDirs);

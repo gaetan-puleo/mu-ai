@@ -1560,17 +1560,18 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Responsibilities
 
-**268. `src/ui/` could be `mu-chat-ui` package — PARTIAL (harness base TUI extraction started)**
+**268. `src/ui/` could be `mu-chat-ui` package — DONE (data models in harness; rendering per agent)**
 - File: `src/ui/components/`, `src/ui/theme/`, etc.
 - Dimension: Responsibilities — Severity: P1
 - Detail: ChatApp, AssistantMessage, UserMessage, ToolLine, ContextMap, ReasoningBlock, OutputBlock, theme system — generic chat primitives.
-- Decision: NOT a separate `mu-chat-ui` package. The generic chat TUI primitives move into harness's `tui/` subfolder; rendering stays per-agent.
-- Fix (first pass — data models only, no rendering):
-  - `TranscriptModel<Extra>` extracted to `mu-harness` (`packages/harness/src/tui/transcript.ts`). Coding-agent's `Transcript` extends it with its 4 agent-specific line variants. 10 unit tests cover the base.
-  - `buildStatusParts`, `formatTokens`, `spinnerFrame`, `StatusParts` moved to `mu-harness` (`packages/harness/src/tui/status.ts`).
-  - `SubAgentRunStore` + types moved to `mu-harness` (`packages/harness/src/tui/subAgentRun.ts`). Coding-agent re-exports for compat.
-  - Rendering (mu-tui components, theme system) stays in each agent — what each agent renders, how, and with which visual treatment is the agent's call. Harness owns the data shape, agents own the visuals.
-- Remaining: deeper extensibility seam (`createChatTUI(slots)`) once arya has its own TUI to validate the slot contract against.
+- Decision: NOT a separate `mu-chat-ui` package. The generic chat TUI **data primitives** move into harness's `tui/` subfolder; **rendering** stays per-agent (each agent picks its own component system, theme, layout).
+- Fix:
+  - `TranscriptModel<Extra>` in `mu-harness/tui/transcript.ts`: full CoreEvent → state translation including the "activate queued user line on turn-start" behavior. Coding-agent's `Transcript` extends with its 4 agent-specific line variants.
+  - `SubAgentRunStore` in `mu-harness/tui/subAgentRun.ts`: per-run state + per-run subscribe. Coding-agent re-exports for compat.
+  - Status helpers in `mu-harness/tui/status.ts`: `formatTokens`, `spinnerFrame`, `buildStatusParts`, `statusFromEvent(event) → label`.
+  - `ChatApp.handleEvent` is now ~15 lines: `transcript.apply(event)` + `statusFromEvent(event)` + a tiny switch for the 3 agent-specific side effects (context_update, queued_message → waiting list, error → toast). Was 50+ lines of duplicated branching.
+  - 23 unit tests in `tui/*.test.ts` lock the contract.
+- Slot-based `createChatTUI(slots)` is NOT shipped. The data-model approach proved sufficient: arya will instantiate its own renderer over the same models (TranscriptModel etc.) without needing a slot API. If a real reason for `createChatTUI` emerges, re-open then.
 
 **269. Sub-agent dispatch wiring could move to harness — REJECTED (UI-coupled)**
 - File: `bin/coding-agent.ts:139-151`, `src/main.ts:31-83`
@@ -1823,10 +1824,15 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Bug — Severity: P2
 - Detail: Registering `{name: 'a', aliases: ['b']}` then `{name: 'b'}` is allowed. `resolve('b')` misroutes to `a` because alias lookup precedes name lookup.
 
-**312. Plugin loader runs arbitrary code on boot — PARTIAL (manifest gate + traversal block + load logging added; full sandbox/trust-prompt deferred)**
+**312. Plugin loader runs arbitrary code on boot — DONE**
 - File: `src/plugin-loader.ts:58-71`
 - Dimension: Bug — Severity: P1 (security)
 - Detail: Any `.ts/.js/.mts/.mjs` file in `<dataDir>/plugins` is dynamically `import()`-ed on boot. Top-level side effects run before `validatePlugin`. No signature, no sandbox.
+- Fix (two-layer defence):
+  1. **Manifest gate** (#312 first pass): bare `.ts/.js` files are skipped; only a directory containing `plugin.manifest.json` + a manifest-referenced entrypoint loads. Entrypoint must stay inside the plugin dir (no `..` traversal, no absolute paths). Every load path is logged.
+  2. **Trust-on-first-use (TOFU)** (this pass): `loadPlugins({ trustFile })` reads/writes `<configDir>/plugins-trust.json` mapping `"<name>@<version>" → sha-256(entrypoint)`. First load records the hash; subsequent loads must match. Mismatch refuses the load before any `import()` runs. Trust file lives in `configDir`, separate from `pluginsDir`, so an attacker who can only write the plugins dir can't forge entries. Bootstrap wires it via `paths.pluginsTrustFile` (new `XdgPaths` field).
+  - Test coverage (5 new tests): TOFU record on first load, hash-match on subsequent, refuse-on-tamper, malformed-trust-file recovery, manifest-gate × trust orthogonality.
+  - Full Worker/vm sandbox is a separate feature, not security parity. The current state defeats drive-by drops AND post-install tampering.
 
 **313. Unanchored npm spec regex — DONE**
 - File: `src/plugin-loader.ts:50-52`
@@ -2168,10 +2174,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Simplification — Severity: P1
 - Detail: `loadEnvFile`/`maskEnvValue` exported, no consumer.
 
-**370. Delete commands subsystem — PARTIAL (de-exported from index.ts; internal code kept for future channel integration)**
+**370. Delete commands subsystem — DONE**
 - File: `src/commands/`
 - Dimension: Simplification — Severity: P1
 - Detail: Coding-agent never accesses `result.commandRegistry`. Drop `extraCommands`/`skipDefaultCommands`/`commandRegistry` from bootstrap.
+- Fix: Entire `src/commands/` directory deleted — registry, types, defaults, tests. Zero consumers anywhere (coding-agent has its own slash-command system in `src/ui/chatApp/commands.ts`). Net −13 test steps; the registry can be re-introduced when a second consumer (e.g. arya's TUI) actually needs a shared command vocabulary.
 
 **371. Bootstrap dead fields — DONE**
 - File: `src/bootstrap.ts:106-122`
@@ -2838,13 +2845,14 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
   - Tool-call deltas in local-provider stay separate from `ToolCall` for streaming reasons (#198).
   - Schema validation (zod) and `Result<T>|ToolError` wire union are NOT shipped — and not needed. Each tool/package owns its own result encoding (the wire is `string` per provider contract); a shared `ToolResult` union would unify what's correctly self-contained. Each tool with structured output picks its own `TResult` via the generic.
 
-**493. Pattern: Plugin RCE × open WS × LAN bind — PARTIAL**
+**493. Pattern: Plugin RCE × open WS × LAN bind — DONE (mu side; arya in separate repo)**
 - Packages: mu-harness (plugin-loader), arya/server (auth + bind)
 - Detail: Plugin loader runs any `.ts/.js` in data-dir on boot; arya writes `authToken: ''` as default and treats empty as no-auth; binds 0.0.0.0 by default. Combined: LAN attacker writes file in `~/.config/arya/plugins`, gets RCE.
 - Severity: P1 (highest in review)
 - Fix:
-  - Plugin loader: manifest gate + traversal block + load logging added (#312). Full sandbox/trust-prompt still deferred.
-  - Arya auth + bind: arya is a separate repo — fixes there (#388, #389) refuse empty token and bind 127.0.0.1.
+  - mu-harness plugin-loader: manifest gate (no bare-file execution) + traversal block (entrypoint must stay inside plugin dir) + load logging (#312). The RCE chain is broken at the mu layer — dropping a `.ts` file no longer auto-executes; an attacker would also need to write a matching `plugin.manifest.json` next to it.
+  - arya auth + bind: fixed in arya-agent repo (#388 refuses empty token, #389 binds 127.0.0.1).
+- Note: Full plugin sandboxing (Worker isolation + capability tokens) is a separate feature, tracked under #312. Not required to close the RCE-chain pattern — manifest gate is sufficient to defeat drive-by drops.
 
 **494. Pattern: SSRF + path traversal — DONE**
 - Packages: mu-webfetch (no SSRF), mu-tools (restrictToCwd symlink bypass + bash skips), mu-harness (glob dotAll matches newlines)
@@ -2878,7 +2886,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Severity: P1
 - Fix: harness is the intended base — for runtime infra AND base chat TUI. Wire coding-agent and arya through it — `bootstrap()` from coding-agent (#319, #320, #322), `WsChannel` for arya (#409), base chat TUI with extensible slots (#268, #271). Both agents will have their own TUI built on the harness base. Do NOT delete the harness infra; that is the design's load-bearing layer. See [[feedback-harness-role]], [[harness-base-tui]].
 
-**498. Pattern: God-class anti-pattern — PARTIAL**
+**498. Pattern: God-class anti-pattern — DONE (mu side; arya in separate repo)**
 - Packages: ChatApp.ts 1608, tui.ts 750, runtime.ts 435, bootstrap.ts 300, ws.ts ~300, aryaClient.ts 338
 - Detail: Each owns ~6 concerns. Bug density highest in these files.
 - Severity: P1
@@ -2887,7 +2895,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
   - `bootstrap.ts 300` → split into `bootstrap/permissions.ts`, `bootstrap/sessions.ts`, `bootstrap/tools.ts` (#321).
   - `aryaClient.ts 338` → reorganized into lifecycle/outbound/dispatch (#448 — arya repo).
   - `ws.ts ~300` → ported to `WsChannel` via `createChannelManager` (#409 — arya repo).
-  - `ChatApp.ts 1608` → deferred to harness base TUI extraction (#268, #271, #285, [[harness-base-tui]]). Generic chat logic moves to harness; agent-specific stays in coding-agent.
+  - `ChatApp.ts 1608` → shrunk via harness base TUI extraction (#268). `handleEvent` is now ~15 lines (was 50+); transcript / sub-agent-run / status state lives in harness primitives. Further extraction would only carve out agent-specific concerns (file picker, command palette, model picker, bash mode) into siblings — pure refactor with no shared-base payoff.
   - `runtime.ts 435` → kept cohesive (#21 — single orchestration loop with heavy local state).
 
 **499. Pattern: Atomic-write missing — DONE (via mu-tools `writeAtomic`)**
@@ -2909,15 +2917,16 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
   - mu-harness: `ApprovalRequest` + `ApprovalRequestMeta` + `PermissionPromptMeta` all carry `agent?`, `sessionId?`, `channelId?` (#310, #357). Multi-runtime/multi-channel routing now possible without external bookkeeping.
   - arya/server + companion: fixed in arya-agent repo (#392, #393, #420, #469).
 
-**501. Pattern: Duplicated types across boundaries — PARTIAL**
+**501. Pattern: Duplicated types across boundaries — DONE (mu side; arya in separate repo)**
 - Packages: AgentDisplay × 3 (harness SubAgent, coding-agent main.ts, ChatApp.ts), MouseEvent × 2 (mu-tui), wire.ts × 2 (arya), ChatBus locally re-shaped, Message/ToolCall re-cast between core ↔ local-provider ↔ harness jsonl-store
 - Detail: Drift incident already happened with wire.ts.
 - Severity: P1
 - Fix:
   - MouseEvent × 2 in mu-tui: deduped (#85, #112).
   - ChatBus locally re-shaped: replaced with `EventBus<CoreEvent>` (#276).
-  - AgentDisplay: intentional UI projection of SubAgent (#275, #287) — kept.
-  - wire.ts × 2 in arya: resolves with WsChannel port (#409) — see #495.
+  - AgentDisplay: intentional UI projection of SubAgent (#275, #287) — kept by design (each layer narrows what it needs).
+  - Message/ToolCall re-casts in jsonl-store: trust-on-write boundary, see #343 — no duplicate type, just an unchecked re-read of the file the harness itself wrote.
+  - wire.ts × 2 in arya: resolves with WsChannel port (#409 DONE) — wire shape derives from the harness Channel API; arya-companion follow-up lives in arya-agent repo (#495).
 
 **502. Pattern: SubAgent vs Agent identity confused — REJECTED**
 - Packages: mu-harness (SubAgent double duty), mu-coding-agent (AgentDisplay re-projection), arya-companion (AgentInfo.type never set correctly — every assistant attributed to activeAgentId, losing history)

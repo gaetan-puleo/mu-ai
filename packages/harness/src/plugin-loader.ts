@@ -1,12 +1,35 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Plugin } from 'mu-core';
 
 export interface LoadPluginsOptions {
   localDir?: string;
   npmSpecs?: string[];
+  /**
+   * Path to a JSON trust file mapping `"<name>@<version>"` to the
+   * sha-256 of the plugin's entrypoint. Enables TOFU verification:
+   *
+   *   - First load of a plugin: hash is recorded; load proceeds.
+   *   - Subsequent loads: hash must match the recorded value; refuse if not.
+   *
+   * The trust file must NOT live in the plugins dir itself (an attacker
+   * with write access to `pluginsDir` would otherwise forge entries).
+   * Pass `paths.pluginsTrustFile` from `createXdgPaths`.
+   *
+   * Omit to skip trust verification entirely.
+   */
+  trustFile?: string;
 }
 
 const PLUGIN_EXTENSIONS = new Set(['.ts', '.mts', '.js', '.mjs']);
@@ -130,9 +153,84 @@ function isAllowedSpec(spec: string): boolean {
   return NPM_PREFIXED_SPEC.test(spec) || SCOPED_SPEC.test(spec);
 }
 
+interface TrustState {
+  /** Loaded `{ "<name>@<version>": "<sha256>" }` map. */
+  map: Record<string, string>;
+  /** Set to true when we add new entries — triggers a flush. */
+  dirty: boolean;
+  /** Where to persist on flush. */
+  file: string;
+}
+
+function loadTrustState(file: string): TrustState {
+  const state: TrustState = { map: {}, dirty: false, file };
+  if (!existsSync(file)) return state;
+  try {
+    const raw = readFileSync(file, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      for (const [key, value] of Object.entries(parsed)) {
+        if (typeof value === 'string') state.map[key] = value;
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`mu-harness: failed to read trust file ${file}: ${message} — refusing all plugin loads`);
+    // Block all loads when the trust file is unreadable rather than silently
+    // falling back to TOFU and re-trusting everything.
+    state.map = {};
+    state.dirty = false;
+  }
+  return state;
+}
+
+function flushTrustState(state: TrustState): void {
+  if (!state.dirty) return;
+  mkdirSync(dirname(state.file), { recursive: true });
+  const tmp = `${state.file}.tmp-${process.pid}`;
+  writeFileSync(tmp, `${JSON.stringify(state.map, null, 2)}\n`, 'utf-8');
+  renameSync(tmp, state.file);
+}
+
+function hashFile(path: string): string {
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+/**
+ * Decide whether a plugin is allowed to load given its entrypoint hash.
+ *
+ *  - No trust state → allow (caller opted out of verification).
+ *  - Trust entry present + hash matches → allow.
+ *  - Trust entry present + hash differs → REFUSE (entrypoint modified).
+ *  - Trust entry absent → TOFU: record the hash, allow this load with a
+ *    loud log so the user can spot a surprise.
+ */
+function checkTrust(
+  state: TrustState | undefined,
+  key: string,
+  hash: string,
+): { ok: true } | { ok: false; reason: string } {
+  if (!state) return { ok: true };
+  const recorded = state.map[key];
+  if (recorded === undefined) {
+    console.error(`mu-harness: trust-on-first-use: recording ${key} = ${hash}`);
+    state.map[key] = hash;
+    state.dirty = true;
+    return { ok: true };
+  }
+  if (recorded !== hash) {
+    return {
+      ok: false,
+      reason: `entrypoint hash changed (recorded ${recorded.slice(0, 12)}…, current ${hash.slice(0, 12)}…) — remove the entry from the trust file to re-trust`,
+    };
+  }
+  return { ok: true };
+}
+
 async function loadFromManifest(
   pluginDir: string,
   plugins: Plugin[],
+  trust: TrustState | undefined,
 ): Promise<void> {
   const found = readManifest(pluginDir);
   if (!found) return;
@@ -144,11 +242,18 @@ async function loadFromManifest(
     );
     return;
   }
+  // Verify (or TOFU-record) before any import so a hash mismatch never runs
+  // top-level code.
+  const key = `${manifest.name}@${manifest.version}`;
+  const hash = hashFile(entryPath);
+  const decision = checkTrust(trust, key, hash);
+  if (!decision.ok) {
+    console.error(`mu-harness: refusing plugin "${key}" at ${entryPath}: ${decision.reason}`);
+    return;
+  }
   // Loud, mandatory log of the executable path before import. Makes the
-  // attack surface visible per #312 even though we don't sandbox yet.
-  console.error(
-    `mu-harness: loading plugin "${manifest.name}@${manifest.version}" from ${entryPath}`,
-  );
+  // attack surface visible per #312.
+  console.error(`mu-harness: loading plugin "${key}" from ${entryPath}`);
   const url = pathToFileURL(entryPath).href;
   try {
     const mod = await import(url);
@@ -162,15 +267,18 @@ async function loadFromManifest(
 export async function loadPlugins(opts: LoadPluginsOptions = {}): Promise<Plugin[]> {
   const plugins: Plugin[] = [];
   const localDir = opts.localDir ?? defaultLocalDir();
+  const trust = opts.trustFile ? loadTrustState(opts.trustFile) : undefined;
 
   if (existsSync(localDir)) {
     // Per #312: only load plugins that present a manifest file. We accept
     //   <localDir>/<plugin>/plugin.manifest.json              (preferred layout)
     //   <localDir>/plugin.manifest.json                        (single-plugin dir)
     // Bare `.ts/.js` files dropped at the top level are NO LONGER executed.
+    // When `trustFile` is set, each entrypoint's sha-256 is also verified
+    // (TOFU on first load, exact-match thereafter).
     const topManifest = readManifest(localDir);
     if (topManifest) {
-      await loadFromManifest(localDir, plugins);
+      await loadFromManifest(localDir, plugins, trust);
     }
     const entries = readdirSync(localDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
@@ -192,7 +300,7 @@ export async function loadPlugins(opts: LoadPluginsOptions = {}): Promise<Plugin
         }
         continue;
       }
-      await loadFromManifest(fullPath, plugins);
+      await loadFromManifest(fullPath, plugins, trust);
     }
   }
 
@@ -209,6 +317,8 @@ export async function loadPlugins(opts: LoadPluginsOptions = {}): Promise<Plugin
       console.error(`Failed to load plugin "${spec}": ${message}`);
     }
   }
+
+  if (trust) flushTrustState(trust);
 
   return plugins;
 }

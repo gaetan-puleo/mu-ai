@@ -32,3 +32,31 @@ export interface StatusParts {
 export function buildStatusParts(contextText: string | undefined): StatusParts {
   return { left: [], right: contextText ? [contextText] : [] };
 }
+
+/**
+ * Default mapping from a CoreEvent type to a one-word status label every
+ * chat UI tends to display (`'ready'` / `'streaming...'` / `'reasoning...'`
+ * / `'tool: <name>'` / `'error'`). Returns `undefined` when the event
+ * shouldn't change the displayed status.
+ */
+import type { CoreEvent } from 'mu-core';
+
+export function statusFromEvent(event: CoreEvent): string | undefined {
+  switch (event.type) {
+    case 'assistant_start':
+    case 'assistant_delta':
+      return 'streaming...';
+    case 'assistant_message':
+    case 'tool_result':
+      return 'ready';
+    case 'reasoning_delta':
+    case 'reasoning_message':
+      return 'reasoning...';
+    case 'tool_call':
+      return `tool: ${event.call.name}`;
+    case 'error':
+      return 'error';
+    default:
+      return undefined;
+  }
+}

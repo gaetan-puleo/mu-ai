@@ -16,7 +16,7 @@ export {
   type ToolCallFormatter,
   type UserChatLine,
 } from './transcript';
-export { buildStatusParts, formatTokens, spinnerFrame, type StatusParts } from './status';
+export { buildStatusParts, formatTokens, spinnerFrame, statusFromEvent, type StatusParts } from './status';
 export {
   type SubAgentRun,
   type SubAgentRunListener,

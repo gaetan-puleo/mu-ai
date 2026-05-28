@@ -1,6 +1,6 @@
 import { expect } from '@std/expect';
 import { describe, it } from '@std/testing/bdd';
-import { buildStatusParts, formatTokens, spinnerFrame } from './status';
+import { buildStatusParts, formatTokens, spinnerFrame, statusFromEvent } from './status';
 
 describe('formatTokens', () => {
   it('returns small integers as plain strings', () => {
@@ -43,5 +43,35 @@ describe('buildStatusParts', () => {
   it('returns empty right when no context is supplied', () => {
     expect(buildStatusParts(undefined)).toEqual({ left: [], right: [] });
     expect(buildStatusParts('')).toEqual({ left: [], right: [] });
+  });
+});
+
+describe('statusFromEvent', () => {
+  it('labels streaming events', () => {
+    expect(statusFromEvent({ type: 'assistant_start' })).toBe('streaming...');
+    expect(statusFromEvent({ type: 'assistant_delta', content: 'x' })).toBe('streaming...');
+  });
+
+  it('returns to ready on assistant_message and tool_result', () => {
+    expect(statusFromEvent({ type: 'assistant_message', message: { role: 'assistant', content: 'x' } })).toBe('ready');
+    expect(statusFromEvent({ type: 'tool_result', message: { role: 'tool', content: 'x', tool_id: 't' } })).toBe('ready');
+  });
+
+  it('labels reasoning events', () => {
+    expect(statusFromEvent({ type: 'reasoning_delta', content: 'x' })).toBe('reasoning...');
+    expect(statusFromEvent({ type: 'reasoning_message', content: 'x' })).toBe('reasoning...');
+  });
+
+  it('includes the tool name on tool_call', () => {
+    expect(statusFromEvent({ type: 'tool_call', call: { id: 'c1', name: 'read', args: '{}' } })).toBe('tool: read');
+  });
+
+  it('labels error events', () => {
+    expect(statusFromEvent({ type: 'error', error: new Error('boom') })).toBe('error');
+  });
+
+  it('returns undefined for events the host should ignore', () => {
+    expect(statusFromEvent({ type: 'user_message', message: { role: 'user', content: 'x' } })).toBeUndefined();
+    expect(statusFromEvent({ type: 'queue_update', steering: [], followUp: [] })).toBeUndefined();
   });
 });
