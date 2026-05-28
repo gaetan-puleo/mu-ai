@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { formatError, type Tool, type ToolContext } from 'mu-core';
+import type { ToolFactoryOptions } from './types';
 import { validatedCwd } from './utils';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -159,8 +160,7 @@ function executeBash(command: string, opts: ExecuteBashOptions): Promise<string>
   });
 }
 
-interface BashToolOptions {
-  getCwd: () => string;
+interface BashToolOptions extends ToolFactoryOptions {
   /** Cap on combined stdout/stderr bytes. Default 10 MiB. */
   maxOutputBytes?: number;
   /**

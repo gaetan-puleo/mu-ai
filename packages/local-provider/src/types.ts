@@ -1,6 +1,21 @@
 import type { LLMResponseContext } from 'mu-core';
 import type OpenAI from 'openai';
 
+/**
+ * Typed errors raised by the local provider so callers can distinguish
+ * "backend unreachable" from "config missing" without string matching.
+ */
+export class LocalProviderError extends Error {
+  constructor(
+    message: string,
+    public readonly code: 'backend_unreachable' | 'backend_unsupported' | 'config_invalid',
+    override readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = 'LocalProviderError';
+  }
+}
+
 export interface LLMResponseContextSlot {
   id: number;
   n_ctx: number;
@@ -36,7 +51,12 @@ export interface LocalBackendInfo {
 export interface LocalProviderConfig {
   kind?: 'llama-swap';
   baseUrl?: string;
-  model?: string;
+  /**
+   * Model id to use for chat completions. Required at request time — the
+   * runtime check at the top of each call enforces it, but declaring it
+   * required here surfaces the contract at the boundary.
+   */
+  model: string;
   apiKey?: string;
   /**
    * Idle timeout in milliseconds. If no chunk arrives from the stream within this

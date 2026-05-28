@@ -568,7 +568,8 @@ describe('ScrollView', () => {
     scrollView.scrollTo(20);
     const transcriptBox = new Box({ layout: { width: 'fill', height: 'fill' }, children: [scrollView] });
     const status = new Text({ text: 'ready', layout: { width: 'fill', height: 1, zIndex: 10 } });
-    const input = new Input({ placeholder: 'type a message...', layout: { width: 'fill', height: 1, zIndex: 10 } });
+    // Empty placeholder so the test focuses on chrome layering, not placeholder rendering.
+    const input = new Input({ layout: { width: 'fill', height: 1, zIndex: 10 } });
     const prompt = new Text({ text: '> ', layout: { width: 2, height: 1, zIndex: 10 } });
     const inputBox = new Box({
       layout: {

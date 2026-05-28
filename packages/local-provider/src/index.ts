@@ -24,11 +24,12 @@ import {
   prepareLlamaSwapChatRequest,
   tokenizeLlamaSwap,
 } from './llama-swap';
-import type {
-  LocalBackendInfo,
-  LocalLLMResponseContext,
-  LocalModel,
-  LocalProviderConfig,
+import {
+  type LocalBackendInfo,
+  type LocalLLMResponseContext,
+  type LocalModel,
+  type LocalProviderConfig,
+  LocalProviderError,
 } from './types';
 
 type ToolCallDelta = ChatCompletionChunk.Choice.Delta.ToolCall;
@@ -47,6 +48,7 @@ export type {
   LocalModel,
   LocalProviderConfig,
 } from './types';
+export { LocalProviderError } from './types';
 
 const DEFAULT_BASE_URL = 'http://localhost:8080';
 const DEFAULT_STREAM_TIMEOUT_MS = 30000;
@@ -63,8 +65,9 @@ export async function detectLocalBackend(config: {
     return result;
   }
 
-  throw new Error(
+  throw new LocalProviderError(
     config.kind ? `Cannot detect ${config.kind} backend at ${baseUrl}` : `Unsupported local backend at ${baseUrl}`,
+    config.kind ? 'backend_unreachable' : 'backend_unsupported',
   );
 }
 
@@ -269,14 +272,6 @@ const createLocalProvider = (config: LocalProviderConfig): LLMProvider => {
       });
     }
     const backend = await backendPromise;
-
-    if (!config.model) {
-      throw new Error(
-        `Local provider requires a model. Backend: ${backend.kind}. Available models: ${
-          backend.models.map((m) => m.id).join(', ')
-        }`,
-      );
-    }
     const model = config.model;
 
     const ClientCtor = config.openAIClient ?? OpenAI;

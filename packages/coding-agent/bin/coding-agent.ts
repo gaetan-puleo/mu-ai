@@ -209,7 +209,7 @@ async function run(): Promise<void> {
         approvalPrompt: approvalQueueToPrompt(result.approvalQueue),
         onEvent,
       });
-      return { content: run.content, error: run.error };
+      return { content: run.content, error: run.status === 'failed' ? run.error : undefined };
     },
   });
 }

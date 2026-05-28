@@ -286,20 +286,6 @@ describe('createLocalProvider', () => {
     currentChatImpl = undefined;
   });
 
-  it('throws when model is missing', async () => {
-    cleanup = mockFetch({
-      '/v1/models': { ok: true, json: () => MOCK_MODELS_RESPONSE },
-    });
-
-    const provider = createLocalProvider({
-      baseUrl: 'http://localhost:8080',
-    });
-
-    await expect(provider([], {})).rejects.toThrow('Local provider requires a model');
-    await expect(provider([], {})).rejects.toThrow('gemma-4-e2b');
-    await expect(provider([], {})).rejects.toThrow('qwen-3.6-27b');
-  });
-
   it('includes stream usage as prompt context', async () => {
     cleanup = mockFetch({
       '/v1/models': { ok: true, json: () => MOCK_MODELS_RESPONSE },

@@ -44,6 +44,11 @@ export interface Tool<TArgs = any, TResult = string> {
   onError?: (error: unknown, ctx?: ToolContext) => TResult | Promise<TResult>;
 }
 
+/**
+ * A map of tool name → `Tool`. Generic so plugin authors can express the
+ * concrete names: `const tools = { read, write } satisfies Tools` keeps
+ * `keyof typeof tools` as `'read' | 'write'` instead of widening to `string`.
+ */
 export type Tools = Record<string, Tool>;
 
 /**

@@ -1,6 +1,4 @@
-export { createBus, type EventBus, type Unsubscribe } from './bus';
-export { type Plugin, type PluginHooks } from './plugin';
-export { type LLMProvider, type LLMProviderResult } from './provider';
+// Runtime / lifecycle
 export {
   type CoreEvent,
   createRuntime,
@@ -8,14 +6,53 @@ export {
   type RuntimeConfig,
   type RuntimeState,
 } from './runtime';
+
+// Plugin SDK
+export { defineProvider, definePlugin, defineTool, defineTools, type ProviderFactory } from './define';
+export { type Plugin, type PluginHooks } from './plugin';
+export { type LLMProvider, type LLMProviderResult } from './provider';
+
+// Event bus
+export { createBus, type EventBus, type Unsubscribe } from './bus';
+
+// Sessions
 export {
   createInMemorySessionStore,
   type SessionInit,
   type SessionStore,
   type SessionStoreEvent,
 } from './session';
-export { formatError, parseArgs } from './tools/argUtils';
-export { callTool } from './tools/callTool';
+export type { Session, TurnState } from './types/Session';
+
+// Tool types
+export type {
+  Resolvable,
+  Tool,
+  ToolCall,
+  ToolContext,
+  Tools,
+} from './types/Tool';
+
+// Message types
+export type {
+  AssistantMessage,
+  Message,
+  SystemMessage,
+  ToolMessage,
+  UserMessage,
+} from './types/Message';
+
+// LLM response / context types
+export type {
+  ContextMap,
+  ContextPart,
+  ContextPartKind,
+  LLMResponse,
+  LLMResponseContext,
+  LLMStreamEvent,
+} from './types/LLM';
+
+// Tool execution hooks
 export type {
   AfterToolData,
   AfterToolHook,
@@ -25,26 +62,7 @@ export type {
   BeforeToolResult,
   ToolHooks,
 } from './types/Hook';
-export type {
-  ContextMap,
-  ContextPart,
-  ContextPartKind,
-  LLMResponse,
-  LLMResponseContext,
-  LLMStreamEvent,
-} from './types/LLM';
-export type {
-  AssistantMessage,
-  Message,
-  SystemMessage,
-  ToolMessage,
-  UserMessage,
-} from './types/Message';
-export type { Session, TurnState } from './types/Session';
-export type {
-  Resolvable,
-  Tool,
-  ToolCall,
-  ToolContext,
-  Tools,
-} from './types/Tool';
+
+// Helpers
+export { formatError, parseArgs } from './argUtils';
+export { callTool } from './callTool';

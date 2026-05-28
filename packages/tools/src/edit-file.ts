@@ -2,9 +2,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { formatError, type Tool } from 'mu-core';
 import { looksBinary, sanitizePath, validatedCwd, writeAtomic } from './utils';
 
-interface EditFileToolOptions {
-  getCwd: () => string;
-}
+import type { ToolFactoryOptions } from './types';
+
+type EditFileToolOptions = ToolFactoryOptions;
 
 interface EditFileArgs {
   path?: unknown;

@@ -2,9 +2,9 @@ import { existsSync } from 'node:fs';
 import { formatError, type Tool } from 'mu-core';
 import { looksBinary, readLineRange, sanitizePath, validatedCwd } from './utils';
 
-interface ReadFileToolOptions {
-  getCwd: () => string;
-}
+import type { ToolFactoryOptions } from './types';
+
+type ReadFileToolOptions = ToolFactoryOptions;
 
 /** Wire-level shape declared in `parameters` below. Narrowed at the boundary. */
 interface ReadFileArgs {

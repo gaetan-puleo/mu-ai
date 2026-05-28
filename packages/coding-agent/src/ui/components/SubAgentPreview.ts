@@ -1,6 +1,6 @@
 import type { Component, EventContext, InputEvent, LayoutStyle, RenderContext } from 'mu-tui';
 import { truncateToWidth, visibleWidth } from 'mu-tui';
-import { getTheme, styleToAnsi } from '../theme';
+import { asHexColor, getTheme, styleToAnsi } from '../theme';
 import type { SubAgentRun } from '../subAgentRun';
 
 const RESET = '\x1b[0m';
@@ -50,9 +50,8 @@ export class SubAgentPreview implements Component {
     const theme = getTheme(ctx);
     const dim = styleToAnsi({ fg: theme.colors.textMuted });
     const body = styleToAnsi(theme.styles.body);
-    const dotSgr = this.props.run.agentColor?.startsWith('#')
-      ? styleToAnsi({ fg: this.props.run.agentColor as `#${string}` })
-      : '';
+    const agentHex = asHexColor(this.props.run.agentColor);
+    const dotSgr = agentHex ? styleToAnsi({ fg: agentHex }) : '';
 
     const statusGlyph = statusIcon(this.props.run.status);
     const statusFg = statusColor(theme, this.props.run.status);

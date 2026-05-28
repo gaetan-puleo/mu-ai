@@ -52,8 +52,8 @@ describe('render pipeline smoke', () => {
     for (const e of sortForRender(entries)) drawEntry(buf, e, modal, caps);
     const lines = cellBufferToLines(buf);
 
-    // Default 50% black backdrop over cyan (#00c8c8 = 0,200,200) → (0,100,100).
-    const hasBlendedBackdrop = lines.some((l) => l.includes('48;2;0;100;100'));
+    // Default 70% black backdrop over cyan (#00c8c8 = 0,200,200) → (0,60,60).
+    const hasBlendedBackdrop = lines.some((l) => l.includes('48;2;0;60;60'));
     expect(hasBlendedBackdrop).toBe(true);
   });
 });

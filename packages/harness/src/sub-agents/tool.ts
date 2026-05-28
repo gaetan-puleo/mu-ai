@@ -71,7 +71,7 @@ export function createSubAgentTool(deps: SubAgentToolDeps): Tool<SubAgentArgs, s
         agentName: result.agentName,
         task,
         content: result.content,
-        error: result.error,
+        error: result.status === 'failed' ? result.error : undefined,
       });
     },
     onError: (error) => `subagent failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -132,10 +132,13 @@ export function createSubAgentParallelTool(deps: SubAgentToolDeps): Tool<SubAgen
         runs.map(async (run): Promise<SubAgentRunResult> => {
           const subAgent = subAgents.find((a) => a.name === run.agent);
           if (!subAgent) {
+            const errMsg = `unknown sub-agent "${run.agent}"`;
             return {
+              status: 'failed',
               agentName: run.agent,
               content: '',
-              error: `unknown sub-agent "${run.agent}"`,
+              error: errMsg,
+              errors: [errMsg],
             };
           }
           return runSubAgent({
@@ -156,7 +159,7 @@ export function createSubAgentParallelTool(deps: SubAgentToolDeps): Tool<SubAgen
             agentName: r.agentName,
             task: runs[i]?.task ?? '',
             content: r.content,
-            error: r.error,
+            error: r.status === 'failed' ? r.error : undefined,
           })
         )
         .join('\n\n===\n\n');

@@ -356,11 +356,18 @@ async function runWebFetch(args: WebFetchArgs, ctx?: ToolContext): Promise<strin
 }
 
 /** Wire shape declared by the JSON schema below; narrowed in `runWebFetch`. */
-interface WebFetchArgs {
+export interface WebFetchArgs {
   url?: unknown;
   /** Seconds (not ms) — the schema is human-facing. */
   timeout?: unknown;
 }
+
+/**
+ * Convert an HTML document to GitHub-flavored markdown, stripping `<script>`,
+ * `<style>`, and other noise. Exposed for hosts that want to reuse the same
+ * conversion in non-webfetch contexts (e.g. web_search result rendering).
+ */
+export { convertHtmlToMarkdown };
 
 export function createWebFetchTool(): Tool<WebFetchArgs, string> {
   return {

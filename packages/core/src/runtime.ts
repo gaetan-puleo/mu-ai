@@ -1,7 +1,7 @@
 import type { EventBus, Unsubscribe } from './bus';
 import type { Plugin } from './plugin';
 import type { LLMProvider, LLMProviderResult } from './provider';
-import { callTool } from './tools/callTool';
+import { callTool } from './callTool';
 import type { ToolHooks } from './types/Hook';
 import type { LLMResponse, LLMResponseContext, LLMStreamEvent } from './types/LLM';
 import type { AssistantMessage, Message, ToolMessage } from './types/Message';

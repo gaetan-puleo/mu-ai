@@ -33,11 +33,17 @@ export interface ChannelContext {
   deliver: (event: ChannelInEvent) => void | Promise<void>;
 }
 
+/**
+ * Built-in channel families. Hosts may pass any custom string for
+ * `Channel.kind` — this list is for autocomplete on the common cases.
+ */
+export type ChannelKind = 'tui' | 'ws' | 'telegram' | 'slack' | 'rpc' | (string & {});
+
 export interface Channel {
   /** Unique id, e.g. "tui", "telegram:chat-12345". */
   id: string;
   /** Family identifier, e.g. "tui", "telegram", "rpc". Useful for routing rules. */
-  kind: string;
+  kind: ChannelKind;
   /** Begin reading from the surface and surfacing input via `ctx.deliver`. */
   start(ctx: ChannelContext): void | Promise<void>;
   /** Clean shutdown. */

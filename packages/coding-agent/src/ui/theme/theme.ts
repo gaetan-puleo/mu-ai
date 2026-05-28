@@ -88,6 +88,15 @@ export function wrapWithStyle(text: string, style: TextStyle): string {
   return `${prefix}${text}\x1b[0m`;
 }
 
+/**
+ * Narrow an arbitrary string to a hex `Color` literal if it looks like one.
+ * Returns `undefined` otherwise — callers can fall back to a default.
+ */
+export function asHexColor(value: string | undefined): `#${string}` | undefined {
+  if (value && value.startsWith('#')) return value as `#${string}`;
+  return undefined;
+}
+
 // --- ThemeProvider ---
 
 export type ThemeSubscriber = (theme: Theme) => void;

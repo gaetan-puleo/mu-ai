@@ -1,6 +1,6 @@
 import { parseArgs } from './argUtils';
-import type { AfterToolData, AfterToolResult, BeforeToolData, BeforeToolResult } from '../types/Hook';
-import type { Tool, ToolContext } from '../types/Tool';
+import type { AfterToolData, AfterToolResult, BeforeToolData, BeforeToolResult } from './types/Hook';
+import type { Tool, ToolContext } from './types/Tool';
 
 /**
  * Invoke a tool against the wire-format JSON `args` string. The runtime calls

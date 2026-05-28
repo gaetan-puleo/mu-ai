@@ -1,4 +1,4 @@
-import type { CoreEvent, LLMResponseContext, Message, Runtime, Unsubscribe } from 'mu-core';
+import type { CoreEvent, EventBus, LLMResponseContext, Message, Runtime } from 'mu-core';
 import { appendHistory, loadHistory } from '../config';
 import { type Model, RoundtripStore } from 'mu-harness';
 import { type Component, type InputEvent, ProcessTerminal, TUI } from 'mu-tui';
@@ -7,7 +7,7 @@ import { CommandPalette } from './components/CommandPalette';
 import { ErrorToast } from './components/SimpleLines';
 import { type WaitingItem, WaitingList } from './components/WaitingList';
 import { buildStatusParts, formatTokens, StatusLine } from './statusLine';
-import { darkTheme, lightTheme, styleToAnsi, type Theme, ThemeProvider } from './theme';
+import { asHexColor, darkTheme, lightTheme, styleToAnsi, type Theme, ThemeProvider } from './theme';
 import { Transcript } from './Transcript';
 import type { AgentDisplay } from './chatApp/picker';
 import { FilePickerController, ModelPickerController } from './chatApp/picker';
@@ -22,10 +22,7 @@ import {
 } from './chatApp/commands';
 import { SubAgentController } from './chatApp/subAgents';
 
-interface ChatBus {
-  publish: (event: CoreEvent) => void;
-  subscribe: (fn: (event: CoreEvent) => void) => Unsubscribe;
-}
+type ChatBus = EventBus<CoreEvent>;
 
 interface ModelController {
   createRuntime: () => Runtime;
@@ -95,7 +92,7 @@ export class ChatApp {
   private dismissedPaletteFor = '';
   private modelPicker: ModelPickerController;
   private mountedModal: Component | undefined;
-  private unsubscribe: Unsubscribe | undefined;
+  private unsubscribe: (() => void) | undefined;
   private stopped = false;
   private status = 'ready';
   private contextText = '';
@@ -421,7 +418,8 @@ export class ChatApp {
     const reset = '\x1b[0m';
     const parts: string[] = [];
     if (agent) {
-      const dotColor = agent.color?.startsWith('#') ? styleToAnsi({ fg: agent.color as `#${string}` }) : '';
+      const agentHex = asHexColor(agent.color);
+      const dotColor = agentHex ? styleToAnsi({ fg: agentHex }) : '';
       const dot = `${dotColor}●${reset}`;
       const displayName = agent.name.charAt(0).toUpperCase() + agent.name.slice(1);
       parts.push(`${dot} ${white}${displayName}${reset}`);

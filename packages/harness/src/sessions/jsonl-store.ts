@@ -216,6 +216,7 @@ export function createJsonlSessionStore(dir: string): PersistedSessionStore {
     },
 
     delete(id) {
+      const session = loadSession(id);
       sessions.delete(id);
       let removed = false;
       for (const p of [transcriptFile(dir, id), metaFile(dir, id)]) {
@@ -225,7 +226,7 @@ export function createJsonlSessionStore(dir: string): PersistedSessionStore {
         }
       }
       if (!removed) return;
-      emitCore({ type: 'deleted', sessionId: id });
+      if (session) emitCore({ type: 'deleted', session });
       emitWatch(id, 'deleted');
     },
 

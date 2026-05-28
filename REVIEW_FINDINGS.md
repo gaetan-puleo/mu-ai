@@ -85,16 +85,17 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Owns `Tool`, `ToolCall`, but also `LLMResponse`, `LLMStreamEvent`, `LLMResponseContext`, `ContextMap`, `ContextPart`. Provider-side response types do not belong in a file named `Tool.ts`.
 - Fix: Split into `types/Tool.ts` (tool/call) and `types/LLM.ts` (response/stream/context); have `provider.ts` own response types.
 
-**14. `tools/` folder name misleading**
+**14. `tools/` folder name misleading — DONE**
 - File: `src/tools/`
 - Dimension: Architecture — Severity: P2
 - Detail: Only `callTool` + `argUtils` live there — execution helpers — while the `Tool` type lives in `types/`. Either move helpers next to the type or rename to `executor/`.
+- Fix: Moved `callTool.ts` + `argUtils.ts` up to `src/` and removed the empty `tools/` directory.
 
-**15. Stale published artifacts contradict source**
+**15. Stale published artifacts contradict source — DONE**
 - File: `npm/`, `dist/`
 - Dimension: Architecture — Severity: P1
 - Detail: `npm/` and `dist/` still export `defineProvider`; live `src/provider.ts` does not. `npm/package.json` is at v0.15.0 with a different description than `package.json` v0.16.0.
-- Fix: Either ship `defineProvider` or remove the AGENTS.md reference; drop checked-in build artifacts.
+- Fix: `npm/` and `dist/` no longer exist; `defineProvider` shipped in `src/define.ts`.
 
 **16. `provider.ts` re-exports types it doesn't own — DONE**
 - File: `src/provider.ts`
@@ -117,10 +118,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Plugin has lifecycle hooks (`onStart`/`onStop`/`onError`) but per-tool `ToolHooks` (`beforeTool`/`afterTool`) are passed via `RuntimeConfig.hooks` separately.
 - Fix: Consider merging into `Plugin.hooks`.
 
-**20. `index.ts` exports utilities mixed with runtime helpers**
+**20. `index.ts` exports utilities mixed with runtime helpers — DONE**
 - File: `src/index.ts`
 - Dimension: Architecture — Severity: P2
 - Detail: `formatError`, `parseArgs`, `callTool` exported alongside runtime factories. Consider a `tools` sub-export so non-runtime consumers don't pull the whole core.
+- Fix: Exports now grouped by concern (Runtime, Plugin SDK, Bus, Sessions, Tool types, Message types, LLM types, Hooks, Helpers).
 
 **21. `runtime.ts` is 435 lines mixing 6 concerns**
 - File: `src/runtime.ts`
@@ -130,16 +132,17 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 
 ### Responsibilities
 
-**22. `defineProvider()` advertised but missing**
+**22. `defineProvider()` advertised but missing — DONE**
 - File: AGENTS.md vs `src/provider.ts`
 - Dimension: Responsibilities — Severity: P1
 - Detail: AGENTS.md (line 57) advertises `defineProvider()` as a core primitive, but `provider.ts` only exports the `ProviderFactory<Config>` type.
-- Fix: Either ship the helper or drop the promise.
+- Fix: Shipped `defineProvider` in `src/define.ts` and re-exported `ProviderFactory<TConfig>` from there.
 
-**23. `defineTool()` / `definePlugin()` missing**
+**23. `defineTool()` / `definePlugin()` missing — DONE**
 - File: `src/index.ts`
 - Dimension: Responsibilities — Severity: P1
 - Detail: Standard SDK ergonomics for an advertised "Plugin SDK." Currently authors hand-roll `{ name, tools, hooks, provider }` objects.
+- Fix: Shipped `defineTool`, `defineTools`, `definePlugin`, `defineProvider` helpers in `src/define.ts`.
 
 **24. `createInMemorySessionStore` borderline scope**
 - File: `src/session.ts:43-132`
@@ -164,10 +167,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P1
 - Detail: Returns `string | Promise<string>`. Forces every structured result to be re-serialized.
 
-**28. `Tools = Record<string, Tool>` erases names**
+**28. `Tools = Record<string, Tool>` erases names — DONE**
 - File: `src/types/Tool.ts:10`
 - Dimension: Types — Severity: P2
 - Detail: No way for downstream packages to express "the tool map produced by this plugin contains `read` and `write`". A const-friendly helper would preserve literal keys.
+- Fix: Added `defineTools<T extends Record<string, Tool>>(tools: T): T` — preserves the literal key set so `keyof` stays narrow.
 
 **29. Escape hatches in public response shape**
 - File: `src/types/Tool.ts:50-51`
@@ -209,10 +213,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: A plugin with a typed config loses its `Config` once wrapped.
 
-**37. `SessionStoreEvent` mixes session vs sessionId**
+**37. `SessionStoreEvent` mixes session vs sessionId — DONE**
 - File: `src/session.ts:5-8`
 - Dimension: Types — Severity: P2
 - Detail: `deleted` only carries `sessionId`, the others carry the full `Session`. Inconsistent.
+- Fix: `deleted` now carries the full `Session` like the other variants. Harness `jsonl-store` updated to match.
 
 **38. `Resolvable<T>` pattern duplicated — DONE**
 - File: `src/types/Tool.ts:5`, `src/runtime.ts:49`
@@ -268,10 +273,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Entity — Severity: P2
 - Detail: Enumerates 'mcp' and 'skills' but mu-core has no MCP or Skills entities — leaked concerns from downstream.
 
-**48. `SessionInit` asymmetric with `Session`**
+**48. `SessionInit` asymmetric with `Session` — DONE**
 - File: `src/session.ts`
 - Dimension: Entity — Severity: P2
 - Detail: Accepts `messages` but no queues/timestamps; invites silent loss on reconstruction.
+- Fix: `SessionInit` now also accepts optional `id`, `createdAt`, `updatedAt` so a persisted session can round-trip through `create()`. Queues moved off Session entirely (see #40), so there's nothing else to round-trip.
 
 **49. Missing entities**
 - Dimension: Entity — Severity: P1
@@ -843,10 +849,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Entity — Severity: (info)
 - Detail: Reuses `Tool` from `mu-core`; returns plain `string` results.
 
-**156. Near-duplicate `*ToolOptions` shapes**
+**156. Near-duplicate `*ToolOptions` shapes — DONE**
 - File: 4 fs tool option interfaces
 - Dimension: Entity — Severity: P2
 - Detail: All redeclare `{ getCwd; restrictToCwd? }`. `BashToolOptions` is a fifth near-duplicate.
+- Fix: Extracted `ToolFactoryOptions` into `src/types.ts`; fs tool option types now alias or extend it. `restrictToCwd` removed entirely (see #166).
 
 **157. No `ToolResult`/`ToolError` discriminated union**
 - File: All factories
@@ -1075,20 +1082,22 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Entity — Severity: P1
 - Detail: OpenAI delta, internal buffer map, mu-core `ToolCall` — same data, three shapes.
 
-**199. No `ProviderError`**
+**199. No `ProviderError` — DONE**
 - File: `src/index.ts:66, 79, 267`
 - Dimension: Entity — Severity: P2
 - Detail: Failures are raw `Error` with formatted strings.
+- Fix: Added `LocalProviderError` (extends `Error`, with `code: 'backend_unreachable' | 'backend_unsupported' | 'config_invalid'`) and exported it. `detectLocalBackend` now throws it instead of a raw `Error`.
 
 **200. `LocalBackendInfo` conflates identity with snapshot**
 - File: `src/types.ts:31-38`, `src/index.ts:255`
 - Dimension: Entity — Severity: P2
 - Detail: Identity (kind+url) and snapshot state (`models`) — model list goes stale immediately yet cached on `backendPromise`.
 
-**201. `LocalProviderConfig.model` optional but required**
+**201. `LocalProviderConfig.model` optional but required — DONE**
 - File: `src/types.ts:43`, `src/index.ts:266`
 - Dimension: Entity — Severity: P2
 - Detail: Operationally required; semantics unclear.
+- Fix: `LocalProviderConfig.model` is now required; removed the runtime defensive check + the obsolete test that exercised it.
 
 **202. Missing entities**
 - Dimension: Entity — Severity: P1
@@ -1218,10 +1227,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Architecture — Severity: P2
 - Detail: `format=html` on an image still returns data-URL.
 
-**226. No public re-exports**
+**226. No public re-exports — DONE**
 - File: `src/plugin.ts`
 - Dimension: Architecture — Severity: P2
 - Detail: `convertHtmlToMarkdown`, `extractTextFromHtml` file-private. Arya can't reuse render layer.
+- Fix: `WebFetchArgs` and `convertHtmlToMarkdown` are now exported so downstream consumers can reuse the render layer.
 
 ### Responsibilities
 
@@ -1271,7 +1281,7 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: Discriminant exists; use it.
 
-**236. No exported types**
+**236. No exported types — PARTIAL (WebFetchArgs now exported; format dropped; *Result still string)**
 - File: `src/plugin.ts`
 - Dimension: Types — Severity: P1
 - Detail: Only `createWebFetchTool()` and default `Plugin`. No `WebFetchFormat`/`WebFetchArgs`/`WebFetchResult`.
@@ -1489,15 +1499,17 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P1
 - Detail: Three near-duplicates between harness, main, ChatApp.
 
-**276. `ChatBus` locally re-shaped**
+**276. `ChatBus` locally re-shaped — DONE**
 - File: `src/ui/ChatApp.ts:27-29`
 - Dimension: Types — Severity: P2
 - Detail: Re-typing mu-core Bus narrows it (no unsubscribe-all, no event narrowing).
+- Fix: `ChatBus` is now `type ChatBus = EventBus<CoreEvent>` — full mu-core surface.
 
-**277. `as `#${string}`` color cast**
+**277. `as `#${string}`` color cast — DONE**
 - File: `src/ui/ChatApp.ts:422`, `src/ui/components/SubAgentPreview.ts:55`
 - Dimension: Types — Severity: P2
 - Detail: Casts a `string` to hex literal type after runtime `startsWith('#')` check.
+- Fix: Added `asHexColor(value)` in `theme/theme.ts` that narrows to `\`#${string}\` | undefined`; both call sites use it instead of an inline cast.
 
 **278. `LayoutStyle.height as number` cast**
 - File: `src/ui/ChatApp.ts:801-804`
@@ -1807,20 +1819,22 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Dimension: Types — Severity: P2
 - Detail: Falls back to `{ agent: '', task: '' }` on JSON.parse failure.
 
-**336. `SubAgentRunResult.error?` sentinel**
+**336. `SubAgentRunResult.error?` sentinel — DONE**
 - File: `src/sub-agents/runner.ts:58`
 - Dimension: Types — Severity: P1
 - Detail: Should be discriminated union `{ status: 'ok', content } | { status: 'failed', error, partialContent? }`.
+- Fix: Now a discriminated union `{ status: 'ok', agentName, content } | { status: 'failed', agentName, content, error, errors }`. Callers narrow via `result.status === 'failed'`.
 
 **337. Channel error: unknown too wide**
 - File: `src/channels/types.ts`
 - Dimension: Types — Severity: P2
 - Detail: Renderers can't dispatch on it.
 
-**338. `Channel.kind: string`**
+**338. `Channel.kind: string` — DONE**
 - File: `src/channels/types.ts:38`
 - Dimension: Types — Severity: P2
 - Detail: Should be string-literal-extensible union.
+- Fix: Added `ChannelKind = 'tui' | 'ws' | 'telegram' | 'slack' | 'rpc' | (string & {})` — literal autocomplete + extensible.
 
 **339. `Command<TArgs,TCtx>` generics lost**
 - File: `src/commands/types.ts:21-23`

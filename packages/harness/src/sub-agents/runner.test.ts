@@ -28,7 +28,7 @@ describe('runSubAgent', () => {
       prompt: 'do the thing',
       plugins: [providerPlugin(provider)],
     });
-    expect(result).toEqual({ agentName: 'tester', content: 'sub-agent says hi' });
+    expect(result).toEqual({ status: 'ok', agentName: 'tester', content: 'sub-agent says hi' });
   });
 
   it('passes the sub-agent prompt body as the system message', async () => {
@@ -120,6 +120,7 @@ describe('runSubAgent', () => {
       prompt: 'task',
       plugins: [providerPlugin(provider)],
     });
+    if (result.status !== 'failed') throw new Error('expected failed result');
     expect(result.error).toBe('boom');
   });
 
@@ -197,6 +198,7 @@ describe('runSubAgent', () => {
       signal: controller.signal,
       pollIntervalMs: 1,
     });
+    if (result.status !== 'failed') throw new Error('expected failed result');
     expect(result.error).toBe('caller cancelled');
   });
 
@@ -209,6 +211,7 @@ describe('runSubAgent', () => {
       timeoutMs: 25,
       pollIntervalMs: 1,
     });
+    if (result.status !== 'failed') throw new Error('expected failed result');
     expect(result.error).toContain('timed out');
   });
 });

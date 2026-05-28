@@ -67,7 +67,7 @@ export type {
 // ── channels ─────────────────────────────────────────────────────────
 export { type ChannelInListener, type ChannelManager, createChannelManager } from './channels/manager';
 export { createTuiChannel, lineSourceFrom, type TuiChannelOptions } from './channels/tui';
-export type { Channel, ChannelContext, ChannelInEvent, ChannelOutEvent } from './channels/types';
+export type { Channel, ChannelContext, ChannelInEvent, ChannelKind, ChannelOutEvent } from './channels/types';
 
 // ── sessions ─────────────────────────────────────────────────────────
 export { createJsonlSessionStore } from './sessions/jsonl-store';

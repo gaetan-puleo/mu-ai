@@ -5,11 +5,19 @@ import type { Session } from './types/Session';
 export type SessionStoreEvent =
   | { type: 'created'; session: Session }
   | { type: 'updated'; session: Session }
-  | { type: 'deleted'; sessionId: string };
+  | { type: 'deleted'; session: Session };
 
+/**
+ * Inputs for creating a session. `id`, `createdAt`, and `updatedAt` may be
+ * supplied to round-trip a persisted session through `create()` — leave them
+ * unset for fresh sessions and the store assigns its own.
+ */
 export interface SessionInit {
+  id?: string;
   title?: string;
   messages?: Message[];
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 export interface SessionStore {
@@ -69,11 +77,11 @@ export function createInMemorySessionStore(options: InMemorySessionStoreOptions 
     create(init = {}) {
       const ts = now();
       const session: Session = {
-        id: idGen(),
+        id: init.id ?? idGen(),
         title: init.title,
         messages: init.messages ? structuredClone(init.messages) : [],
-        createdAt: ts,
-        updatedAt: ts,
+        createdAt: init.createdAt ?? ts,
+        updatedAt: init.updatedAt ?? ts,
       };
       sessions.set(session.id, session);
       emit({ type: 'created', session });
@@ -110,8 +118,10 @@ export function createInMemorySessionStore(options: InMemorySessionStoreOptions 
     },
 
     delete(id) {
-      if (!sessions.delete(id)) return;
-      emit({ type: 'deleted', sessionId: id });
+      const session = sessions.get(id);
+      if (!session) return;
+      sessions.delete(id);
+      emit({ type: 'deleted', session });
     },
 
     touch(id) {

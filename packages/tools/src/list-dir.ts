@@ -3,9 +3,9 @@ import { join } from 'node:path';
 import { formatError, type Tool } from 'mu-core';
 import { sanitizePath, validatedCwd } from './utils';
 
-interface ListDirToolOptions {
-  getCwd: () => string;
-}
+import type { ToolFactoryOptions } from './types';
+
+type ListDirToolOptions = ToolFactoryOptions;
 
 interface ListDirArgs {
   path?: unknown;

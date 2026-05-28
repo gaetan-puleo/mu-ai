@@ -67,14 +67,16 @@ export interface RunSubAgentOptions {
   store?: SessionStore;
 }
 
-export interface SubAgentRunResult {
-  agentName: string;
-  content: string;
-  /** First error (if any) — kept for backward compatibility with single-error consumers. */
-  error?: string;
-  /** Every error emitted during the sub-agent run, in order. */
-  errors?: string[];
-}
+/**
+ * Outcome of a sub-agent run. Discriminated by `status` so consumers can't
+ * confuse a successful empty reply with a silent failure.
+ *
+ * The `error`/`errors` fields are kept on the failed shape for back-compat
+ * with single-error consumers; `errors` is always the full list when present.
+ */
+export type SubAgentRunResult =
+  | { status: 'ok'; agentName: string; content: string }
+  | { status: 'failed'; agentName: string; content: string; error: string; errors: string[] };
 
 /**
  * Spawn an isolated runtime for `subAgent`, send it `prompt`, collect the
@@ -145,9 +147,15 @@ export async function runSubAgent(opts: RunSubAgentOptions): Promise<SubAgentRun
 
   if (runErrors.length > 0) {
     const messages = runErrors.map((e) => (e instanceof Error ? e.message : String(e)));
-    return { agentName: subAgent.name, content: lastContent, error: messages[0], errors: messages };
+    return {
+      status: 'failed',
+      agentName: subAgent.name,
+      content: lastContent,
+      error: messages[0],
+      errors: messages,
+    };
   }
-  return { agentName: subAgent.name, content: lastContent };
+  return { status: 'ok', agentName: subAgent.name, content: lastContent };
 }
 
 function composeHooks(subAgent: SubAgent, opts: RunSubAgentOptions): ToolHooks | undefined {
