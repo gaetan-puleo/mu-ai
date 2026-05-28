@@ -1920,11 +1920,11 @@ Format: each finding is numbered, with package, dimension, file:line, full descr
 - Detail: Decide: port coding-agent onto it OR delete the orchestrator.
 - Fix: Coding-agent now calls `bootstrap()` (#319). The file's top doc-comment ("Cross-host bootstrap helper") spells out what it owns and what the host still owns.
 
-**330. No tests for bootstrap — PARTIAL (smoke-tested via coding-agent integration)**
+**330. No tests for bootstrap — DONE**
 - File: `src/bootstrap.ts`
 - Dimension: Responsibilities — Severity: P1
 - Detail: 300-line orchestrator, untested.
-- Note: Bootstrap is now exercised on every coding-agent boot — broken wiring would fail to start. Dedicated unit tests still valuable but deferred; sub-factories (permissions, sessions, tools) each have their own tests.
+- Fix: Added `bootstrap.test.ts` — 9 tests covering empty defaults, single-primary loading, primary/sub-agent split, lone-agent fallback, dynamic/static toolFilter modes, extra-plugin composition, subagent dispatcher injection, and the in-memory session store wiring.
 
 ### Types
 
