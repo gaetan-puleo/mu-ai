@@ -1,6 +1,15 @@
 import type { CoreEvent, EventBus, LLMResponseContext, Message, Runtime } from 'mu-core';
 import { appendHistory, loadHistory } from '../config';
-import { type Model, RoundtripStore, statusFromEvent } from 'mu-harness';
+import {
+  createDeferredCommandQueue,
+  createInputHistory,
+  type DeferredCommandQueue,
+  type InputHistory,
+  type Model,
+  parseAgentRouting,
+  RoundtripStore,
+  statusFromEvent,
+} from 'mu-harness';
 import { type Component, type InputEvent, ProcessTerminal, TUI } from 'mu-tui';
 import { Box, Input, type InputHighlight, ScrollView, Text } from 'mu-tui/components';
 import { CommandPalette } from './components/CommandPalette';
@@ -13,8 +22,9 @@ import type { AgentDisplay } from './chatApp/picker';
 import { FilePickerController, ModelPickerController } from './chatApp/picker';
 import { buildSubAgentViewComponents, buildTranscriptComponents } from './chatApp/transcript';
 import {
+  buildCommandRegistry,
   type ChatCommand,
-  createCommands,
+  type ChatCommandRegistry,
   exportContextToFile,
   filterCommands,
   runShellCommand,
@@ -87,7 +97,7 @@ export class ChatApp {
   private inputTopWidgetZone: Box;
   private inputBottomWidgetZone: Box;
   private commandPalette: CommandPalette | undefined;
-  private commandItems: ChatCommand[] = [];
+  private commands!: ChatCommandRegistry;
   private commandCursor = 0;
   private dismissedPaletteFor = '';
   private modelPicker: ModelPickerController;
@@ -104,12 +114,8 @@ export class ChatApp {
   private spinnerTick = 0;
   private filePicker: FilePickerController;
   private lastEscTime = 0;
-  private history: string[] = [];
-  private historyCursor = -1;
-  private historyDraft = '';
-  private historyNavigating = false;
-  private deferredCommandQueue: Array<{ label: string; run: () => void }> = [];
-  private deferredDrainTimer: ReturnType<typeof setTimeout> | undefined;
+  private history!: InputHistory;
+  private deferredCommandQueue!: DeferredCommandQueue<{ label: string; run: () => void }>;
   private waitingList: WaitingList | undefined;
   private overrideIdleTimer: ReturnType<typeof setInterval> | undefined;
   private overrideActive = false;
@@ -124,8 +130,14 @@ export class ChatApp {
   ) {
     this.runtime = runtime;
     this.bus = bus;
-    this.history = loadHistory();
+    this.history = createInputHistory({ initial: loadHistory(), onAppend: appendHistory });
     this.transcript = new Transcript(options.thinkingVisible ?? true);
+
+    this.deferredCommandQueue = createDeferredCommandQueue<{ label: string; run: () => void }>({
+      canDrain: () => this.runtime.state() === 'idle',
+      runEntry: (entry) => entry.run(),
+      onChange: () => this.updateWaitingList(),
+    });
 
     this.themeProvider = new ThemeProvider(darkTheme);
     const theme = this.themeProvider.current();
@@ -182,7 +194,7 @@ export class ChatApp {
       children: [this.toastZone, this.inputTopWidgetZone, this.inputBox, this.inputBottomWidgetZone, this.statusBox],
     });
 
-    this.commandItems = createCommands({
+    this.commands = buildCommandRegistry({
       startNewSession: () => void this.startNewSession(),
       openModelModal: () => this.openModelModal(),
       exportContext: (args) => void this.exportContext(args),
@@ -269,9 +281,7 @@ export class ChatApp {
     this.unsubscribeTheme = undefined;
     if (this.toastTimer) clearTimeout(this.toastTimer);
     this.toastTimer = undefined;
-    if (this.deferredDrainTimer) clearTimeout(this.deferredDrainTimer);
-    this.deferredDrainTimer = undefined;
-    this.deferredCommandQueue.length = 0;
+    this.deferredCommandQueue.clear();
     this.stopOverrideTimer();
     this.stopSpinner();
     this.input.stop();
@@ -493,16 +503,18 @@ export class ChatApp {
     const isSteering = this.runtime.state() !== 'idle';
 
     if (!isSteering) {
-      // Routing: @<primary> = one-shot override; @<sub-agent> = isolated dispatch.
-      const routing = this.classifyMention(text);
-      if (routing.kind === 'dispatch' && routing.agent) {
+      const routing = parseAgentRouting<AgentDisplay>(text, {
+        primaryAgents: this.options.primaryAgents,
+        subAgents: this.options.subAgents,
+      });
+      if (routing.kind === 'dispatch') {
         this.transcript.appendUser(text);
         this.renderTranscript();
-        this.subAgents.dispatch(routing.agent, routing.task ?? text);
+        this.subAgents.dispatch(routing.agent, routing.task);
         return;
       }
       this.transcript.appendUser(text);
-      if (routing.kind === 'override' && routing.agent) {
+      if (routing.kind === 'override') {
         this.applyOverrideAgent(routing.agent);
       }
     }
@@ -515,22 +527,6 @@ export class ChatApp {
     }
     this.renderTranscript();
     this.bus.publish({ type: isSteering ? 'steer' : 'user_message', message });
-  }
-
-  private classifyMention(
-    text: string,
-  ): { kind: 'override' | 'dispatch' | 'none'; agent?: AgentDisplay; task?: string } {
-    const match = text.match(/@([a-zA-Z_][\w-]*)/);
-    if (!match) return { kind: 'none' };
-    const name = match[1].toLowerCase();
-    const primary = (this.options.primaryAgents ?? []).find((a) => a.name.toLowerCase() === name);
-    if (primary) return { kind: 'override', agent: primary };
-    const sub = (this.options.subAgents ?? []).find((a) => a.name.toLowerCase() === name);
-    if (sub) {
-      const task = text.replace(new RegExp(`@${match[1]}\\s*`, 'i'), '').trim() || text;
-      return { kind: 'dispatch', agent: sub, task };
-    }
-    return { kind: 'none' };
   }
 
   private applyOverrideAgent(target: AgentDisplay): void {
@@ -602,43 +598,16 @@ export class ChatApp {
   }
 
   private pushHistory(text: string): void {
-    if (this.history[this.history.length - 1] !== text) {
-      this.history.push(text);
-    }
-    this.historyCursor = -1;
-    this.historyDraft = '';
-    appendHistory(text);
+    this.history.push(text, this.input.value);
   }
 
   private navigateHistory(direction: 'up' | 'down'): boolean {
-    if (this.history.length === 0) return false;
-
-    if (this.historyCursor === -1 && direction === 'down') return false;
-
-    if (this.historyCursor === -1) {
-      this.historyDraft = this.input.value;
-      this.historyCursor = this.history.length - 1;
-    } else if (direction === 'up') {
-      if (this.historyCursor <= 0) return true;
-      this.historyCursor--;
-    } else {
-      this.historyCursor++;
-      if (this.historyCursor >= this.history.length) {
-        this.historyCursor = -1;
-        this.historyNavigating = true;
-        this.input.setValue(this.historyDraft);
-        this.updateInputHeight(this.historyDraft);
-        this.historyNavigating = false;
-        this.tui.requestRender();
-        return true;
-      }
-    }
-
-    const entry = this.history[this.historyCursor]!;
-    this.historyNavigating = true;
-    this.input.setValue(entry);
-    this.updateInputHeight(entry);
-    this.historyNavigating = false;
+    const result = this.history.navigate(this.input.value, direction);
+    if (!result) return false;
+    this.history.withNavigation(() => {
+      this.input.setValue(result.text);
+      this.updateInputHeight(result.text);
+    });
     this.tui.requestRender();
     return true;
   }
@@ -649,10 +618,7 @@ export class ChatApp {
     if (this.inputRow.layout) this.inputRow.layout.height = inputLines;
     const inputBoxHeight = 1 + inputLines + 1 + 1 + 1;
     if (this.inputBox.layout) this.inputBox.layout.height = inputBoxHeight;
-    if (!this.historyNavigating && this.historyCursor !== -1) {
-      this.historyCursor = -1;
-      this.historyDraft = '';
-    }
+    this.history.resetIfStale();
     this.updateBashMode(value);
     this.updateCommandPalette(value);
     this.updateFilePicker();
@@ -776,30 +742,10 @@ export class ChatApp {
   private executeCommand(command: ChatCommand, args: string): void {
     if (command.deferWhenBusy && this.runtime.state() !== 'idle') {
       const label = args ? `/${command.name} ${args}` : `/${command.name}`;
-      this.deferredCommandQueue.push({ label, run: () => command.run(args) });
-      this.updateWaitingList();
+      this.deferredCommandQueue.push({ label, run: () => void command.run(args, undefined) });
       return;
     }
-    command.run(args);
-  }
-
-  private drainDeferredCommands(): void {
-    this.deferredDrainTimer = undefined;
-    if (this.runtime.state() !== 'idle') return;
-    if (this.deferredCommandQueue.length === 0) return;
-    const queue = this.deferredCommandQueue.splice(0);
-    this.updateWaitingList();
-    for (const entry of queue) {
-      try {
-        entry.run();
-      } catch { /* ignore */ }
-    }
-  }
-
-  private scheduleDeferredDrain(): void {
-    if (this.deferredDrainTimer) return;
-    if (this.deferredCommandQueue.length === 0) return;
-    this.deferredDrainTimer = setTimeout(() => this.drainDeferredCommands(), 0);
+    void command.run(args, undefined);
   }
 
   private collectWaitingItems(): WaitingItem[] {
@@ -807,7 +753,7 @@ export class ChatApp {
     for (const entry of this.transcript.visibleQueuedLines) {
       items.push({ kind: entry.queue, text: entry.line.content });
     }
-    for (const entry of this.deferredCommandQueue) {
+    for (const entry of this.deferredCommandQueue.snapshot()) {
       items.push({ kind: 'command', text: entry.label });
     }
     return items;
@@ -836,7 +782,7 @@ export class ChatApp {
   }
 
   private filteredCommands(value: string): ChatCommand[] {
-    return filterCommands(this.commandItems, value, this.dismissedPaletteFor);
+    return filterCommands(this.commands, value, this.dismissedPaletteFor);
   }
 
   private updateCommandPalette(value: string): void {
@@ -909,15 +855,15 @@ export class ChatApp {
       });
       return true;
     }
-    if (!value.startsWith('/')) return false;
-    const [rawName, ...rest] = value.slice(1).split(/\s+/);
-    const command = this.commandItems.find((item) => item.name === rawName);
-    if (!command) {
-      this.transcript.lines.push({ role: 'error', content: `Unknown command: /${rawName}` });
+    if (!value.trim().startsWith('/')) return false;
+    const match = this.commands.match(value);
+    if (!match) {
+      const name = value.trim().slice(1).split(/\s+/)[0] ?? '';
+      this.transcript.lines.push({ role: 'error', content: `Unknown command: /${name}` });
       this.renderTranscript();
       return true;
     }
-    this.executeCommand(command, rest.join(' '));
+    this.executeCommand(match.command, match.args);
     return true;
   }
 
@@ -994,7 +940,7 @@ export class ChatApp {
     this.stopSpinner();
     this.setStatus('cancelled');
     this.tui.requestRender();
-    this.scheduleDeferredDrain();
+    this.deferredCommandQueue.scheduleDrain();
   }
 
   // --- Session commands ---
@@ -1018,7 +964,7 @@ export class ChatApp {
     await this.runtime.start();
     this.transcript.reset();
     this.subAgents.previews.clear();
-    this.deferredCommandQueue.length = 0;
+    this.deferredCommandQueue.clear();
     this.contextText = '';
     this.roundtrips.clear();
     this.setStatus('new session');
@@ -1088,7 +1034,7 @@ export class ChatApp {
       }
     }
     this.renderTranscript();
-    this.scheduleDeferredDrain();
+    this.deferredCommandQueue.scheduleDrain();
   }
 
   // --- Rendering ---

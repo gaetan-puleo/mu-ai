@@ -30,6 +30,7 @@ export interface SchedulerTask {
 
 export type SchedulerEvent =
   | { type: 'task_started'; task: SchedulerTask; at: number }
+  | { type: 'task_completed'; task: SchedulerTask; at: number; durationMs: number }
   | { type: 'task_failed'; task: SchedulerTask; at: number; error: string };
 
 export interface SchedulerOptions {
@@ -75,6 +76,35 @@ function scheduleTask(
   return new Cron(task.cron, { timezone: task.timezone, name: task.id }, () => {
     const at = Date.now();
     onEvent?.({ type: 'task_started', task, at });
+
+    // Subscribe to the runtime state machine so we can emit `task_completed`
+    // after the launched turn drains. `seenRunning` filters out the publish
+    // race: state may still be `idle` immediately after publish, only flipping
+    // to `running` once the runtime picks the message off the queue.
+    //
+    // Caveat: if the runtime is already serving a chat turn when the task
+    // fires, our `user_message` is queued; the `task_completed` emission
+    // will correlate with whatever turn ends NEXT, which may be the chat
+    // (not our cron task). Tracking which message produced which idle would
+    // need a message-id correlator on the bus; for now this is a best-effort
+    // signal, sufficient for the "task finished" UI on the companion.
+    let seenRunning = false;
+    let unsubscribe: (() => void) | undefined;
+    unsubscribe = bus.subscribe((event: CoreEvent) => {
+      if (event.type !== 'state_change') return;
+      if (event.state === 'running') {
+        seenRunning = true;
+        return;
+      }
+      if (!seenRunning) return;
+      if (event.state === 'idle' || event.state === 'stopped') {
+        const completed = Date.now();
+        unsubscribe?.();
+        unsubscribe = undefined;
+        onEvent?.({ type: 'task_completed', task, at: completed, durationMs: completed - at });
+      }
+    });
+
     try {
       // Tag scheduled prompts with `source: 'cron'` so the permission hook
       // (or anything subscribed to the bus) can refuse risky auto-actions
@@ -85,6 +115,8 @@ function scheduleTask(
         source: 'cron',
       });
     } catch (err) {
+      unsubscribe?.();
+      unsubscribe = undefined;
       onEvent?.({
         type: 'task_failed',
         task,

@@ -1,6 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { createXdgPaths } from 'mu-harness';
+import { createHistoryStore, createJsonStore, createXdgPaths } from 'mu-harness';
 
 const paths = createXdgPaths('mu');
 
@@ -18,34 +16,13 @@ export interface CodingAgentState {
   activeAgent?: string;
 }
 
-function loadJson<T>(path: string, validate: (obj: Record<string, unknown>) => T): T {
-  if (!existsSync(path)) return validate({});
-  try {
-    const raw = JSON.parse(readFileSync(path, 'utf-8')) as unknown;
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return validate({});
-    return validate(raw as Record<string, unknown>);
-  } catch (err) {
+const configStore = createJsonStore<CodingAgentConfig>({
+  path: paths.configFile,
+  onParseError: (path, err) => {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`[coding-agent] failed to parse ${path}: ${msg}\n`);
-    return validate({});
-  }
-}
-
-function saveJson(path: string, data: unknown): void {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`, 'utf-8');
-}
-
-export function getConfigPath(): string {
-  return paths.configFile;
-}
-
-export function getStatePath(): string {
-  return paths.stateFile;
-}
-
-export function loadConfig(): CodingAgentConfig {
-  return loadJson(getConfigPath(), (obj) => {
+  },
+  validate: (obj) => {
     const out: CodingAgentConfig = {};
     if (typeof obj.kind === 'string') out.kind = obj.kind;
     if (typeof obj.baseUrl === 'string') out.baseUrl = obj.baseUrl;
@@ -54,54 +31,50 @@ export function loadConfig(): CodingAgentConfig {
     }
     if (typeof obj.provider === 'string') out.provider = obj.provider;
     return out;
-  });
-}
+  },
+});
 
-export function loadState(): CodingAgentState {
-  return loadJson(getStatePath(), (obj) => {
+const stateStore = createJsonStore<CodingAgentState>({
+  path: paths.stateFile,
+  onParseError: (path, err) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[coding-agent] failed to parse ${path}: ${msg}\n`);
+  },
+  validate: (obj) => {
     const out: CodingAgentState = {};
     if (typeof obj.model === 'string') out.model = obj.model;
     if (typeof obj.thinkingVisible === 'boolean') out.thinkingVisible = obj.thinkingVisible;
     if (typeof obj.activeAgent === 'string') out.activeAgent = obj.activeAgent;
     return out;
-  });
+  },
+});
+
+const historyStore = createHistoryStore({ path: paths.historyFile });
+
+export function getConfigPath(): string {
+  return paths.configFile;
 }
 
-export function saveState(state: CodingAgentState): void {
-  saveJson(getStatePath(), state);
+export function loadConfig(): CodingAgentConfig {
+  return configStore.load();
 }
 
 export function saveConfig(config: CodingAgentConfig): void {
-  saveJson(getConfigPath(), config);
+  configStore.save(config);
 }
 
-const MAX_HISTORY = 500;
-
-export function getHistoryPath(): string {
-  return paths.historyFile;
+export function loadState(): CodingAgentState {
+  return stateStore.load();
 }
 
-function readHistoryRaw(): string[] {
-  const path = getHistoryPath();
-  if (!existsSync(path)) return [];
-  try {
-    const raw = JSON.parse(readFileSync(path, 'utf-8')) as unknown;
-    if (!Array.isArray(raw)) return [];
-    return raw.filter((e): e is string => typeof e === 'string');
-  } catch {
-    return [];
-  }
+export function saveState(state: CodingAgentState): void {
+  stateStore.save(state);
 }
 
 export function loadHistory(): string[] {
-  return readHistoryRaw().slice(-MAX_HISTORY);
+  return historyStore.load();
 }
 
 export function appendHistory(entry: string): void {
-  const history = readHistoryRaw();
-  if (history[history.length - 1] === entry) return;
-  history.push(entry);
-  try {
-    saveJson(getHistoryPath(), history);
-  } catch { /* ignore */ }
+  historyStore.append(entry);
 }

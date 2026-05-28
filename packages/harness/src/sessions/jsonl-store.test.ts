@@ -1,6 +1,6 @@
 import { expect } from '@std/expect';
 import { afterEach, beforeEach, describe, it } from '@std/testing/bdd';
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createJsonlSessionStore } from './jsonl-store';
@@ -67,6 +67,42 @@ describe('jsonl-store readMessages', () => {
     expect(JSON.parse(lines[0])).toEqual({ role: 'user', content: 'hi' });
     expect(JSON.parse(lines[1])).toEqual({ role: 'assistant', content: 'hello' });
     expect(raw.endsWith('\n')).toBe(true);
+  });
+
+  it('persistFollowingBus rebinds when the store emits a `created` event', () => {
+    const store = createJsonlSessionStore(dir);
+    const first = store.create({ title: 'first' });
+    const bus = {
+      listeners: new Set<(e: unknown) => void>(),
+      subscribe(fn: (e: unknown) => void) {
+        this.listeners.add(fn);
+        return () => this.listeners.delete(fn);
+      },
+      publish(e: unknown) {
+        for (const fn of this.listeners) fn(e);
+      },
+    };
+    // deno-lint-ignore no-explicit-any
+    const unsubscribe = store.persistFollowingBus(bus as any, first.id);
+
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'in first' } });
+
+    const second = store.create({ title: 'second' });
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'in second' } });
+
+    unsubscribe();
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'dropped' } });
+    const third = store.create({ title: 'third' });
+    bus.publish({ type: 'user_message', message: { role: 'user', content: 'also dropped' } });
+
+    const firstLines = readFileSync(join(dir, `${first.id}.jsonl`), 'utf-8').split('\n').filter(Boolean);
+    const secondLines = readFileSync(join(dir, `${second.id}.jsonl`), 'utf-8').split('\n').filter(Boolean);
+    expect(firstLines.length).toBe(1);
+    expect(JSON.parse(firstLines[0])).toEqual({ role: 'user', content: 'in first' });
+    expect(secondLines.length).toBe(1);
+    expect(JSON.parse(secondLines[0])).toEqual({ role: 'user', content: 'in second' });
+    // `third` was created after unsubscribe and never received a write.
+    expect(existsSync(join(dir, `${third.id}.jsonl`))).toBe(false);
   });
 });
 

@@ -11,9 +11,9 @@
  */
 export {
   type BaseChatLine,
+  type ToolCallFormatter,
   TranscriptModel,
   type TranscriptOptions,
-  type ToolCallFormatter,
   type UserChatLine,
 } from './transcript';
 export { buildStatusParts, formatTokens, spinnerFrame, statusFromEvent, type StatusParts } from './status';
@@ -24,3 +24,4 @@ export {
   SubAgentRunStore,
   type SubAgentTranscriptEntry,
 } from './subAgentRun';
+export { createInputHistory, type CreateInputHistoryOptions, type InputHistory } from './input-history';

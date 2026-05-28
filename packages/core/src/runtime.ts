@@ -38,6 +38,12 @@ export type CoreEvent =
   | { type: 'tool_call'; call: ToolCall }
   | { type: 'tool_result'; message: ToolMessage }
   | { type: 'context_update'; context: LLMResponseContext }
+  /**
+   * Runtime state transitioned. Emitted on every `idle ↔ running` flip and
+   * on `* → stopped`. Hosts use this to drive turn-lifecycle UI without
+   * polling `runtime.state()` (e.g. arya's WS `turn_end` frame).
+   */
+  | { type: 'state_change'; state: RuntimeState; previous: RuntimeState }
   | { type: 'error'; error: unknown };
 
 export interface Runtime {
@@ -128,6 +134,17 @@ export function createRuntime(config: RuntimeConfig): Runtime {
   let unsubscribe: Unsubscribe | undefined;
   let processing = false;
   let startPromise: Promise<void> | undefined;
+
+  /**
+   * Single writer for state transitions. Skips no-op transitions so a
+   * `running → running` reassignment doesn't publish a phantom event.
+   */
+  const setState = (next: RuntimeState): void => {
+    if (currentState === next) return;
+    const previous = currentState;
+    currentState = next;
+    bus.publish({ type: 'state_change', state: next, previous });
+  };
   /**
    * Aborted whenever `stop()` is invoked (or when a turn ends, to free the
    * signal for the next one). Tools observe this via `ToolContext.signal` so
@@ -370,12 +387,12 @@ export function createRuntime(config: RuntimeConfig): Runtime {
       }
     }
     if (!next) {
-      currentState = 'idle';
+      setState('idle');
       return;
     }
 
     processing = true;
-    currentState = 'running';
+    setState('running');
     if (nextSource) {
       emitQueueUpdate();
       bus.publish({ type: 'queued_message', queue: nextSource, message: next });
@@ -462,7 +479,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
         return startPromise;
       }
 
-      currentState = 'idle';
+      setState('idle');
       startPromise = (async () => {
         try {
           await callLifecycleHook(callOnStart);
@@ -493,7 +510,7 @@ export function createRuntime(config: RuntimeConfig): Runtime {
     },
 
     async stop() {
-      currentState = 'stopped';
+      setState('stopped');
       // Surface the stop to in-flight tools BEFORE we tear down listeners so
       // any subprocess/`fetch` can wind down on the same tick. Aborting after
       // the stream break would leave them blocked on whatever they were doing.

@@ -33,6 +33,7 @@ import type { createPermissionHook } from './permissions/hook';
 import { loadPlugins } from './plugin-loader';
 import { loadSkills } from './skills/loader';
 import { formatSkillsForSystemPrompt } from './skills/system-prompt';
+import { createSubAgentDispatcher, type DispatchSubAgentFn } from './sub-agents/dispatcher';
 import { loadSubAgents } from './sub-agents/loader';
 import { filterToolsByPrimary, pickPrimaryAgent } from './sub-agents/primary';
 import type { SubAgent } from './sub-agents/types';
@@ -95,6 +96,11 @@ export interface BootstrapResult {
   systemPrompt: () => string | undefined;
   /** Pre-built tool hooks (permission gate). Pass straight into `createRuntime({ hooks })`. */
   hooks: { beforeTool: ReturnType<typeof createPermissionHook> };
+  /**
+   * Dispatch a sub-agent by name. Pre-wired with `tools`, `plugins`, and
+   * the approval queue so hosts call it directly from their UI layer.
+   */
+  dispatchSubAgent: DispatchSubAgentFn;
   /**
    * Per-turn tool filter. In dynamic mode this filters by the active primary
    * agent's allow-list so disallowed tools are entirely hidden from the LLM
@@ -170,6 +176,13 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
     ? (merged) => filterToolsByPrimary(merged, resolveActivePrimary())
     : undefined;
 
+  const dispatchSubAgent = createSubAgentDispatcher({
+    subAgents,
+    tools,
+    plugins,
+    approvalQueue,
+  });
+
   return {
     bus,
     store,
@@ -181,6 +194,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
     plugins,
     systemPrompt,
     hooks: { beforeTool: permissionHook },
+    dispatchSubAgent,
     toolFilter,
   };
 }

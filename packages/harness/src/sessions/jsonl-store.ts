@@ -18,13 +18,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import type {
-  CoreEvent,
-  Message,
-  Session,
-  SessionInit,
-  SessionStoreEvent,
-} from 'mu-core';
+import type { CoreEvent, Message, Session, SessionInit, SessionStoreEvent } from 'mu-core';
 import type { PersistedSessionStore, SessionSummary, StoreChangeKind } from './types';
 
 interface Meta {
@@ -287,6 +281,19 @@ export function createJsonlSessionStore(dir: string): PersistedSessionStore {
           console.error(`[mu-harness/sessions] failed to persist ${sessionId}:`, err);
         }
       });
+    },
+
+    persistFollowingBus(bus, initialSessionId) {
+      let busUnsubscribe = store.persistOnBus(bus, initialSessionId);
+      const storeUnsubscribe = store.subscribe((event) => {
+        if (event.type !== 'created') return;
+        busUnsubscribe();
+        busUnsubscribe = store.persistOnBus(bus, event.session.id);
+      });
+      return () => {
+        busUnsubscribe();
+        storeUnsubscribe();
+      };
     },
   };
 

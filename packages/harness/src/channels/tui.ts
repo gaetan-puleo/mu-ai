@@ -1,4 +1,5 @@
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
+import { isCommandLine } from '../commands/parser';
 import type { Channel, ChannelContext, ChannelOutEvent } from './types';
 
 type Writer = (chunk: string) => void;
@@ -59,7 +60,7 @@ export function createTuiChannel(options: TuiChannelOptions = {}): Channel {
         printPrompt();
         continue;
       }
-      if (line.startsWith('/')) {
+      if (isCommandLine(line)) {
         await ctx.deliver({ type: 'command', input: line });
       } else {
         await ctx.deliver({ type: 'user_input', text: line });

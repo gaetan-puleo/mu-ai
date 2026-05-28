@@ -1,16 +1,18 @@
 import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { type Command, type CommandRegistry, createCommandRegistry, type RoundtripStore } from 'mu-harness';
 import { OutputBlock } from '../components/OutputBlock';
-import type { CommandPaletteItem } from '../components/CommandPalette';
 import type { Transcript } from '../Transcript';
-import type { RoundtripStore } from 'mu-harness';
 import type { Theme } from '../theme';
 
-export interface ChatCommand extends CommandPaletteItem {
-  run: (args: string) => void;
-  deferWhenBusy?: boolean;
-}
+/**
+ * Coding-agent commands take no context object — they close over the host
+ * methods at registration time. Aliased here so callers can spell out the
+ * intent without re-typing the generic.
+ */
+export type ChatCommand = Command<void>;
+export type ChatCommandRegistry = CommandRegistry<void>;
 
 export interface CommandsHost {
   startNewSession: () => void;
@@ -21,9 +23,14 @@ export interface CommandsHost {
   stopAndExit: (code: number) => void;
 }
 
-/** The fixed slash-command set. Order here drives the palette layout. */
-export function createCommands(host: CommandsHost): ChatCommand[] {
-  return [
+/**
+ * Build the agent's built-in slash commands. Returns a fresh registry so
+ * plugins / sub-agents can register additional commands without touching the
+ * built-in set.
+ */
+export function buildCommandRegistry(host: CommandsHost): ChatCommandRegistry {
+  const registry = createCommandRegistry<void>();
+  const cmds: ChatCommand[] = [
     { name: 'new', description: 'start a new session', run: () => host.startNewSession() },
     { name: 'model', description: 'switch the active model', run: () => host.openModelModal() },
     {
@@ -46,12 +53,19 @@ export function createCommands(host: CommandsHost): ChatCommand[] {
     },
     { name: 'quit', description: 'exit the agent', run: () => host.stopAndExit(0) },
   ];
+  for (const cmd of cmds) registry.register(cmd);
+  return registry;
 }
 
-export function filterCommands(items: ChatCommand[], value: string, dismissedFor: string): ChatCommand[] {
+/**
+ * Palette filter — limited to typed prefixes (no space yet) so a
+ * "/model gpt-4" input has already routed to runCommand and isn't shown
+ * in the dropdown.
+ */
+export function filterCommands(registry: ChatCommandRegistry, value: string, dismissedFor: string): ChatCommand[] {
   if (!value.startsWith('/') || value.includes(' ') || value === dismissedFor) return [];
   const query = value.slice(1).toLowerCase();
-  return items.filter((command) => command.name.toLowerCase().startsWith(query));
+  return registry.list().filter((command) => command.name.toLowerCase().startsWith(query));
 }
 
 /** Run a shell command, append a live OutputBlock to the transcript, and refresh. */

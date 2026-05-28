@@ -1,26 +1,19 @@
-export {
-  type AgentRuntime,
-  type AgentRuntimeConfig,
-  createAgentRuntime,
-  type Model,
-} from './agent-runtime';
-export {
-  type Roundtrip,
-  type RoundtripListener,
-  RoundtripStore,
-} from './roundtrips';
+export { type AgentRuntime, type AgentRuntimeConfig, createAgentRuntime, type Model } from './agent-runtime';
+export { type Roundtrip, type RoundtripListener, RoundtripStore } from './roundtrips';
 export { bootstrap, type BootstrapOptions, type BootstrapResult } from './bootstrap';
 
 // ── paths ────────────────────────────────────────────────────────────
 export { createXdgPaths, type XdgPaths } from './paths/xdg';
+export { createJsonStore, type CreateJsonStoreOptions, type JsonStore } from './paths/json-store';
+export { createHistoryStore, type CreateHistoryStoreOptions, type HistoryStore } from './paths/history';
 
 // ── approvals ────────────────────────────────────────────────────────
 export {
   type ApprovalDecision,
   type ApprovalQueue,
+  approvalQueueToPrompt,
   type ApprovalRequest,
   type ApprovalRequestMeta,
-  approvalQueueToPrompt,
   createApprovalQueue,
 } from './approvals/queue';
 
@@ -52,17 +45,45 @@ export {
   formatSubAgentReplyForParent,
   type SubAgentToolDeps,
 } from './sub-agents/tool';
+export {
+  createSubAgentDispatcher,
+  type CreateSubAgentDispatcherOptions,
+  type DispatchSubAgentFn,
+  type DispatchSubAgentResult,
+} from './sub-agents/dispatcher';
 export { filterToolsByPrimary, pickPrimaryAgent } from './sub-agents/primary';
+export {
+  createPrimaryAgentState,
+  type PrimaryAgentState,
+  type PrimaryAgentStateOptions,
+} from './sub-agents/primary-state';
+export {
+  type AgentRouting,
+  type NamedAgent,
+  parseAgentRouting,
+  type ParseAgentRoutingOptions,
+} from './sub-agents/routing';
 export type { SubAgent } from './sub-agents/types';
 
 // ── mentions ─────────────────────────────────────────────────────────
 export { createMentionEngine, type MentionEngine } from './mentions/engine';
-export type {
-  ExpandResult,
-  MentionResolver,
-  MentionResult,
-  ResolvedMention,
-} from './mentions/types';
+export type { ExpandResult, MentionResolver, MentionResult, ResolvedMention } from './mentions/types';
+
+// ── commands ─────────────────────────────────────────────────────────
+export { isCommandLine, parseCommandLine, type ParsedCommand } from './commands/parser';
+export {
+  type Command,
+  type CommandMatch,
+  type CommandRegistry,
+  type CommandResult,
+  createCommandRegistry,
+} from './commands/registry';
+export {
+  createDeferredCommandQueue,
+  type CreateDeferredCommandQueueOptions,
+  type DeferredCommandQueue,
+} from './commands/deferred-queue';
+export { createAgentsCommand, createHelpCommand, createSessionsCommand } from './commands/defaults';
 
 // ── channels ─────────────────────────────────────────────────────────
 export { type ChannelInListener, type ChannelManager, createChannelManager } from './channels/manager';
@@ -71,6 +92,7 @@ export type { Channel, ChannelContext, ChannelInEvent, ChannelKind, ChannelOutEv
 
 // ── sessions ─────────────────────────────────────────────────────────
 export { createJsonlSessionStore } from './sessions/jsonl-store';
+export { createResumingStore } from './sessions/resuming-store';
 export type { PersistedSessionStore, SessionSummary, StoreChangeKind } from './sessions/types';
 
 // ── scheduler ────────────────────────────────────────────────────────
@@ -82,17 +104,25 @@ export {
 } from './scheduler/plugin';
 
 // ── plugins (install/uninstall) ──────────────────────────────────────
+export { installLocalPluginFile, installNpmPlugin, PLUGIN_TRUST_WARNING } from './plugins/installer';
 export {
-  installLocalPluginFile,
-  installNpmPlugin,
-  PLUGIN_TRUST_WARNING,
-} from './plugins/installer';
+  installAndRegister,
+  type InstallRegisterOptions,
+  type InstallRegisterResult,
+  uninstallAndUnregister,
+  type UninstallRegisterOptions,
+  type UninstallRegisterResult,
+} from './plugins/install-register';
+export { type PickedProvider, type PickProviderOptions, pickProviderPlugin } from './plugins/provider-selection';
 
 // ── base TUI primitives ──────────────────────────────────────────────
 export {
   type BaseChatLine,
   buildStatusParts,
+  createInputHistory,
+  type CreateInputHistoryOptions,
   formatTokens,
+  type InputHistory,
   spinnerFrame,
   statusFromEvent,
   type StatusParts,

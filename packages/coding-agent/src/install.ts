@@ -1,40 +1,27 @@
 /**
- * Thin wrapper around harness install/uninstall helpers. Records npm specs
- * into coding-agent's config so they're auto-loaded on next start.
+ * Thin host bindings for harness's install/uninstall registry helpers.
+ * The actual install + config-write logic lives in mu-harness; this file
+ * just supplies the coding-agent `paths` + config read/write.
  */
-import { createXdgPaths, installLocalPluginFile, installNpmPlugin } from 'mu-harness';
+import { createXdgPaths, installAndRegister, uninstallAndUnregister } from 'mu-harness';
 import { loadConfig, saveConfig } from './config';
 
+const readPlugins = (): string[] => loadConfig().plugins ?? [];
+
+const writePlugins = (plugins: string[]): void => {
+  const config = loadConfig();
+  config.plugins = plugins;
+  saveConfig(config);
+};
+
 export async function install(spec: string): Promise<void> {
-  if (spec.startsWith('npm:') || spec.startsWith('@')) {
-    await installNpmPlugin(spec);
-    const config = loadConfig();
-    const plugins = config.plugins ?? [];
-    if (plugins.includes(spec)) {
-      process.stdout.write(`[mu] ${spec} is already installed\n`);
-      return;
-    }
-    config.plugins = [...plugins, spec];
-    saveConfig(config);
-    process.stdout.write(`[mu] installed ${spec}\n`);
-    return;
-  }
   const paths = createXdgPaths('mu');
-  const dest = installLocalPluginFile(spec, paths.pluginsDir);
-  process.stdout.write(`[mu] installed ${dest}\n`);
+  const result = await installAndRegister({ spec, pluginsDir: paths.pluginsDir, readPlugins, writePlugins });
+  process.stdout.write(`[mu] ${result.message}\n`);
 }
 
 export function uninstall(spec: string): void {
-  if (!spec.startsWith('npm:') && !spec.startsWith('@')) {
-    throw new Error(`uninstall expects an npm:<spec> or @-scoped spec; got ${spec}`);
-  }
-  const config = loadConfig();
-  const plugins = config.plugins ?? [];
-  if (!plugins.includes(spec)) {
-    process.stderr.write(`[mu] ${spec} is not installed\n`);
-    return;
-  }
-  config.plugins = plugins.filter((p) => p !== spec);
-  saveConfig(config);
-  process.stdout.write(`[mu] uninstalled ${spec}\n`);
+  const result = uninstallAndUnregister({ spec, readPlugins, writePlugins });
+  const stream = result.removed ? process.stdout : process.stderr;
+  stream.write(`[mu] ${result.message}\n`);
 }
