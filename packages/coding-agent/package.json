@@ -1,10 +1,10 @@
 {
-  "name": "coding-agent",
+  "name": "mu-coding",
   "version": "0.16.0",
-  "description": "Terminal coding assistant: mu-core + mu-harness + mu-tui over a llama-swap backend",
+  "description": "Minimal terminal AI assistant for local models",
   "type": "module",
   "bin": {
-    "coding-agent": "./bin/coding-agent.ts"
+    "mu": "./bin/coding-agent.ts"
   },
   "scripts": {
     "dev": "NODE_ENV=development deno run -A --sloppy-imports bin/coding-agent.ts",

@@ -5,10 +5,6 @@
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./components": "./src/components/index.ts"
-  },
-  "scripts": {
-    "test": "deno test -A"
+    ".": "./src/index.ts"
   }
 }
