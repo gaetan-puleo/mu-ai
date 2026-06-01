@@ -1,6 +1,7 @@
 {
   "name": "mu-local-provider",
-  "version": "0.16.0",
+  "version": "0.16.2",
+  "private": true,
   "description": "llama-swap provider for the mu runtime",
   "type": "module",
   "main": "./src/index.ts",

@@ -91,6 +91,29 @@ if (dryRun) {
   run('deno run -A --sloppy-imports scripts/build_npm.ts');
 }
 
+function assertPublishable(name: string, npmDir: string): void {
+  const manifestPath = resolve(npmDir, 'package.json');
+  let manifest: Record<string, unknown>;
+  try {
+    manifest = readJson(manifestPath);
+  } catch {
+    throw new Error(`${name}: built artifact missing at ${manifestPath} — run the build first`);
+  }
+  if (manifest.private) {
+    throw new Error(`${name}: built artifact is marked private — never publish a source package.json`);
+  }
+  for (const field of ['dependencies', 'devDependencies', 'peerDependencies']) {
+    const deps = (manifest[field] ?? {}) as Record<string, string>;
+    for (const [dep, range] of Object.entries(deps)) {
+      if (String(range).startsWith('workspace:')) {
+        throw new Error(
+          `${name}: artifact still has a workspace: dependency (${dep}) — you are about to publish the SOURCE package, not the built one`,
+        );
+      }
+    }
+  }
+}
+
 console.log('\nPublishing…');
 for (const { name, dir } of PUBLISH) {
   const npmDir = resolve(PACKAGES_DIR, dir, 'npm');
@@ -98,6 +121,7 @@ for (const { name, dir } of PUBLISH) {
   if (dryRun) {
     console.log(`  (would publish) ${name}@${nextVersion}  [${cmd}]  in ${npmDir}`);
   } else {
+    assertPublishable(name, npmDir);
     console.log(`\n  Publishing ${name}@${nextVersion}…`);
     run(cmd, npmDir);
   }
@@ -109,7 +133,11 @@ if (dryRun) {
 } else {
   console.log(`\nCreating git tag ${gitTag}…`);
   run('git add -A');
-  run(`git commit -m "release: ${gitTag}"`);
+  try {
+    run(`git commit -m "release: ${gitTag}"`);
+  } catch {
+    console.log('  (nothing to commit — tagging current HEAD)');
+  }
   run(`git tag ${gitTag}`);
   console.log('\nDone! Run `git push && git push --tags` to push the release.');
 }

@@ -12,7 +12,7 @@
     "fmt:check": "deno fmt --check",
     "build:npm": "deno run -A --sloppy-imports scripts/build_npm.ts",
     "publish": "deno run -A --sloppy-imports scripts/publish.ts",
-    "compile": "deno compile -A --sloppy-imports --output mu packages/coding-agent/bin/coding-agent.ts"
+    "compile": "deno run -A --sloppy-imports scripts/compile.ts"
   },
   "imports": {
     "@std/assert": "jsr:@std/assert@^1.0.15",

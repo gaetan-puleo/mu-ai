@@ -1,6 +1,7 @@
 {
   "name": "mu-core",
-  "version": "0.16.0",
+  "version": "0.16.2",
+  "private": true,
   "description": "Standalone multimodal agentic loop: content, messages, tools, provider interface, createAgent",
   "type": "module",
   "main": "./src/index.ts",
