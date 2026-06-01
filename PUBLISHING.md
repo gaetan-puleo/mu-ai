@@ -12,7 +12,20 @@ from a **source** directory is refused by npm. Only the generated `packages/*/np
 artifacts are publishable — and `scripts/publish.ts` additionally refuses to publish
 anything that still carries a `workspace:` dependency.
 
-## Release
+## Release — option A: CI on tag (recommended, no OTP)
+
+`.github/workflows/release.yml` publishes both packages and attaches the cross-OS
+binaries whenever a `v*` tag is pushed. One-time setup: create an npm **automation**
+token (`npm token create --read-only=false`, or via npmjs.com) — automation tokens
+bypass 2FA — and add it as the repo secret `NPM_TOKEN`. Then:
+
+```bash
+deno task publish <version> --dry-run   # optional: bump versions + sanity-check
+# commit the version bump, then:
+git tag vX.Y.Z && git push --tags        # CI builds, publishes, and releases binaries
+```
+
+## Release — option B: locally (needs interactive OTP)
 
 ```bash
 deno task publish patch         # or minor | major | x.y.z
@@ -24,7 +37,8 @@ This bumps all workspace versions in sync, builds both artifacts, publishes
 `mu-core` + `mu-coding` from their `npm/` dirs, then commits + tags `vX.Y.Z`.
 
 > Run it from an interactive terminal so npm can prompt for the OTP. A headless run
-> (e.g. an agent/CI without an automation token) fails with `EOTP`.
+> (e.g. an agent/CI without an automation token) fails with `EOTP` — that is exactly
+> why option A exists.
 
 ## Build / compile without publishing
 

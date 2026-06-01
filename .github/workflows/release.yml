@@ -1,0 +1,55 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Verify the tag matches the package version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver="$(node -p "require('./packages/core/package.json').version")"
+          if [ "$tag" != "$ver" ]; then
+            echo "tag v$tag does not match package version $ver"; exit 1
+          fi
+      - name: Build npm artifacts
+        run: deno task build:npm
+      - name: Publish mu-core
+        run: npm publish --access public
+        working-directory: packages/core/npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish mu-coding
+        run: npm publish --access public
+        working-directory: packages/coding-agent/npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Cross-compile standalone binaries
+        run: deno task compile
+      - name: Attach binaries to the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/mu-*
