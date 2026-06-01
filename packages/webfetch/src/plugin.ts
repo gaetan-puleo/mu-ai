@@ -1,32 +1,19 @@
-/**
- * mu-webfetch — fetches the contents of a URL and returns it as markdown.
- * Adapted from opencode's `webfetch` tool
- * (sst/opencode @ dev, packages/opencode/src/tool/webfetch.ts).
- *
- * Differences vs. opencode:
- *  - mu's Tool has no native attachment channel, so image responses
- *    return a `data:<mime>;base64,...` URL inline as text.
- *  - Cloudflare retry uses `User-Agent: mu` (vs. `opencode`).
- */
-
 import { BlockList, isIP, isIPv4, isIPv6 } from 'node:net';
 import { lookup } from 'node:dns/promises';
-import { formatError, type Plugin, type Tool, type ToolContext } from 'mu-core';
+import { type ContentPart, text, type Tool } from 'mu-core';
+import { definePlugin } from 'mu-harness';
 import TurndownService from 'turndown';
 
-const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5 MB
-const DEFAULT_TIMEOUT_MS = 30_000; // 30 s
-const MAX_TIMEOUT_MS = 120_000; // 2 min
-const MIN_TIMEOUT_MS = 100; // below this an AbortController can fire before fetch starts
+const formatError = (err: unknown): string => `Error: ${err instanceof Error ? err.message : String(err)}`;
+
+const MAX_RESPONSE_SIZE = 5 * 1024 * 1024;
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_TIMEOUT_MS = 120_000;
+const MIN_TIMEOUT_MS = 100;
 const MAX_REDIRECTS = 5;
 
-// SSRF guard: any IP literal or DNS-resolved address must NOT fall in these
-// ranges. The validator runs before every fetch and again on each redirect
-// target. Known limitation: DNS rebinding (TOCTOU between lookup and fetch)
-// is not mitigated; documented and accepted for this PR.
 const PRIVATE_BLOCKLIST = (() => {
   const bl = new BlockList();
-  // IPv4 — loopback, link-local (incl. cloud metadata 169.254.169.254), RFC1918, CGNAT, broadcast.
   bl.addSubnet('0.0.0.0', 8, 'ipv4');
   bl.addSubnet('10.0.0.0', 8, 'ipv4');
   bl.addSubnet('100.64.0.0', 10, 'ipv4');
@@ -35,7 +22,6 @@ const PRIVATE_BLOCKLIST = (() => {
   bl.addSubnet('172.16.0.0', 12, 'ipv4');
   bl.addSubnet('192.168.0.0', 16, 'ipv4');
   bl.addAddress('255.255.255.255', 'ipv4');
-  // IPv6 — unspecified, loopback, unique-local, link-local, IPv4-mapped covered separately.
   bl.addAddress('::', 'ipv6');
   bl.addAddress('::1', 'ipv6');
   bl.addSubnet('fc00::', 7, 'ipv6');
@@ -52,7 +38,6 @@ function stripZoneId(addr: string): string {
   return i === -1 ? addr : addr.slice(0, i);
 }
 
-// IPv4-mapped IPv6 (::ffff:a.b.c.d) — extract the embedded IPv4 so the v4 blocklist applies.
 function mappedIPv4(addr: string): string | undefined {
   const m = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(addr);
   return m ? m[1] : undefined;
@@ -111,8 +96,7 @@ async function assertSafeUrl(target: string): Promise<UrlCheck> {
 const UA_BROWSER =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36';
 const UA_RETRY = 'mu';
-const ACCEPT_HEADER =
-  'text/markdown;q=1.0, text/x-markdown;q=0.9, text/plain;q=0.8, text/html;q=0.7, */*;q=0.1';
+const ACCEPT_HEADER = 'text/markdown;q=1.0, text/x-markdown;q=0.9, text/plain;q=0.8, text/html;q=0.7, */*;q=0.1';
 
 const WEBFETCH_SYSTEM_PROMPT = [
   '## webfetch',
@@ -122,37 +106,26 @@ const WEBFETCH_SYSTEM_PROMPT = [
   '- Image URLs return `data:<mime>;base64,…` — fetch sparingly; large images bloat context.',
 ].join('\n');
 
-// Extract `charset=...` from a Content-Type header value. Returns the raw,
-// possibly-quoted token (e.g. `utf-8`, `"GB2312"`) or undefined.
 function parseCharsetFromContentType(contentType: string): string | undefined {
   const m = /charset\s*=\s*("([^"]+)"|'([^']+)'|([^;\s]+))/i.exec(contentType);
   if (!m) return undefined;
   return (m[2] ?? m[3] ?? m[4])?.trim();
 }
 
-// Sniff `<meta charset="...">` or `<meta http-equiv="Content-Type" content="...; charset=...">`
-// from the first ~1024 bytes of an HTML response. We decode as ASCII (safe for
-// the meta tag itself) so we don't need a working decoder before we know the
-// charset.
 function sniffCharsetFromHtmlMeta(buf: ArrayBuffer): string | undefined {
   const head = new TextDecoder('latin1').decode(new Uint8Array(buf, 0, Math.min(buf.byteLength, 1024)));
-  // <meta charset="...">
   const direct = /<meta[^>]+charset\s*=\s*["']?([a-z0-9_:.\-]+)/i.exec(head);
   if (direct?.[1]) return direct[1].trim();
-  // <meta http-equiv="Content-Type" content="...; charset=...">
   const httpEquiv = /<meta[^>]+http-equiv\s*=\s*["']?content-type["']?[^>]+content\s*=\s*["']([^"']+)["']/i.exec(head);
   if (httpEquiv?.[1]) return parseCharsetFromContentType(httpEquiv[1]);
   return undefined;
 }
 
-// TextDecoder accepts many labels (utf-8, utf8, UTF_8, etc.) but throws on
-// unknown ones. Try the candidate, then fall back to UTF-8.
 function decodeWithCharset(buf: ArrayBuffer, label: string | undefined): string {
   if (label) {
     try {
       return new TextDecoder(label).decode(buf);
     } catch {
-      // Unknown label — fall through to UTF-8.
     }
   }
   return new TextDecoder('utf-8').decode(buf);
@@ -202,8 +175,6 @@ async function fetchWithCloudflareRetry(
   };
   const attempt = async (h: Record<string, string>): Promise<FetchAttempt> => {
     try {
-      // `redirect: 'manual'` so we can validate each Location target against the SSRF blocklist
-      // before following. Without this, a public URL could 302 to http://169.254.169.254/.
       return {
         ok: true,
         response: await fetch(url, { signal: fetchSignal, headers: h, redirect: 'manual' }),
@@ -223,7 +194,6 @@ async function fetchWithCloudflareRetry(
   const first = await attempt(headers);
   if (!first.ok) return first;
   if (first.response.status === 403 && first.response.headers.get('cf-mitigated') === 'challenge') {
-    // Drain the prior body so undici/Bun release the socket before the retry.
     await first.response.body?.cancel().catch(() => {});
     return attempt({ ...headers, 'User-Agent': UA_RETRY });
   }
@@ -265,7 +235,7 @@ async function readBoundedBuffer(response: Response): Promise<BoundedRead> {
   return { ok: true, buf: buf.buffer };
 }
 
-async function runWebFetch(args: WebFetchArgs, ctx?: ToolContext): Promise<string> {
+async function runWebFetch(args: WebFetchArgs, ctx?: { signal?: AbortSignal }): Promise<string> {
   const url = typeof args.url === 'string' ? args.url : '';
   if (!url) return formatError('url is required');
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
@@ -275,10 +245,6 @@ async function runWebFetch(args: WebFetchArgs, ctx?: ToolContext): Promise<strin
   const timeoutPick = pickTimeoutMs(args.timeout);
   if (!timeoutPick.ok) return timeoutPick.error;
   const timeoutMs = timeoutPick.ms;
-  // Combine the per-turn runtime signal (if any) with this tool's own timeout
-  // so either source can cancel the in-flight fetch. Without this, a Ctrl-C
-  // from the host hangs until the timeout fires — the precise failure mode
-  // finding #214 calls out.
   const controller = new AbortController();
   const timerId = setTimeout(() => controller.abort(new Error('Request timed out')), timeoutMs);
   const hostSignal = ctx?.signal;
@@ -324,7 +290,6 @@ async function runWebFetch(args: WebFetchArgs, ctx?: ToolContext): Promise<strin
       }
 
       if (!response.ok) {
-        // Drain the body so undici/Bun release the socket instead of waiting for GC.
         await response.body?.cancel().catch(() => {});
         return formatError(`Failed to fetch ${currentUrl}: ${response.status} ${response.statusText}`);
       }
@@ -340,8 +305,6 @@ async function runWebFetch(args: WebFetchArgs, ctx?: ToolContext): Promise<strin
         const base64 = Buffer.from(buf).toString('base64');
         return `[image: ${mime}, ${buf.byteLength} bytes from ${currentUrl}]\ndata:${mime};base64,${base64}`;
       }
-      // Charset: prefer the `Content-Type` header, fall back to `<meta charset>`
-      // for HTML, then UTF-8. Unknown labels also fall back to UTF-8.
       const isHtml = contentType.includes('text/html');
       const headerCharset = parseCharsetFromContentType(contentType);
       const charset = headerCharset ?? (isHtml ? sniffCharsetFromHtmlMeta(buf) : undefined);
@@ -355,25 +318,18 @@ async function runWebFetch(args: WebFetchArgs, ctx?: ToolContext): Promise<strin
   }
 }
 
-/** Wire shape declared by the JSON schema below; narrowed in `runWebFetch`. */
 export interface WebFetchArgs {
   url?: unknown;
-  /** Seconds (not ms) — the schema is human-facing. */
   timeout?: unknown;
 }
 
-/**
- * Convert an HTML document to GitHub-flavored markdown, stripping `<script>`,
- * `<style>`, and other noise. Exposed for hosts that want to reuse the same
- * conversion in non-webfetch contexts (e.g. web_search result rendering).
- */
 export { convertHtmlToMarkdown };
 
-export function createWebFetchTool(): Tool<WebFetchArgs, string> {
+export function createWebFetchTool(): Tool {
   return {
     name: 'webfetch',
     description: 'Fetch a URL and return it as markdown.',
-    systemPrompt: WEBFETCH_SYSTEM_PROMPT,
+    prompt: WEBFETCH_SYSTEM_PROMPT,
     parameters: {
       type: 'object',
       properties: {
@@ -389,16 +345,18 @@ export function createWebFetchTool(): Tool<WebFetchArgs, string> {
       required: ['url'],
       additionalProperties: false,
     },
-    execute(args, ctx) {
-      return runWebFetch(args, ctx);
+    async run(input, ctx): Promise<ContentPart[]> {
+      const args = (input ?? {}) as WebFetchArgs;
+      try {
+        return [text(await runWebFetch(args, ctx))];
+      } catch (err) {
+        return [text(formatError(err))];
+      }
     },
-    onError: formatError,
   };
 }
 
-const webFetchPlugin: Plugin = {
+export default definePlugin({
   name: 'webfetch',
-  tools: { webfetch: createWebFetchTool() },
-};
-
-export default webFetchPlugin;
+  tools: [createWebFetchTool()],
+});

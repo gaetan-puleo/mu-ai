@@ -1,368 +1,830 @@
-import type { CoreEvent, EventBus, LLMResponseContext, Message, Runtime } from 'mu-core';
+import { spawn } from 'node:child_process';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import type { AgentSession, AgentSessionEvent, SubAgentRegistry, SubAgentResult, SubAgentRun } from 'mu-harness';
+import type { Message } from 'mu-core';
+import {
+  box,
+  column,
+  type Component,
+  flex,
+  type InputEvent,
+  ProcessTerminal,
+  type ScrollView,
+  scrollView,
+  truncateToWidth,
+  TUI,
+  visibleWidth,
+} from 'mu-tui';
 import { appendHistory, loadHistory } from '../config';
-import {
-  createDeferredCommandQueue,
-  createInputHistory,
-  type DeferredCommandQueue,
-  type InputHistory,
-  type Model,
-  parseAgentRouting,
-  RoundtripStore,
-  statusFromEvent,
-} from 'mu-harness';
-import { type Component, type InputEvent, ProcessTerminal, TUI } from 'mu-tui';
-import { Box, Input, type InputHighlight, ScrollView, Text } from 'mu-tui/components';
-import { CommandPalette } from './components/CommandPalette';
-import { ErrorToast } from './components/SimpleLines';
-import { type WaitingItem, WaitingList } from './components/WaitingList';
-import { buildStatusParts, formatTokens, StatusLine } from './statusLine';
-import { asHexColor, darkTheme, lightTheme, styleToAnsi, type Theme, ThemeProvider } from './theme';
-import { Transcript } from './Transcript';
-import type { AgentDisplay } from './chatApp/picker';
-import { FilePickerController, ModelPickerController } from './chatApp/picker';
-import { buildSubAgentViewComponents, buildTranscriptComponents } from './chatApp/transcript';
-import {
-  buildCommandRegistry,
-  type ChatCommand,
-  type ChatCommandRegistry,
-  exportContextToFile,
-  filterCommands,
-  runShellCommand,
-  toggleOutputBlocksInTranscript,
-} from './chatApp/commands';
-import { SubAgentController } from './chatApp/subAgents';
+import { MultilineEditor } from './editor';
+import { buildCommands, type ChatCommand, type CommandHost, filterCommands } from './commands';
+import { activeMention, type Candidate, collectCandidates, rank } from './picker';
+import { formatTokens, statusComponent, statusFromEvent, type StatusState } from './status';
+import { styleToAnsi, type Theme, ThemeProvider, themesByName } from './theme';
+import { formatToolArgs, Transcript, transcriptComponent } from './transcript';
 
-type ChatBus = EventBus<CoreEvent>;
-
-interface ModelController {
-  createRuntime: () => Runtime;
-  listModels: () => Promise<Model[]>;
-  readonly model: string;
-  setModel: (model: string) => void;
-}
-
-interface ChatAppOptions {
-  thinkingVisible?: boolean;
-  onThinkingVisibleChange?: (visible: boolean) => void;
-  /** Every switchable primary agent. Empty/single → Tab switching disabled. */
-  primaryAgents?: AgentDisplay[];
-  /** Returns the currently active primary (or undefined). */
-  getActivePrimary?: () => AgentDisplay | undefined;
-  /** Called when the user cycles the active primary (Tab). */
-  setActivePrimary?: (next: AgentDisplay) => void;
-  /**
-   * One-shot override set when the user submits a message with `@<primary>`.
-   * Passing `undefined` clears it. Cleared automatically when the runtime
-   * returns to idle.
-   */
-  setOverridePrimary?: (next: AgentDisplay | undefined) => void;
-  /** Sub-agents available for @-mention in the file picker dropdown. */
-  subAgents?: AgentDisplay[];
-  /**
-   * Dispatch a sub-agent in an isolated runtime. Called when the user submits
-   * a message starting with `@<sub-agent>`. The result is rendered as a
-   * sub-agent block in the transcript; the main runtime never sees the turn.
-   * `onEvent` receives every `CoreEvent` from the isolated runtime so the UI
-   * can stream activity live.
-   */
-  dispatchSubAgent?: (
-    name: string,
-    task: string,
-    onEvent?: (event: CoreEvent) => void,
-  ) => Promise<{ content: string; error?: string }>;
-}
-
+const RESET = '\x1b[0m';
+const PROMPT_WIDTH = 2;
 const SPINNER_INTERVAL_MS = 100;
+const MAX_LIST_ROWS = 8;
+
+export interface ModelInfo {
+  id: string;
+  ownedBy?: string;
+}
+
+export interface ChatHost {
+  session: AgentSession;
+  cwd: string;
+  createSession(): AgentSession;
+  forkSession(id: string, upToIndex: number): Promise<AgentSession>;
+  selectModel(ref: string): void;
+  modelRef(): string;
+  listModels(): Promise<ModelInfo[]>;
+  agentNames(): string[];
+  subAgents: SubAgentRegistry;
+  dispatchSubAgent(agent: string, task: string, parentId: string): Promise<SubAgentResult>;
+  initialTheme: string;
+  saveTheme(name: string): void;
+  initialThinking: boolean;
+  saveThinking(visible: boolean): void;
+  onExit(code: number): void;
+}
+
+const DIM = '\x1b[2m';
+
+const lastAssistantText = (messages: readonly Message[]): string => {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role === 'assistant') {
+      return message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
+    }
+  }
+  return '';
+};
+
+const padTo = (value: string, width: number): string => {
+  if (width <= 0) return '';
+  const fitted = visibleWidth(value) > width ? truncateToWidth(value, width) : value;
+  return fitted + ' '.repeat(Math.max(0, width - visibleWidth(fitted)));
+};
+
+interface ListRow {
+  left: string;
+  right: string;
+}
+
+const listView = (rows: ListRow[], selected: number, theme: Theme): Component => ({
+  render: (s) => {
+    if (s.width <= 0) return;
+    const normal = styleToAnsi(theme.styles.commandPaletteItem);
+    const sel = styleToAnsi(theme.styles.commandPaletteSelected);
+    const maxLeft = rows.reduce((max, r) => Math.max(max, r.left.length), 0);
+    for (let i = 0; i < rows.length && i < s.height; i++) {
+      const isSel = i === selected;
+      const prefix = isSel ? '› ' : '  ';
+      const leftPart = `${prefix}${rows[i].left}${' '.repeat(Math.max(0, maxLeft - rows[i].left.length))}`;
+      if (visibleWidth(leftPart) >= s.width) {
+        s.text(0, i, `${isSel ? sel : normal}${padTo(leftPart, s.width)}${RESET}`);
+        continue;
+      }
+      const rightAvail = s.width - visibleWidth(leftPart);
+      const rightText = rows[i].right ? `  ${rows[i].right}` : '';
+      const right = padTo(rightText, rightAvail);
+      if (isSel) {
+        s.text(0, i, `${sel}${leftPart}${right}${RESET}`);
+      } else {
+        s.text(0, i, `${normal}${leftPart}${DIM}${right}${RESET}`);
+      }
+    }
+  },
+});
 
 export class ChatApp {
-  private tui: TUI;
-  private terminal: ProcessTerminal;
-  private runtime: Runtime;
-  private bus: ChatBus;
-  private transcript: Transcript;
-  private scrollView: ScrollView;
-  private transcriptBox: Box;
-  private root: Box;
-  private input: Input;
-  private inputRow: Box;
-  private inputBox: Box;
-  private bottomDock: Box;
-  private statusText: StatusLine;
-  private statusBox: Box;
-  private toastZone: Box;
-  private defaultPrompt: Text;
-  private bashPrompt: Text;
-  private bashMode = false;
-  private modelLabel: Text;
-  private inputTopWidgetZone: Box;
-  private inputBottomWidgetZone: Box;
-  private commandPalette: CommandPalette | undefined;
-  private commands!: ChatCommandRegistry;
-  private commandCursor = 0;
-  private dismissedPaletteFor = '';
-  private modelPicker: ModelPickerController;
-  private mountedModal: Component | undefined;
+  private readonly tui: TUI;
+  private readonly terminal: ProcessTerminal;
+  private readonly editor: MultilineEditor;
+  private readonly scroll: ScrollView;
+  private readonly transcript = new Transcript();
+  private readonly themeProvider: ThemeProvider;
+  private readonly commands: ChatCommand[];
+
+  private session: AgentSession;
   private unsubscribe: (() => void) | undefined;
-  private stopped = false;
-  private status = 'ready';
-  private contextText = '';
-  private roundtrips = new RoundtripStore();
-  private themeProvider: ThemeProvider;
   private unsubscribeTheme: (() => void) | undefined;
-  private toastTimer: ReturnType<typeof setTimeout> | undefined;
+  private unsubscribeSubAgents: (() => void) | undefined;
+  private readonly runUnsubs = new Set<() => void>();
+
+  private readonly status: StatusState = { label: 'ready', busy: false, spinnerTick: 0, context: '' };
+  private running = false;
+  private readonly queue: string[] = [];
+  private readonly pendingShell: { cmd: string; output: string }[] = [];
+  private models: ModelInfo[] = [];
+
+  private paletteCursor = 0;
+  private paletteDismissedFor = '__none__';
+  private pickerMention: { start: number; query: string } | undefined;
+  private pickerRanked: Candidate[] = [];
+  private pickerCursor = 0;
+
+  private history: string[];
+  private historyIndex: number;
+  private historyDraft = '';
+
   private spinnerTimer: ReturnType<typeof setInterval> | undefined;
-  private spinnerTick = 0;
-  private filePicker: FilePickerController;
-  private lastEscTime = 0;
-  private history!: InputHistory;
-  private deferredCommandQueue!: DeferredCommandQueue<{ label: string; run: () => void }>;
-  private waitingList: WaitingList | undefined;
-  private overrideIdleTimer: ReturnType<typeof setInterval> | undefined;
-  private overrideActive = false;
-  private subAgents: SubAgentController;
+  private lastEsc = 0;
+  private modelPickerOpen = false;
+  private modelHandle: { close(): void } | undefined;
+  private errorText: string | undefined;
+  private errorTimer: ReturnType<typeof setTimeout> | undefined;
+  private stopped = false;
 
-  constructor(
-    runtime: Runtime,
-    bus: ChatBus,
-    private readonly modelController?: ModelController,
-    private readonly onExit?: (code: number) => void,
-    private readonly options: ChatAppOptions = {},
-  ) {
-    this.runtime = runtime;
-    this.bus = bus;
-    this.history = createInputHistory({ initial: loadHistory(), onAppend: appendHistory });
-    this.transcript = new Transcript(options.thinkingVisible ?? true);
+  constructor(private readonly host: ChatHost) {
+    this.session = host.session;
+    this.transcript.thinkingVisible = host.initialThinking;
+    this.history = loadHistory();
+    this.historyIndex = this.history.length;
 
-    this.deferredCommandQueue = createDeferredCommandQueue<{ label: string; run: () => void }>({
-      canDrain: () => this.runtime.state() === 'idle',
-      runEntry: (entry) => entry.run(),
-      onChange: () => this.updateWaitingList(),
-    });
-
-    this.themeProvider = new ThemeProvider(darkTheme);
-    const theme = this.themeProvider.current();
+    this.themeProvider = new ThemeProvider(themesByName[host.initialTheme] ?? themesByName.dark);
 
     this.terminal = new ProcessTerminal({
       alternateScreen: true,
+      bracketedPaste: true,
+      focusEvents: true,
       keyboard: true,
       mouse: { drag: true, motion: true },
-      focusEvents: true,
     });
-    this.tui = new TUI(this.terminal, { userContext: this.themeProvider });
+    this.tui = new TUI(this.terminal);
 
-    this.scrollView = new ScrollView({ layout: { width: 'fill', height: 'fill' }, focusable: false });
-    this.transcriptBox = new Box({
-      layout: { width: 'fill', height: 'fill', overflow: 'hidden' },
-      children: [this.scrollView],
-    });
-
-    this.statusText = new StatusLine();
-    this.statusBox = new Box({ layout: { width: 'fill', height: 1, zIndex: 10 }, children: [this.statusText] });
-    this.toastZone = new Box({ layout: { width: 'fill', height: 0, zIndex: 20 }, children: [] });
-
-    this.input = this.createInput(theme);
-    this.defaultPrompt = this.createDefaultPrompt(theme);
-    this.bashPrompt = this.createBashPrompt(theme);
-    this.inputTopWidgetZone = new Box({ layout: { width: 'fill', height: 0, zIndex: 10 }, children: [] });
-    this.inputBottomWidgetZone = new Box({ layout: { width: 'fill', height: 0, zIndex: 10 }, children: [] });
-    this.modelLabel = new Text({
-      text: '',
-      wrap: false,
-      layout: { width: 'fill', height: 1, margin: { top: 1 } },
-    });
-    this.updateModelLabel();
-
-    this.inputRow = new Box({
-      layout: { width: 'fill', height: 1, direction: 'row' },
-      children: [this.defaultPrompt, this.input],
+    this.editor = new MultilineEditor({
+      placeholder: 'type a message…',
+      onSubmit: (value) => this.submit(value),
+      onChange: (value) => this.onInputChange(value),
     });
 
-    this.inputBox = new Box({
-      layout: {
-        width: 'fill',
-        height: 5,
-        direction: 'column',
-        padding: { top: 1, bottom: 1, right: 1, left: 1 },
-        backgroundColor: theme.colors.surface,
-        zIndex: 10,
-      },
-      children: [this.inputRow, this.modelLabel],
-    });
+    this.scroll = scrollView({ render: (s) => transcriptComponent(this.transcript, this.theme()).render(s) });
 
-    this.bottomDock = new Box({
-      layout: { width: 'fill', height: 6, direction: 'column', zIndex: 10 },
-      children: [this.toastZone, this.inputTopWidgetZone, this.inputBox, this.inputBottomWidgetZone, this.statusBox],
-    });
+    this.commands = buildCommands(this.commandHost());
 
-    this.commands = buildCommandRegistry({
-      startNewSession: () => void this.startNewSession(),
-      openModelModal: () => this.openModelModal(),
-      exportContext: (args) => void this.exportContext(args),
-      toggleThinking: () => this.handleToggleThinking(),
-      toggleOutputBlocks: () => this.toggleOutputBlocks(),
-      stopAndExit: (code) => void this.stop().then(() => this.onExit?.(code)),
-    });
-
-    this.root = new Box({
-      layout: {
-        width: 'fill',
-        height: 'fill',
-        direction: 'column',
-        padding: { left: 1, right: 1 },
-        backgroundColor: theme.colors.background,
-      },
-      children: [this.transcriptBox, this.bottomDock],
-    });
-
-    // FilePicker + SubAgent controllers — both delegate state in/out of this
-    // class so the orchestrator only deals with composition, not the inner
-    // state machines.
-    this.filePicker = new FilePickerController({
-      input: this.input,
-      collectMentionableAgents: () => this.collectMentionableAgents(),
-      mount: (component, height) => this.mountTopWidget(component, height),
-      onValueChanged: (value) => this.updateHighlights(value),
-      requestRender: () => this.tui.requestRender(),
-    });
-    this.subAgents = new SubAgentController({
-      transcript: this.transcript,
-      renderTranscript: () => this.renderTranscript(),
-      setStatus: (s) => this.setStatus(s),
-      setInputVisible: (v) => this.setInputVisible(v),
-      publish: (event) => this.bus.publish(event),
-      requestRender: () => this.tui.requestRender(),
-      dispatch: options.dispatchSubAgent,
-    });
-    this.modelPicker = new ModelPickerController({
-      runtimeState: () => this.runtime.state(),
-      mountModal: (modal) => this.mountRootModal(modal),
-      setFocus: (component) => this.tui.setFocus(component),
-      restoreFocus: () => this.tui.setFocus(this.input),
-      requestRender: (force) => this.tui.requestRender(force),
-      setStatus: (s) => this.setStatus(s),
-    }, this.modelController);
-
-    this.tui.addChild(this.root);
-    this.tui.setFocus(this.input);
-    this.tui.addInputInterceptor((event) => this.interceptInput(event));
-
-    this.tui.addGlobalKeybinding({ chord: { key: 'c', ctrl: true }, handler: () => this.handleCtrlC() });
+    this.tui.setRoot({ render: (s) => this.root().render(s) });
+    this.tui.setBackgroundColor(this.theme().colors.background);
+    this.tui.setFocus(this.editor);
+    this.tui.addInputInterceptor((event) => this.intercept(event));
+    this.tui.addGlobalKeybinding({ chord: { key: 'c', ctrl: true }, handler: () => this.onCtrlC() });
     this.tui.addGlobalKeybinding({ chord: { key: 't', ctrl: true }, handler: () => this.toggleTheme() });
-    this.tui.addGlobalKeybinding({ chord: { key: 'o', ctrl: true }, handler: () => this.toggleOutputBlocks() });
+    this.tui.addGlobalKeybinding({ chord: { key: 'o', ctrl: true }, handler: () => this.toggleExpand() });
 
-    this.unsubscribeTheme = this.themeProvider.subscribe((next) => this.applyTheme(next));
-    this.updateStatusLine();
+    this.unsubscribeTheme = this.themeProvider.subscribe(() => {
+      this.tui.setBackgroundColor(this.theme().colors.background);
+      this.tui.requestRender(true);
+    });
+
+    this.bindSession();
+    this.unsubscribeSubAgents = this.host.subAgents.subscribe((run) => this.onSubAgentRun(run));
+    this.transcript.seed(this.session.messages);
   }
-
-  // --- Lifecycle ---
 
   async start(): Promise<void> {
-    this.unsubscribe = this.bus.subscribe((event) => this.handleEvent(event));
-    await this.runtime.start();
-    await this.loadModels();
     this.tui.start();
-  }
-
-  private async loadModels(): Promise<void> {
-    if (!this.modelController) return;
-    try {
-      this.modelPicker.setList(await this.modelController.listModels());
-      this.updateModelLabel();
-      this.tui.requestRender();
-    } catch { /* ignore */ }
+    await this.loadModels();
   }
 
   async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
     this.unsubscribe?.();
-    this.unsubscribe = undefined;
     this.unsubscribeTheme?.();
-    this.unsubscribeTheme = undefined;
-    if (this.toastTimer) clearTimeout(this.toastTimer);
-    this.toastTimer = undefined;
-    this.deferredCommandQueue.clear();
-    this.stopOverrideTimer();
+    this.unsubscribeSubAgents?.();
+    this.clearRuns();
     this.stopSpinner();
-    this.input.stop();
-    await this.runtime.stop();
+    this.clearError();
+    this.session.abort();
     this.tui.stop();
   }
 
-  // --- Theme ---
+  private theme(): Theme {
+    return this.themeProvider.current();
+  }
 
-  private createInput(theme: Theme): Input {
-    return new Input({
-      placeholder: 'type a message...',
-      placeholderStyle: styleToAnsi(theme.styles.muted),
-      textStyle: styleToAnsi(theme.styles.body),
-      hiddenPrefix: '!',
-      onChange: (value: string) => this.updateInputHeight(value),
-      onSubmit: (value: string) => this.handleSubmit(value),
-      requestRedraw: () => this.tui.requestRender(),
-      layout: { width: 'fill', height: 1, zIndex: 10 },
+  private commandHost(): CommandHost {
+    return {
+      newSession: () => this.newSession(),
+      openModelPicker: () => this.openModelPicker(),
+      toggleExpand: () => this.toggleExpand(),
+      toggleThinking: () => this.toggleThinking(),
+      exportContext: (args) => void this.exportContext(args),
+      quit: () => void this.stop().then(() => this.host.onExit(0)),
+    };
+  }
+
+  private bindSession(): void {
+    this.unsubscribe = this.session.subscribe((event) => this.handleEvent(event));
+  }
+
+  private clearRuns(): void {
+    for (const unsub of this.runUnsubs) unsub();
+    this.runUnsubs.clear();
+  }
+
+  private onSubAgentRun(run: SubAgentRun): void {
+    if (run.parentId !== this.session.id) return;
+    const handle = this.transcript.appendSubAgent(run.agent);
+    const toolNames = new Map<string, string>();
+    const unsub = run.session.subscribe((event) => {
+      switch (event.type) {
+        case 'tool_call': {
+          toolNames.set(event.id, event.name);
+          const args = formatToolArgs(event.name, event.input);
+          handle.addTool(args ? `${event.name} ${args}` : event.name);
+          break;
+        }
+        case 'turn_end':
+          handle.finish(lastAssistantText(run.session.messages));
+          unsub();
+          this.runUnsubs.delete(unsub);
+          break;
+        case 'error':
+          handle.fail(event.error instanceof Error ? event.error.message : String(event.error));
+          unsub();
+          this.runUnsubs.delete(unsub);
+          break;
+      }
+      this.tui.requestRender();
+    });
+    this.runUnsubs.add(unsub);
+    this.tui.requestRender();
+  }
+
+  private tryDispatch(text: string): boolean {
+    const match = /^@([^\s]+)\s+([\s\S]+)$/.exec(text);
+    if (!match) return false;
+    const [, agent, task] = match;
+    if (!this.host.agentNames().includes(agent)) return false;
+    this.transcript.appendUser(text);
+    this.tui.requestRender();
+    this.host.dispatchSubAgent(agent, task, this.session.id).catch((err) => {
+      this.showError(err instanceof Error ? err.message : String(err));
+    });
+    return true;
+  }
+
+  private swapSession(next: AgentSession): void {
+    this.unsubscribe?.();
+    this.clearRuns();
+    this.session = next;
+    this.bindSession();
+    this.transcript.seed(next.messages);
+    this.queue.length = 0;
+    this.pendingShell.length = 0;
+    this.running = false;
+    this.status.busy = false;
+    this.status.context = '';
+    this.stopSpinner();
+    this.setStatus('ready');
+    this.tui.requestRender(true);
+  }
+
+  private handleEvent(event: AgentSessionEvent): void {
+    this.transcript.applyEvent(event);
+    const label = statusFromEvent(event);
+    if (label !== undefined) this.status.label = label;
+
+    switch (event.type) {
+      case 'turn_start':
+        this.running = true;
+        this.startSpinner();
+        break;
+      case 'turn_end':
+        this.onTurnComplete();
+        break;
+      case 'usage':
+        this.applyUsage(event.usage);
+        break;
+      case 'error': {
+        const message = event.error instanceof Error ? event.error.message : String(event.error);
+        this.showError(message);
+        this.onTurnComplete();
+        break;
+      }
+    }
+    this.tui.requestRender();
+  }
+
+  private applyUsage(usage: { input?: number; output?: number; total?: number; contextWindow?: number }): void {
+    const used = usage.total ?? ((usage.input ?? 0) + (usage.output ?? 0) || undefined);
+    const total = usage.contextWindow;
+    if (used !== undefined && total) {
+      this.status.context = `${formatTokens(used)}/${formatTokens(total)} (${Math.round((used / total) * 100)}%)`;
+    } else if (used !== undefined) {
+      this.status.context = `${formatTokens(used)} tokens`;
+    } else if (total) {
+      this.status.context = `${formatTokens(total)} ctx`;
+    }
+  }
+
+  private onTurnComplete(): void {
+    this.running = false;
+    if (this.queue.length > 0) {
+      const next = this.queue.shift()!;
+      this.send(next);
+      return;
+    }
+    this.status.busy = false;
+    this.stopSpinner();
+    this.setStatus('ready');
+  }
+
+  private send(value: string): void {
+    this.transcript.appendUser(value);
+    const content = this.flushShellContext(value);
+    this.running = true;
+    this.status.busy = true;
+    this.setStatus('thinking…');
+    this.startSpinner();
+    this.tui.requestRender();
+    this.session.send(content).catch((err) => {
+      this.running = false;
+      this.status.busy = false;
+      this.stopSpinner();
+      this.showError(err instanceof Error ? err.message : String(err));
     });
   }
 
-  private createDefaultPrompt(theme: Theme): Text {
-    return new Text({
-      text: `${styleToAnsi(theme.styles.muted)}❯\x1b[0m`,
-      wrap: false,
-      layout: { width: 2, height: 1, zIndex: 10 },
+  private flushShellContext(userText: string): string {
+    if (this.pendingShell.length === 0) return userText;
+    const blocks = this.pendingShell
+      .map((entry) => `$ ${entry.cmd}\n${entry.output}`)
+      .join('\n\n');
+    this.pendingShell.length = 0;
+    return `<shell-output>\nShell commands the user ran locally since the last message:\n\n${blocks}\n</shell-output>\n\n${userText}`;
+  }
+
+  private submit(value: string): void {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    if (this.modelPickerOpen) return;
+
+    this.clearError();
+    this.pushHistory(trimmed);
+    this.editor.setValue('');
+
+    if (trimmed.startsWith('!') || trimmed.startsWith('$')) {
+      this.runShell(trimmed.slice(1).trim());
+      return;
+    }
+    if (trimmed.startsWith('/')) {
+      this.runCommand(trimmed);
+      return;
+    }
+    if (this.tryDispatch(trimmed)) return;
+
+    if (this.running) {
+      this.queue.push(trimmed);
+      this.tui.requestRender();
+      return;
+    }
+    this.send(trimmed);
+  }
+
+  private enqueueFromInput(): void {
+    const value = this.editor.getValue().trim();
+    if (!value) return;
+    this.pushHistory(value);
+    this.editor.setValue('');
+    this.queue.push(value);
+    this.tui.requestRender();
+  }
+
+  private onInputChange(value: string): void {
+    this.editor.hiddenPrefix = value.startsWith('/') || value.startsWith('!') || value.startsWith('$') ? value[0] : '';
+    if (value !== this.paletteDismissedFor) this.paletteDismissedFor = '__none__';
+    const items = this.paletteItems();
+    this.paletteCursor = Math.max(0, Math.min(this.paletteCursor, Math.max(0, items.length - 1)));
+
+    if (items.length === 0) {
+      const mention = activeMention(value, this.editor.cursorPos);
+      if (mention) {
+        this.pickerMention = mention;
+        this.pickerRanked = rank(
+          mention.query,
+          collectCandidates(this.host.cwd, this.host.agentNames()),
+          MAX_LIST_ROWS,
+        );
+        this.pickerCursor = Math.max(0, Math.min(this.pickerCursor, Math.max(0, this.pickerRanked.length - 1)));
+      } else {
+        this.pickerMention = undefined;
+        this.pickerRanked = [];
+      }
+    } else {
+      this.pickerMention = undefined;
+      this.pickerRanked = [];
+    }
+    this.tui.requestRender();
+  }
+
+  private intercept(event: InputEvent): boolean {
+    if (this.modelPickerOpen) return false;
+    if (event.type !== 'key' || event.kind === 'release') return false;
+    const key = event.key;
+
+    if (key === 'escape' || key === 'esc') return this.onEscape();
+
+    if (key === 'backspace') {
+      if (this.deleteMention()) return true;
+      return false;
+    }
+
+    if (key === 'enter' && event.alt) {
+      if (this.running) {
+        this.enqueueFromInput();
+        return true;
+      }
+      return false;
+    }
+
+    if (this.paletteItems().length > 0) {
+      if (key === 'up') return this.paletteMove(-1);
+      if (key === 'down') return this.paletteMove(1);
+      if (key === 'tab') return this.paletteComplete();
+      if (key === 'enter') return this.paletteRun();
+      return false;
+    }
+
+    if (this.pickerVisible()) {
+      if (key === 'up') return this.pickerMove(-1);
+      if (key === 'down') return this.pickerMove(1);
+      if (key === 'tab' || key === 'enter') return this.pickerAccept();
+      return false;
+    }
+
+    if (key === 'up') return this.navigateHistory('up');
+    if (key === 'down') return this.navigateHistory('down');
+
+    return false;
+  }
+
+  private onEscape(): boolean {
+    if (this.paletteItems().length > 0) {
+      this.paletteDismissedFor = this.editor.getValue();
+      this.tui.requestRender();
+      return true;
+    }
+    if (this.pickerVisible()) {
+      this.pickerMention = undefined;
+      this.pickerRanked = [];
+      this.tui.requestRender();
+      return true;
+    }
+    const value = this.editor.getValue();
+    if (value.startsWith('!') || value.startsWith('$') || value.startsWith('/')) {
+      this.editor.setValue('');
+      this.tui.requestRender();
+      return true;
+    }
+    if (this.running) {
+      const now = Date.now();
+      if (this.lastEsc > 0 && now - this.lastEsc < 1500) {
+        this.lastEsc = 0;
+        this.cancelGeneration();
+      } else {
+        this.lastEsc = now;
+        this.setStatus('press Esc again to cancel');
+        this.tui.requestRender();
+      }
+      return true;
+    }
+    return false;
+  }
+
+  private cancelGeneration(): void {
+    this.queue.length = 0;
+    this.session.abort();
+    this.setStatus('cancelling…');
+    this.tui.requestRender();
+  }
+
+  private paletteItems(): ChatCommand[] {
+    return filterCommands(this.commands, this.editor.getValue(), this.paletteDismissedFor).slice(0, MAX_LIST_ROWS);
+  }
+
+  private paletteMove(delta: number): boolean {
+    const items = this.paletteItems();
+    if (items.length === 0) return true;
+    this.paletteCursor = (this.paletteCursor + delta + items.length) % items.length;
+    this.tui.requestRender();
+    return true;
+  }
+
+  private paletteComplete(): boolean {
+    const items = this.paletteItems();
+    const command = items[this.paletteCursor];
+    if (!command) return true;
+    const next = `/${command.name} `;
+    this.editor.setValue(next);
+    this.editor.setCursor(next.length);
+    return true;
+  }
+
+  private paletteRun(): boolean {
+    const items = this.paletteItems();
+    const command = items[this.paletteCursor];
+    if (!command) return true;
+    this.editor.setValue('');
+    void command.run('');
+    return true;
+  }
+
+  private runCommand(value: string): void {
+    const body = value.trim().slice(1);
+    const space = body.indexOf(' ');
+    const name = (space === -1 ? body : body.slice(0, space)).toLowerCase();
+    const args = space === -1 ? '' : body.slice(space + 1).trim();
+    const command = this.commands.find((c) => c.name === name);
+    if (!command) {
+      this.transcript.note(`Unknown command: /${name}`, true);
+      this.tui.requestRender();
+      return;
+    }
+    void command.run(args);
+  }
+
+  private pickerVisible(): boolean {
+    return this.pickerMention !== undefined && this.pickerRanked.length > 0 && this.paletteItems().length === 0;
+  }
+
+  private pickerMove(delta: number): boolean {
+    if (this.pickerRanked.length === 0) return true;
+    this.pickerCursor = (this.pickerCursor + delta + this.pickerRanked.length) % this.pickerRanked.length;
+    this.tui.requestRender();
+    return true;
+  }
+
+  private pickerAccept(): boolean {
+    const mention = this.pickerMention;
+    const candidate = this.pickerRanked[this.pickerCursor];
+    if (!mention || !candidate) return true;
+    const value = this.editor.getValue();
+    const cursor = this.editor.cursorPos;
+    const insertion = `@${candidate.insert} `;
+    const next = value.slice(0, mention.start) + insertion + value.slice(cursor);
+    this.editor.setValue(next);
+    this.editor.setCursor(mention.start + insertion.length);
+    this.pickerMention = undefined;
+    this.pickerRanked = [];
+    this.tui.requestRender();
+    return true;
+  }
+
+  private deleteMention(): boolean {
+    const value = this.editor.getValue();
+    const cursor = this.editor.cursorPos;
+    const re = /@[^\s]+/g;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(value)) !== null) {
+      const start = match.index;
+      const end = start + match[0].length;
+      if (cursor > start && cursor <= end) {
+        this.editor.setValue(value.slice(0, start) + value.slice(end));
+        this.editor.setCursor(start);
+        this.tui.requestRender();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private pushHistory(text: string): void {
+    appendHistory(text);
+    if (this.history[this.history.length - 1] !== text) this.history.push(text);
+    this.historyIndex = this.history.length;
+    this.historyDraft = '';
+  }
+
+  private navigateHistory(direction: 'up' | 'down'): boolean {
+    if (this.history.length === 0) return false;
+    if (direction === 'up') {
+      if (this.historyIndex === 0) return true;
+      if (this.historyIndex === this.history.length) this.historyDraft = this.editor.getValue();
+      this.historyIndex -= 1;
+    } else {
+      if (this.historyIndex >= this.history.length) return true;
+      this.historyIndex += 1;
+    }
+    const value = this.historyIndex === this.history.length ? this.historyDraft : this.history[this.historyIndex];
+    this.editor.setValue(value);
+    this.editor.setCursor(value.length);
+    this.tui.requestRender();
+    return true;
+  }
+
+  private newSession(): void {
+    if (this.running) {
+      this.showError('Cannot start a new session while a response is running.');
+      return;
+    }
+    this.swapSession(this.host.createSession());
+  }
+
+  private async openModelPicker(): Promise<void> {
+    if (this.running) {
+      this.showError('Cannot switch models while a response is running.');
+      return;
+    }
+    if (this.models.length === 0) await this.loadModels();
+    if (this.models.length === 0) {
+      this.showError('No models available from the backend.');
+      return;
+    }
+    const ref = this.host.modelRef();
+    const currentId = ref.includes('/') ? ref.slice(ref.indexOf('/') + 1) : ref;
+    const content = this.buildModelPicker(currentId, (id) => {
+      this.modelHandle?.close();
+      void this.switchModel(`local/${id}`);
+    });
+    this.modelPickerOpen = true;
+    this.modelHandle = this.tui.showModal(content, {
+      width: 60,
+      border: false,
+      background: this.theme().colors.surface,
+      onClose: () => {
+        this.modelPickerOpen = false;
+        this.tui.setFocus(this.editor);
+      },
     });
   }
 
-  private createBashPrompt(theme: Theme): Text {
-    return new Text({
-      text: `${styleToAnsi(theme.styles.bashPrompt)}$\x1b[0m `,
-      wrap: false,
-      layout: { width: 2, height: 1, zIndex: 10 },
-    });
+  private buildModelPicker(currentId: string, onPick: (id: string) => void): Component {
+    const models = this.models;
+    const maxId = models.reduce((max, m) => Math.max(max, m.id.length), 0);
+    const PADX = 0;
+    let cursor = Math.max(0, models.findIndex((m) => m.id === currentId));
+    return {
+      handleInput: (event) => {
+        if (event.type !== 'key' || event.kind === 'release' || models.length === 0) return;
+        if (event.key === 'up') cursor = (cursor - 1 + models.length) % models.length;
+        else if (event.key === 'down') cursor = (cursor + 1) % models.length;
+        else if (event.key === 'enter') onPick(models[cursor].id);
+      },
+      render: (s) => {
+        if (s.width <= 0) return;
+        const theme = this.theme();
+        const itemSgr = styleToAnsi(theme.styles.commandPaletteItem);
+        const selSgr = styleToAnsi(theme.styles.commandPaletteSelected);
+        const muted = styleToAnsi(theme.styles.muted);
+        const ITEM_INDENT = 2;
+        const textX = PADX + ITEM_INDENT;
+        const innerW = Math.max(1, s.width - PADX * 2);
+
+        s.text(textX, 1, `${styleToAnsi(theme.styles.title)}Model Picker${RESET}`);
+
+        const maxRows = Math.min(models.length, 10, Math.max(1, s.height - 6));
+        const top = cursor >= maxRows ? cursor - maxRows + 1 : 0;
+        for (let r = 0; r < maxRows; r++) {
+          const m = models[top + r];
+          if (!m) break;
+          const isSel = top + r === cursor;
+          const pad = ' '.repeat(Math.max(0, maxId - m.id.length));
+          const provider = m.ownedBy ? `  ${m.ownedBy}` : '';
+          const indent = ' '.repeat(ITEM_INDENT);
+          const body = isSel ? `${indent}${m.id}${pad}${provider}` : `${indent}${m.id}${pad}${DIM}${provider}`;
+          s.text(PADX, 3 + r, `${isSel ? selSgr : itemSgr}${padTo(body, innerW)}${RESET}`);
+        }
+
+        const footerRow = 3 + maxRows + 1;
+        s.text(textX, footerRow, `${muted}↑/↓ move · Enter select · Esc close${RESET}`);
+        s.text(0, footerRow + 1, '');
+      },
+    };
   }
 
-  private applyTheme(theme: Theme): void {
-    if (this.root.layout) this.root.layout.backgroundColor = theme.colors.background;
-    if (this.inputBox.layout) this.inputBox.layout.backgroundColor = theme.colors.surface;
-    this.input.placeholderStyle = styleToAnsi(theme.styles.muted);
-    this.input.textStyle = styleToAnsi(theme.styles.body);
-    this.defaultPrompt.setText(`${styleToAnsi(theme.styles.muted)}❯\x1b[0m`);
-    this.bashPrompt.setText(`${styleToAnsi(theme.styles.bashPrompt)}$\x1b[0m `);
-    this.renderTranscript();
-    this.tui.setUserContext(this.themeProvider);
+  private async switchModel(ref: string): Promise<void> {
+    this.host.selectModel(ref);
+    const carry = this.session.messages.some((m) => m.role !== 'system');
+    let next: AgentSession;
+    try {
+      next = carry
+        ? await this.host.forkSession(this.session.id, this.session.messages.length - 1)
+        : this.host.createSession();
+    } catch {
+      next = this.host.createSession();
+    }
+    this.swapSession(next);
+    this.transcript.note(`switched model to ${ref}`);
+    this.tui.requestRender();
+  }
+
+  private async exportContext(args: string): Promise<void> {
+    const messages = this.session.messages.filter((m) => m.role !== 'system');
+    if (messages.length === 0) {
+      this.showError('Nothing to export yet.');
+      return;
+    }
+    const outputPath = args.trim() || '.mu/context.json';
+    const resolved = resolve(this.host.cwd, outputPath);
+    const payload = { exportedAt: new Date().toISOString(), model: this.host.modelRef(), messages };
+    try {
+      await mkdir(dirname(resolved), { recursive: true });
+      await writeFile(resolved, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
+      this.transcript.note(`saved conversation to ${outputPath}`);
+    } catch (error) {
+      this.showError(`Failed to export: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    this.tui.requestRender();
+  }
+
+  private toggleExpand(): void {
+    if (this.transcript.toggleExpanded()) this.tui.requestRender();
+  }
+
+  private toggleThinking(): void {
+    this.host.saveThinking(this.transcript.toggleReasoning());
+    this.tui.requestRender();
   }
 
   private toggleTheme(): void {
-    const next = this.themeProvider.current().name === 'dark' ? lightTheme : darkTheme;
+    const next = this.theme().name === 'dark' ? themesByName.light : themesByName.dark;
     this.themeProvider.setTheme(next);
+    this.host.saveTheme(next.name);
   }
 
-  // --- Status ---
-
-  private setStatus(status: string): void {
-    this.status = status;
-    const busy = this.isBusyStatus(status);
-    this.statusText.setBusy(busy);
-    if (busy) this.startSpinner();
-    else this.stopSpinner();
-    this.updateStatusLine();
+  private onCtrlC(): void {
+    if (this.editor.getValue().length > 0) {
+      this.editor.setValue('');
+      this.tui.requestRender();
+      return;
+    }
+    void this.stop().then(() => this.host.onExit(130));
   }
 
-  private isBusyStatus(status: string): boolean {
-    return (
-      status === 'thinking...' ||
-      status === 'streaming...' ||
-      status === 'reasoning...' ||
-      status === 'queued follow-up' ||
-      status.startsWith('tool: ')
-    );
+  private recordShell(cmd: string, output: string): void {
+    const MAX = 10_000;
+    const capped = output.length > MAX ? `${output.slice(0, MAX)}\n…[truncated]` : output;
+    this.pendingShell.push({ cmd, output: capped });
+  }
+
+  private runShell(cmd: string): void {
+    if (!cmd) return;
+    const handle = this.transcript.appendShell(cmd);
+    this.tui.requestRender();
+    let stdout = '';
+    let stderr = '';
+    let proc: ReturnType<typeof spawn>;
+    try {
+      proc = spawn('bash', ['-c', cmd], { cwd: this.host.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      handle.setOutput(message, true);
+      this.recordShell(cmd, message);
+      this.tui.requestRender();
+      return;
+    }
+    proc.stdout?.on('data', (data: Buffer) => {
+      stdout += data.toString('utf-8');
+    });
+    proc.stderr?.on('data', (data: Buffer) => {
+      stderr += data.toString('utf-8');
+    });
+    proc.on('close', (code) => {
+      const output = code !== 0 || stderr ? [stdout, stderr].filter(Boolean).join('\n') : stdout;
+      const trimmed = output.trim() || '(no output)';
+      handle.setOutput(trimmed, code !== 0);
+      this.recordShell(cmd, code !== 0 ? `(exit ${code})\n${trimmed}` : trimmed);
+      this.tui.requestRender();
+    });
+    proc.on('error', (err) => {
+      handle.setOutput(err.message, true);
+      this.recordShell(cmd, err.message);
+      this.tui.requestRender();
+    });
+  }
+
+  private setStatus(label: string): void {
+    this.status.label = label;
+  }
+
+  private showError(message: string): void {
+    this.errorText = message;
+    if (this.errorTimer) clearTimeout(this.errorTimer);
+    this.errorTimer = setTimeout(() => {
+      this.errorText = undefined;
+      this.errorTimer = undefined;
+      this.tui.requestRender();
+    }, 6000);
+    this.tui.requestRender();
+  }
+
+  private clearError(): void {
+    if (this.errorTimer) clearTimeout(this.errorTimer);
+    this.errorTimer = undefined;
+    this.errorText = undefined;
   }
 
   private startSpinner(): void {
+    this.status.busy = true;
     if (this.spinnerTimer) return;
-    this.statusText.setSpinnerTick(this.spinnerTick);
     this.spinnerTimer = setInterval(() => {
-      this.spinnerTick++;
-      this.statusText.setSpinnerTick(this.spinnerTick);
+      this.status.spinnerTick += 1;
       this.tui.requestRender();
     }, SPINNER_INTERVAL_MS);
   }
@@ -372,702 +834,126 @@ export class ChatApp {
       clearInterval(this.spinnerTimer);
       this.spinnerTimer = undefined;
     }
-    this.statusText.setBusy(false);
+    this.status.busy = false;
   }
 
-  private setContext(context: LLMResponseContext): void {
-    const roundtrip = this.roundtrips.record(context, this.modelController?.model);
-    const used = roundtrip.usedTokens;
-    const total = roundtrip.windowTokens;
-    this.contextText = used !== undefined && total !== undefined
-      ? `${formatTokens(used)}/${formatTokens(total)} (${Math.round((used / total) * 100)}%)`
-      : '';
-    this.updateStatusLine();
-  }
-
-  private canCyclePrimaryAgent(): boolean {
-    return (this.options.primaryAgents?.length ?? 0) > 1 && !!this.options.setActivePrimary;
-  }
-
-  /** Agents shown in the @-mention dropdown: sub-agents + every primary except the active one. */
-  private collectMentionableAgents(): AgentDisplay[] {
-    const active = this.options.getActivePrimary?.();
-    const primaries = (this.options.primaryAgents ?? []).filter((a) => !active || a.name !== active.name);
-    const subs = this.options.subAgents ?? [];
-    const seen = new Set<string>();
-    const out: AgentDisplay[] = [];
-    for (const a of [...primaries, ...subs]) {
-      if (seen.has(a.name)) continue;
-      seen.add(a.name);
-      out.push(a);
+  private async loadModels(): Promise<void> {
+    try {
+      this.models = await this.host.listModels();
+      this.tui.requestRender();
+    } catch {
+      // backend may be unreachable; surfaced on first send
     }
-    return out;
   }
 
-  private cyclePrimaryAgent(direction: 1 | -1): void {
-    const agents = this.options.primaryAgents ?? [];
-    if (agents.length < 2) return;
-    const current = this.options.getActivePrimary?.();
-    const idx = current ? agents.findIndex((a) => a.name === current.name) : -1;
-    const nextIdx = ((idx + direction) % agents.length + agents.length) % agents.length;
-    this.options.setActivePrimary?.(agents[nextIdx]);
-    this.updateModelLabel();
-    this.tui.requestRender();
-  }
-
-  private updateModelLabel(): void {
-    const modelId = this.modelController?.model ?? '';
-    const agent = this.options.getActivePrimary?.();
-    if (!modelId && !agent) {
-      this.modelLabel.setText('');
-      return;
-    }
-    const theme = this.themeProvider.current();
-    const white = styleToAnsi({ fg: theme.colors.text });
+  private modelLabel(): string {
+    const ref = this.host.modelRef();
+    const slash = ref.indexOf('/');
+    const id = slash >= 0 ? ref.slice(slash + 1) : ref;
+    const providerName = slash >= 0 ? ref.slice(0, slash) : '';
+    const model = this.models.find((m) => m.id === id);
+    const provider = model?.ownedBy ?? providerName;
+    const theme = this.theme();
+    const bold = styleToAnsi({ fg: theme.colors.text, bold: true });
     const dim = styleToAnsi({ fg: theme.colors.textMuted });
-    const reset = '\x1b[0m';
-    const parts: string[] = [];
-    if (agent) {
-      const agentHex = asHexColor(agent.color);
-      const dotColor = agentHex ? styleToAnsi({ fg: agentHex }) : '';
-      const dot = `${dotColor}●${reset}`;
-      const displayName = agent.name.charAt(0).toUpperCase() + agent.name.slice(1);
-      parts.push(`${dot} ${white}${displayName}${reset}`);
-    }
-    if (modelId) {
-      const model = this.modelPicker.list.find((m) => m.id === modelId);
-      const provider = model?.ownedBy ? `  ${dim}${model.ownedBy}${reset}` : '';
-      parts.push(`${white}${modelId}${reset}${provider}`);
-    }
-    this.modelLabel.setText(parts.join(`  ${dim}·${reset}  `));
+    return provider ? `${bold}${id}${RESET}  ${dim}${provider}${RESET}` : `${bold}${id}${RESET}`;
   }
 
-  private updateStatusLine(): void {
-    this.updateModelLabel();
-    const { left, right } = buildStatusParts(this.contextText);
-    this.statusText.setContent(left, right);
+  private promptGlyph(): string {
+    const theme = this.theme();
+    const muted = styleToAnsi(theme.styles.muted);
+    const value = this.editor.getValue();
+    if (value.startsWith('!') || value.startsWith('$')) return `${styleToAnsi(theme.styles.bashPrompt)}$ ${RESET}`;
+    if (value.startsWith('/')) return `${muted}/ ${RESET}`;
+    if (this.pickerVisible()) return `${muted}@ ${RESET}`;
+    return `${muted}❯ ${RESET}`;
   }
 
-  // --- Toast ---
-
-  private showErrorToast(message: string): void {
-    if (this.toastTimer) clearTimeout(this.toastTimer);
-    this.toastZone.children = [new ErrorToast(message)];
-    if (this.toastZone.layout) this.toastZone.layout.height = 2;
-    this.updateDockHeight();
-    this.toastTimer = setTimeout(() => this.clearToast(), 6000);
+  private inputPanel(): Component {
+    const prompt = this.promptGlyph();
+    const editor = this.editor;
+    const label = this.modelLabel();
+    const editorRows = editor.rows();
+    const inner: Component = {
+      render: (s) => {
+        if (s.width <= 0 || s.height <= 0) return;
+        s.text(0, 0, prompt);
+        const rows = Math.min(editorRows, Math.max(1, s.height - 2));
+        s.child(editor, { x: PROMPT_WIDTH, y: 0, width: Math.max(1, s.width - PROMPT_WIDTH), height: rows });
+        const labelRow = rows + 1;
+        s.text(0, labelRow, visibleWidth(label) > s.width ? truncateToWidth(label, s.width) : label);
+      },
+    };
+    return box(inner, { background: this.theme().colors.surface, padding: 1 });
   }
 
-  private clearToast(): boolean {
-    const hadToast = this.toastZone.children.length > 0;
-    if (this.toastTimer) clearTimeout(this.toastTimer);
-    this.toastTimer = undefined;
-    this.toastZone.children = [];
-    if (this.toastZone.layout) this.toastZone.layout.height = 0;
-    if (hadToast) {
-      this.updateDockHeight();
-      this.tui.requestRender();
-    }
-    return hadToast;
+  private errorView(): Component | undefined {
+    const message = this.errorText;
+    if (!message) return undefined;
+    const theme = this.theme();
+    const head = styleToAnsi(theme.styles.errorPrefix);
+    const body = styleToAnsi(theme.styles.errorLine);
+    return {
+      render: (s) => {
+        if (s.width <= 0) return;
+        const text = visibleWidth(message) > s.width - 2 ? truncateToWidth(message, Math.max(1, s.width - 2)) : message;
+        s.text(0, 0, `${head}!${RESET} ${body}${text}${RESET}`);
+        s.text(0, 1, '');
+      },
+    };
   }
 
-  // --- Input ---
-
-  private handleCtrlC(): void {
-    if (this.input.value.length > 0) {
-      this.input.setValue('');
-      this.tui.requestRender();
-      return;
-    }
-    void this.stop().then(() => this.onExit?.(130));
-  }
-
-  private handleSubmit(value: string): void {
-    const text = value.trim();
-    if (!text) return;
-    // Sub-agent screen is read-only — ignore any stray submits.
-    if (this.subAgents.viewing) return;
-
-    this.pushHistory(text);
-
-    if (this.runCommand(text)) {
-      this.input.setValue('');
-      this.updateCommandPalette('');
-      this.tui.requestRender();
-      return;
-    }
-
-    this.input.setValue('');
-    this.clearToast();
-    this.updateCommandPalette('');
-    const isSteering = this.runtime.state() !== 'idle';
-
-    if (!isSteering) {
-      const routing = parseAgentRouting<AgentDisplay>(text, {
-        primaryAgents: this.options.primaryAgents,
-        subAgents: this.options.subAgents,
-      });
-      if (routing.kind === 'dispatch') {
-        this.transcript.appendUser(text);
-        this.renderTranscript();
-        this.subAgents.dispatch(routing.agent, routing.task);
-        return;
-      }
-      this.transcript.appendUser(text);
-      if (routing.kind === 'override') {
-        this.applyOverrideAgent(routing.agent);
-      }
-    }
-    this.setStatus('thinking...');
-
-    const message: Message = { role: 'user', content: text };
-    if (isSteering) {
-      this.transcript.appendVisibleQueuedMessage(message, 'steering');
-      this.updateWaitingList();
-    }
-    this.renderTranscript();
-    this.bus.publish({ type: isSteering ? 'steer' : 'user_message', message });
-  }
-
-  private applyOverrideAgent(target: AgentDisplay): void {
-    if (!this.options.setOverridePrimary) return;
-    const current = this.options.getActivePrimary?.();
-    if (current && current.name === target.name) return;
-    this.options.setOverridePrimary(target);
-    this.overrideActive = true;
-    this.updateModelLabel();
-    this.scheduleOverrideClear();
-  }
-
-  private setInputVisible(visible: boolean): void {
-    if (!this.inputBox.layout) return;
-    if (visible) {
-      // Restore to whatever the input value currently needs.
-      this.updateInputHeight(this.input.value);
-    } else {
-      this.inputBox.layout.height = 0;
-      // Also hide the auxiliary zones above/below the input.
-      if (this.inputTopWidgetZone.layout) this.inputTopWidgetZone.layout.height = 0;
-      if (this.inputBottomWidgetZone.layout) this.inputBottomWidgetZone.layout.height = 0;
-      this.updateDockHeight();
-    }
-    this.tui.requestRender();
-  }
-
-  private scheduleOverrideClear(): void {
-    if (this.overrideIdleTimer) return;
-    this.overrideIdleTimer = setInterval(() => {
-      if (this.stopped) {
-        this.stopOverrideTimer();
-        return;
-      }
-      if (this.runtime.state() === 'idle') {
-        this.stopOverrideTimer();
-        if (this.overrideActive) {
-          this.overrideActive = false;
-          this.options.setOverridePrimary?.(undefined);
-          this.updateModelLabel();
-          this.tui.requestRender();
-        }
-      }
-    }, 200);
-  }
-
-  private stopOverrideTimer(): void {
-    if (this.overrideIdleTimer) {
-      clearInterval(this.overrideIdleTimer);
-      this.overrideIdleTimer = undefined;
-    }
-  }
-
-  private handleFollowUpSubmit(): boolean {
-    const text = this.input.value.trim();
-    if (!text || this.runtime.state() === 'idle') return false;
-
-    this.input.setValue('');
-    this.clearToast();
-    this.updateCommandPalette('');
-    this.setStatus('queued follow-up');
-    const message: Message = { role: 'user', content: text };
-    this.transcript.appendVisibleQueuedMessage(message, 'follow_up');
-    this.updateWaitingList();
-    this.renderTranscript();
-    this.bus.publish({ type: 'follow_up', message });
-    this.tui.requestRender();
-    return true;
-  }
-
-  private pushHistory(text: string): void {
-    this.history.push(text, this.input.value);
-  }
-
-  private navigateHistory(direction: 'up' | 'down'): boolean {
-    const result = this.history.navigate(this.input.value, direction);
-    if (!result) return false;
-    this.history.withNavigation(() => {
-      this.input.setValue(result.text);
-      this.updateInputHeight(result.text);
-    });
-    this.tui.requestRender();
-    return true;
-  }
-
-  private updateInputHeight(value: string): void {
-    const inputLines = Math.min(7, Math.max(1, value.split('\n').length));
-    this.input.layout.height = inputLines;
-    if (this.inputRow.layout) this.inputRow.layout.height = inputLines;
-    const inputBoxHeight = 1 + inputLines + 1 + 1 + 1;
-    if (this.inputBox.layout) this.inputBox.layout.height = inputBoxHeight;
-    this.history.resetIfStale();
-    this.updateBashMode(value);
-    this.updateCommandPalette(value);
-    this.updateFilePicker();
-    this.updateHighlights(value);
-    this.updateDockHeight();
-  }
-
-  private updateDockHeight(): void {
-    const inputBoxHeight = (this.inputBox.layout?.height as number) ?? 4;
-    const topZoneHeight = (this.inputTopWidgetZone.layout?.height as number) ?? 0;
-    const bottomZoneHeight = (this.inputBottomWidgetZone.layout?.height as number) ?? 0;
-    const toastHeight = (this.toastZone.layout?.height as number) ?? 0;
-    const statusHeight = 1;
-    if (this.bottomDock.layout) {
-      this.bottomDock.layout.height = toastHeight + topZoneHeight + inputBoxHeight + bottomZoneHeight + statusHeight;
-    }
-  }
-
-  private updateBashMode(value: string): void {
-    const bashMode = value.startsWith('!') || value.startsWith('$');
-    if (bashMode === this.bashMode) return;
-    this.bashMode = bashMode;
-    this.inputRow.children = bashMode ? [this.bashPrompt, this.input] : [this.defaultPrompt, this.input];
-    if (bashMode) this.input.hiddenPrefix = value[0]!;
-    this.tui.requestRender();
-  }
-
-  private interceptInput(event: InputEvent): boolean {
-    if (this.modelPicker.isOpen && event.type === 'key' && event.kind !== 'release') {
-      return this.modelPicker.handleKey(event);
-    }
-
-    // Sub-agent screen is read-only: only Esc (return to main) reaches us;
-    // every other key is swallowed before the input or any shortcut sees it.
-    // Mouse and paste events fall through so scroll / click can still work.
-    if (this.subAgents.viewing && event.type === 'key' && event.kind !== 'release') {
-      if (event.key === 'escape' || event.key === 'esc') {
-        this.subAgents.closeDetail();
-      }
-      return true;
-    }
-
-    if (event.type === 'key' && event.kind !== 'release' && (event.key === 'escape' || event.key === 'esc')) {
-      if (this.clearToast()) return true;
-      if (this.filePicker.visible) return false;
-      if (this.input.value.startsWith('!') || this.input.value.startsWith('$') || this.input.value.startsWith('/')) {
-        this.input.setValue('');
-        this.updateInputHeight('');
-        this.tui.requestRender();
-        return true;
-      }
-      if (this.runtime.state() === 'running') {
-        const now = Date.now();
-        const elapsed = now - this.lastEscTime;
-        if (this.lastEscTime > 0 && elapsed < 1500) {
-          this.lastEscTime = 0;
-          void this.cancelGeneration();
-        } else {
-          this.lastEscTime = now;
-          this.setStatus('press Esc again to cancel');
-        }
-        return true;
-      }
-    }
-
-    if (event.type === 'key' && event.kind !== 'release' && event.key === 'backspace') {
-      if (this.deleteAtToken()) return true;
-    }
-
-    if (event.type === 'key' && event.kind !== 'release' && event.key === 'enter' && event.alt) {
-      return this.handleFollowUpSubmit();
-    }
-
-    if (event.type === 'key' && event.kind !== 'release' && this.filePicker.visible && !this.commandPalette) {
-      if (this.filePicker.intercept(event)) return true;
-    }
-
-    if (event.type === 'key' && event.kind !== 'release' && !this.commandPalette && !this.filePicker.visible) {
-      if (event.key === 'up') return this.navigateHistory('up');
-      if (event.key === 'down') return this.navigateHistory('down');
-      if (event.key === 'tab' && this.canCyclePrimaryAgent()) {
-        this.cyclePrimaryAgent(event.shift ? -1 : 1);
-        return true;
-      }
-    }
-
-    if (!this.commandPalette || event.type !== 'key' || event.kind === 'release') return false;
-
-    if (event.key === 'up') {
-      this.commandCursor = Math.max(0, this.commandCursor - 1);
-      this.updateCommandPalette(this.input.value);
-      return true;
-    }
-    if (event.key === 'down') {
-      this.commandCursor = Math.min(
-        Math.max(0, Math.min(6, this.filteredCommands(this.input.value).length) - 1),
-        this.commandCursor + 1,
-      );
-      this.updateCommandPalette(this.input.value);
-      return true;
-    }
-    if (event.key === 'tab') {
-      this.completeSelectedCommand();
-      return true;
-    }
-    if (event.key === 'enter') {
-      this.runSelectedCommand();
-      return true;
-    }
-    if (event.key === 'escape' || event.key === 'esc') {
-      this.dismissedPaletteFor = this.input.value;
-      this.updateCommandPalette(this.input.value);
-      return true;
-    }
-
-    return false;
-  }
-
-  // --- Commands ---
-
-  private executeCommand(command: ChatCommand, args: string): void {
-    if (command.deferWhenBusy && this.runtime.state() !== 'idle') {
-      const label = args ? `/${command.name} ${args}` : `/${command.name}`;
-      this.deferredCommandQueue.push({ label, run: () => void command.run(args, undefined) });
-      return;
-    }
-    void command.run(args, undefined);
-  }
-
-  private collectWaitingItems(): WaitingItem[] {
-    const items: WaitingItem[] = [];
-    for (const entry of this.transcript.visibleQueuedLines) {
-      items.push({ kind: entry.queue, text: entry.line.content });
-    }
-    for (const entry of this.deferredCommandQueue.snapshot()) {
-      items.push({ kind: 'command', text: entry.label });
-    }
-    return items;
-  }
-
-  private updateWaitingList(): void {
-    const items = this.collectWaitingItems();
-    if (items.length === 0) {
-      this.waitingList = undefined;
-      this.inputBottomWidgetZone.children = [];
-      if (this.inputBottomWidgetZone.layout) this.inputBottomWidgetZone.layout.height = 0;
-      this.updateDockHeight();
-      this.tui.requestRender();
-      return;
-    }
-    const height = Math.min(items.length, 6);
-    if (this.waitingList) {
-      this.waitingList.setItems(items);
-    } else {
-      this.waitingList = new WaitingList({ items, layout: { width: 'fill', height } });
-      this.inputBottomWidgetZone.children = [this.waitingList];
-    }
-    if (this.inputBottomWidgetZone.layout) this.inputBottomWidgetZone.layout.height = height;
-    this.updateDockHeight();
-    this.tui.requestRender();
-  }
-
-  private filteredCommands(value: string): ChatCommand[] {
-    return filterCommands(this.commands, value, this.dismissedPaletteFor);
-  }
-
-  private updateCommandPalette(value: string): void {
-    if (value !== this.dismissedPaletteFor) this.dismissedPaletteFor = '';
-    const items = this.filteredCommands(value);
-    this.commandCursor = Math.max(0, Math.min(this.commandCursor, Math.max(0, Math.min(6, items.length) - 1)));
-
-    if (items.length === 0) {
-      this.commandPalette = undefined;
-      this.inputTopWidgetZone.children = [];
-      if (this.inputTopWidgetZone.layout) this.inputTopWidgetZone.layout.height = 0;
-      this.updatePromptForPalette(false);
-      this.updateDockHeight();
-      return;
-    }
-
-    const visibleItems = items.slice(0, 6);
-    this.commandPalette = new CommandPalette({
-      items: visibleItems,
-      selectedIndex: this.commandCursor,
-      onSelect: (index: number) => {
-        this.commandCursor = index;
-        const command = this.filteredCommands(this.input.value)[index];
-        if (command) {
-          this.input.setValue('');
-          this.updateCommandPalette('');
-          this.executeCommand(command, '');
+  private waitingView(): Component | undefined {
+    if (this.queue.length === 0) return undefined;
+    const theme = this.theme();
+    const muted = styleToAnsi(theme.styles.muted);
+    const body = styleToAnsi(theme.styles.body);
+    const rows = this.queue.slice(0, 6).map((entry) => entry.replace(/\s+/g, ' '));
+    return {
+      render: (s) => {
+        for (let i = 0; i < rows.length; i++) {
+          const tag = '[follow-up] ';
+          const text = padTo(rows[i], Math.max(0, s.width - tag.length));
+          s.text(0, i, `${muted}${tag}${RESET}${body}${text}${RESET}`);
         }
       },
-      layout: { width: 'fill', height: visibleItems.length },
-    });
-    this.inputTopWidgetZone.children = [this.commandPalette];
-    if (this.inputTopWidgetZone.layout) this.inputTopWidgetZone.layout.height = visibleItems.length;
-    this.updatePromptForPalette(true);
-    this.updateDockHeight();
+    };
   }
 
-  private updatePromptForPalette(open: boolean): void {
-    if (this.bashMode) return;
-    const theme = this.themeProvider.current();
-    const prefix = styleToAnsi(theme.styles.muted);
-    this.defaultPrompt.setText(open ? `${prefix}/\x1b[0m` : `${prefix}❯\x1b[0m`);
-    this.input.hiddenPrefix = open ? '/' : '!';
-  }
+  private dock(): Component {
+    const children: Component[] = [];
 
-  private completeSelectedCommand(): void {
-    const command = this.filteredCommands(this.input.value)[this.commandCursor];
-    if (!command) return;
-    const next = `/${command.name} `;
-    this.input.setValue(next);
-    this.input.setCursor(next.length);
-    this.updateCommandPalette(next);
-  }
+    const error = this.errorView();
+    if (error) children.push(error);
 
-  private runSelectedCommand(): void {
-    const command = this.filteredCommands(this.input.value)[this.commandCursor];
-    if (!command) return;
-    this.input.setValue('');
-    this.updateCommandPalette('');
-    this.executeCommand(command, '');
-  }
-
-  private runCommand(value: string): boolean {
-    if (value.startsWith('!') || value.startsWith('$')) {
-      runShellCommand({
-        cmd: value.slice(1).trim(),
-        transcript: this.transcript,
-        theme: this.themeProvider.current(),
-        onRender: () => this.renderTranscript(),
-      });
-      return true;
-    }
-    if (!value.trim().startsWith('/')) return false;
-    const match = this.commands.match(value);
-    if (!match) {
-      const name = value.trim().slice(1).split(/\s+/)[0] ?? '';
-      this.transcript.lines.push({ role: 'error', content: `Unknown command: /${name}` });
-      this.renderTranscript();
-      return true;
-    }
-    this.executeCommand(match.command, match.args);
-    return true;
-  }
-
-  // --- File Picker ---
-
-  /** Mount or unmount a widget in the zone above the input. */
-  private mountTopWidget(component: Component | undefined, height: number): void {
-    if (component) {
-      this.inputTopWidgetZone.children = [component];
-    } else if (!this.commandPalette) {
-      this.inputTopWidgetZone.children = [];
-    }
-    if (this.inputTopWidgetZone.layout) this.inputTopWidgetZone.layout.height = height;
-    this.updateDockHeight();
-  }
-
-  private updateFilePicker(): void {
-    if (this.commandPalette) {
-      this.filePicker.dismiss();
-      return;
-    }
-    this.filePicker.update();
-  }
-
-  private updateHighlights(value: string): void {
-    const highlights: InputHighlight[] = [];
-    const theme = this.themeProvider.current();
-    const atStyle = styleToAnsi({ fg: theme.colors.warning, bold: true });
-    const re = /@[^\s]+/g;
-    let match: RegExpExecArray | null;
-    while ((match = re.exec(value)) !== null) {
-      highlights.push({ start: match.index, end: match.index + match[0].length, style: atStyle });
-    }
-    this.input.highlights = highlights;
-  }
-
-  private deleteAtToken(): boolean {
-    const value = this.input.value;
-    const cursor = this.input.cursor;
-    const re = /@[^\s]+/g;
-    let match: RegExpExecArray | null;
-    while ((match = re.exec(value)) !== null) {
-      const start = match.index;
-      const end = start + match[0].length;
-      if (cursor > start && cursor <= end) {
-        const newValue = value.slice(0, start) + value.slice(end);
-        this.input.setValue(newValue);
-        this.input.setCursor(start);
-        this.updateHighlights(newValue);
-        this.tui.requestRender();
-        return true;
-      }
-    }
-    return false;
-  }
-
-  // Note: mu-core Runtime exposes no AbortSignal, so we cannot interrupt an
-  // in-flight provider stream. We fire-and-forget the stop() and rebuild the
-  // runtime so the UI proceeds immediately; the provider may continue to drain
-  // in the background until its stream completes.
-  private async cancelGeneration(): Promise<void> {
-    if (!this.modelController) return;
-    this.setStatus('cancelling...');
-    this.tui.requestRender();
-    void this.runtime.stop();
-    this.unsubscribe?.();
-    this.unsubscribe = undefined;
-    this.runtime = this.modelController.createRuntime();
-    this.unsubscribe = this.bus.subscribe((event) => this.handleEvent(event));
-    await this.runtime.start();
-    this.transcript.visibleQueuedLines.length = 0;
-    this.transcript.resetPending();
-    this.updateWaitingList();
-    this.stopSpinner();
-    this.setStatus('cancelled');
-    this.tui.requestRender();
-    this.deferredCommandQueue.scheduleDrain();
-  }
-
-  // --- Session commands ---
-
-  private async startNewSession(): Promise<void> {
-    if (!this.modelController) {
-      this.showErrorToast('No runtime controller is configured.');
-      return;
-    }
-    if (this.runtime.state() !== 'idle') {
-      this.showErrorToast('Cannot start a new session while a response is running.');
-      return;
+    const palette = this.paletteItems();
+    if (palette.length > 0) {
+      const rows = palette.map((c) => ({ left: `/${c.name}`, right: c.description }));
+      children.push(listView(rows, this.paletteCursor, this.theme()));
+    } else if (this.pickerVisible()) {
+      const rows = this.pickerRanked.map((c) => ({ left: c.label, right: c.kind === 'agent' ? 'agent' : '' }));
+      children.push(listView(rows, this.pickerCursor, this.theme()));
     }
 
-    this.unsubscribe?.();
-    this.unsubscribe = undefined;
-    this.subAgents.detachViewing();
-    await this.runtime.stop();
-    this.runtime = this.modelController.createRuntime();
-    this.unsubscribe = this.bus.subscribe((event) => this.handleEvent(event));
-    await this.runtime.start();
-    this.transcript.reset();
-    this.subAgents.previews.clear();
-    this.deferredCommandQueue.clear();
-    this.contextText = '';
-    this.roundtrips.clear();
-    this.setStatus('new session');
-    this.updateWaitingList();
-    this.renderTranscript();
+    children.push(this.inputPanel());
+
+    const waiting = this.waitingView();
+    if (waiting) children.push(waiting);
+
+    children.push(statusComponent(this.status, this.theme()));
+    return column(children);
   }
 
-  private async exportContext(args: string): Promise<void> {
-    await exportContextToFile({
-      args,
-      roundtrips: this.roundtrips,
-      modelId: this.modelController?.model,
-      transcript: this.transcript,
-      onRender: () => this.renderTranscript(),
-      onError: (message) => this.showErrorToast(message),
-    });
-  }
-
-  private handleToggleThinking(): void {
-    this.transcript.toggleThinking();
-    this.options.onThinkingVisibleChange?.(this.transcript.thinkingVisible);
-    this.renderTranscript();
-  }
-
-  private toggleOutputBlocks(): void {
-    if (toggleOutputBlocksInTranscript(this.transcript)) this.renderTranscript();
-  }
-
-  // --- Model picker modal ---
-
-  private openModelModal(): void {
-    this.modelPicker.open();
-  }
-
-  /**
-   * Add/remove a modal at the root level. `ModelPickerController` is the only
-   * caller today; if more modal-bearing controllers appear they reuse the same
-   * mount point, which is why this stays generic.
-   */
-  private mountRootModal(modal: Component | undefined): void {
-    if (this.mountedModal) this.root.removeChild(this.mountedModal);
-    this.mountedModal = modal ?? undefined;
-    if (modal) this.root.addChild(modal);
-  }
-
-  // --- Event handling ---
-
-  private handleEvent(event: CoreEvent): void {
-    // Generic shared behavior — appending to transcript, activating queued
-    // user lines on turn-start, status labels — comes from harness.
-    this.transcript.apply(event);
-    const status = statusFromEvent(event);
-    if (status !== undefined) this.setStatus(status);
-
-    // Agent-specific side effects.
-    switch (event.type) {
-      case 'context_update':
-        this.setContext(event.context);
-        break;
-      case 'queued_message':
-        this.updateWaitingList();
-        break;
-      case 'error': {
-        const msg = event.error instanceof Error ? event.error.message : String(event.error);
-        this.showErrorToast(msg);
-        break;
-      }
-    }
-    this.renderTranscript();
-    this.deferredCommandQueue.scheduleDrain();
-  }
-
-  // --- Rendering ---
-
-  private renderTranscript(): void {
-    const shouldStickToBottom = this.scrollView.isAtBottom();
-    let components: Component[];
-    if (this.subAgents.viewing) {
-      const run = this.subAgents.runs.get(this.subAgents.viewing);
-      if (!run) {
-        // The run vanished — fall back to the main view.
-        this.subAgents.detachViewing();
-        components = this.buildMainComponents();
-      } else {
-        components = buildSubAgentViewComponents(run);
-      }
-    } else {
-      components = this.buildMainComponents();
-    }
-    this.scrollView.setChildren(components, { stickToBottom: shouldStickToBottom });
-    this.tui.requestRender();
-  }
-
-  private buildMainComponents(): Component[] {
-    return buildTranscriptComponents({
-      transcript: this.transcript,
-      subAgentRuns: this.subAgents.runs,
-      previewCache: this.subAgents.previews,
-      onOpenSubAgent: (id) => this.subAgents.openDetail(id),
-      onOpenThinking: (line) => {
-        this.transcript.openThinkingLine(line);
-        this.renderTranscript();
+  private root(): Component {
+    const inner = column([flex(this.scroll), this.dock()]);
+    return {
+      render: (s) => {
+        if (s.width <= 2) {
+          inner.render(s);
+          return;
+        }
+        s.child(inner, { x: 1, y: 0, width: s.width - 2, height: s.height });
       },
-    });
+    };
   }
 }

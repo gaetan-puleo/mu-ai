@@ -11,14 +11,14 @@ describe('parseLine', () => {
     expect(cells.every((c) => c.width === 1)).toBe(true);
   });
 
-  it('applies SGR foreground to subsequent cells', () => {
+  it('applies foreground SGR to subsequent cells', () => {
     const cells = parseLine('a\x1b[31mb');
     expect(cells[0].style.fg.intent).toBe('default');
     expect(cells[1].style.fg.intent).toBe('indexed');
     expect(cells[1].style.fg.index).toBe(1);
   });
 
-  it('parses truecolor sgr', () => {
+  it('parses truecolor SGR', () => {
     const cells = parseLine('\x1b[38;2;255;128;0mX');
     const fg = cells[0].style.fg;
     expect(fg.intent).toBe('rgb');
@@ -59,7 +59,7 @@ describe('parseLine', () => {
     expect(cells[0].style.link).toBe('https://example.com');
   });
 
-  it('handles 22 (normal intensity) clearing bold and dim', () => {
+  it('handles 22 (normal intensity) by clearing bold and dim', () => {
     const cells = parseLine('\x1b[1;2mA\x1b[22mB');
     expect(cells[0].style.bold).toBe(true);
     expect(cells[0].style.dim).toBe(true);
@@ -69,24 +69,23 @@ describe('parseLine', () => {
 });
 
 describe('cellsToAnsi', () => {
-  it('emits empty string for empty input', () => {
+  it('emits an empty string for empty input', () => {
     expect(cellsToAnsi([])).toBe('');
   });
 
-  it('emits plain text with no SGR when style is default', () => {
+  it('emits plain text without SGR when the style is default', () => {
     const cells = parseLine('abc');
     expect(cellsToAnsi(cells)).toBe('abc');
   });
 
-  it('emits SGR for non-default style and trailing reset', () => {
+  it('emits SGR for a non-default style and a final reset', () => {
     const cells = parseLine('\x1b[31mabc');
     expect(cellsToAnsi(cells)).toBe('\x1b[31mabc\x1b[0m');
   });
 
-  it('coalesces runs of identical style', () => {
+  it('merges runs with identical style', () => {
     const cells = parseLine('\x1b[1mABC');
     const out = cellsToAnsi(cells);
-    // One SGR open, the text, then reset
     expect(out).toBe('\x1b[1mABC\x1b[0m');
   });
 
@@ -101,7 +100,6 @@ describe('cellsToAnsi', () => {
   it('skips continuation cells', () => {
     const cells = parseLine('日');
     const out = cellsToAnsi(cells);
-    // Only one printed grapheme — the wide char — even though there are 2 cells.
     expect(out.includes('日')).toBe(true);
   });
 });

@@ -1,91 +1,35 @@
-import type { Channel, ChannelInEvent, ChannelOutEvent } from './types';
+import { createEmitter } from '../common';
+import type { AgentSession } from '../session';
+import { createChannel } from './channel';
+import type { Channel, ChannelManager, ChannelManagerEvent } from './types';
 
-export type ChannelInListener = (channelId: string, event: ChannelInEvent) => void | Promise<void>;
-
-export interface ChannelManager {
-  add(channel: Channel): Promise<void>;
-  remove(id: string): Promise<void>;
-  get(id: string): Channel | undefined;
-  list(): Channel[];
-  /** Send an event to a single channel. No-op when the channel is gone. */
-  send(id: string, event: ChannelOutEvent): Promise<void>;
-  /** Broadcast an event to every active channel. */
-  broadcast(event: ChannelOutEvent): Promise<void>;
-  /**
-   * Subscribe to inputs from every channel. The listener receives the channel
-   * id alongside the event so callers can decide where to route it
-   * (per-channel session, command vs. user_input, etc.).
-   */
-  onInput(listener: ChannelInListener): () => void;
-  /** Stop and remove every channel. */
-  stopAll(): Promise<void>;
-}
-
-export function createChannelManager(): ChannelManager {
+export const createChannelManager = (config: {
+  createSession: () => AgentSession;
+  idGen?: () => string;
+}): ChannelManager => {
   const channels = new Map<string, Channel>();
-  const inputListeners = new Set<ChannelInListener>();
+  const unsubs = new Map<string, () => void>();
+  const emitter = createEmitter<ChannelManagerEvent>();
 
-  async function fanInputToListeners(channelId: string, event: ChannelInEvent): Promise<void> {
-    await Promise.all([...inputListeners].map((fn) => safeCall(() => fn(channelId, event))));
-  }
+  const idGen = config.idGen ?? (() => crypto.randomUUID());
 
   return {
-    async add(channel) {
-      if (channels.has(channel.id)) {
-        throw new Error(`Channel "${channel.id}" is already registered`);
-      }
-      // Only register the channel after a successful start; a failing start must not leave a half-started entry behind.
-      await channel.start({
-        channelId: channel.id,
-        deliver: (event) => fanInputToListeners(channel.id, event),
-      });
-      channels.set(channel.id, channel);
+    open(opts) {
+      const id = opts?.id ?? idGen();
+      const title = opts?.title ?? id;
+      const channel = createChannel({ id, title, createSession: config.createSession });
+      channels.set(id, channel);
+      unsubs.set(id, channel.subscribe((event) => emitter.emit({ channelId: id, ...event })));
+      emitter.emit({ channelId: id, type: 'channel_open', title });
+      return channel;
     },
-
-    async remove(id) {
-      const channel = channels.get(id);
-      if (!channel) return;
-      channels.delete(id);
-      await safeCall(() => channel.stop());
+    get: (id) => channels.get(id),
+    list: () => [...channels.values()],
+    close(id) {
+      unsubs.get(id)?.();
+      unsubs.delete(id);
+      if (channels.delete(id)) emitter.emit({ channelId: id, type: 'channel_close' });
     },
-
-    get(id) {
-      return channels.get(id);
-    },
-
-    list() {
-      return [...channels.values()];
-    },
-
-    async send(id, event) {
-      const channel = channels.get(id);
-      if (!channel) return;
-      await safeCall(() => channel.send(event));
-    },
-
-    async broadcast(event) {
-      await Promise.all([...channels.values()].map((c) => safeCall(() => c.send(event))));
-    },
-
-    onInput(listener) {
-      inputListeners.add(listener);
-      return () => {
-        inputListeners.delete(listener);
-      };
-    },
-
-    async stopAll() {
-      const all = [...channels.values()];
-      channels.clear();
-      await Promise.all(all.map((c) => safeCall(() => c.stop())));
-    },
+    subscribe: emitter.subscribe,
   };
-}
-
-async function safeCall(fn: () => void | Promise<void>): Promise<void> {
-  try {
-    await fn();
-  } catch (error) {
-    console.error('[mu-harness/channels] handler threw:', error);
-  }
-}
+};

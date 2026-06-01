@@ -1,8 +1,3 @@
-/**
- * Unit tests for mu-webfetch. We swap `globalThis.fetch` with a scripted
- * stub so the tool runs offline and we can assert the exact request
- * sequence (Cloudflare retry, UA fallback, timeout abort, size cap, etc.).
- */
 import { expect } from '@std/expect';
 import { afterEach, beforeEach, describe, it } from '@std/testing/bdd';
 import type { Tool } from 'mu-core';
@@ -19,9 +14,8 @@ function getTool(): Tool {
 
 async function run(args: Record<string, unknown>): Promise<string> {
   const tool = getTool();
-  // mu-core now parses wire-format JSON args at the runtime boundary; tests
-  // hand the parsed object directly so we mirror the in-process call path.
-  return await tool.execute(args);
+  const parts = await tool.run(args, {});
+  return parts.map((part) => (part.type === 'text' ? part.text : '')).join('');
 }
 
 function setFetch(stub: FetchStub) {
@@ -29,7 +23,6 @@ function setFetch(stub: FetchStub) {
 }
 
 beforeEach(() => {
-  // Reset to a default that fails loudly so unhandled paths surface.
   setFetch(() => Promise.reject(new Error('fetch stub not set')));
 });
 
@@ -43,14 +36,14 @@ describe('mu-webfetch — URL validation', () => {
     expect(out).toContain('http://');
   });
 
-  it('rejects missing url', async () => {
+  it('rejects a missing url', async () => {
     const out = await run({});
     expect(out).toContain('Error:');
   });
 });
 
 describe('mu-webfetch — content negotiation', () => {
-  it('returns plain text bodies untouched', async () => {
+  it('returns plain text bodies intact', async () => {
     setFetch(async () => new Response('hello world', { headers: { 'content-type': 'text/plain' } }));
     const out = await run({ url: 'https://example.com/x' });
     expect(out).toBe('hello world');
@@ -65,7 +58,7 @@ describe('mu-webfetch — content negotiation', () => {
     expect(out).not.toContain('<h1>');
   });
 
-  it('drops script and style content when converting HTML', async () => {
+  it('strips script and style content when converting HTML', async () => {
     const html = '<html><body><script>var x=1</script><p>visible</p><style>.x{}</style></body></html>';
     setFetch(async () => new Response(html, { headers: { 'content-type': 'text/html' } }));
     const out = await run({ url: 'https://example.com/x' });
@@ -84,7 +77,7 @@ describe('mu-webfetch — image responses', () => {
     expect(out).toContain('[image: image/png, 4 bytes');
   });
 
-  it('treats svg as text, not image', async () => {
+  it('treats svg as text, not as an image', async () => {
     const svg = '<svg><title>x</title></svg>';
     setFetch(async () => new Response(svg, { headers: { 'content-type': 'image/svg+xml' } }));
     const out = await run({ url: 'https://example.com/x.svg' });
@@ -99,7 +92,7 @@ describe('mu-webfetch — error paths', () => {
     expect(out).toContain('500');
   });
 
-  it('rejects responses larger than 5MB via content-length', async () => {
+  it('rejects responses exceeding 5MB via content-length', async () => {
     setFetch(
       async () =>
         new Response('ignored', {
@@ -110,7 +103,7 @@ describe('mu-webfetch — error paths', () => {
     expect(out).toContain('5MB');
   });
 
-  it('rejects bodies larger than 5MB even when no content-length is sent', async () => {
+  it('rejects bodies exceeding 5MB even when no content-length is sent', async () => {
     const big = new Uint8Array(6 * 1024 * 1024);
     setFetch(async () => new Response(big, { headers: { 'content-type': 'application/octet-stream' } }));
     const out = await run({ url: 'https://example.com/x' });
@@ -119,7 +112,7 @@ describe('mu-webfetch — error paths', () => {
 });
 
 describe('mu-webfetch — Cloudflare retry', () => {
-  it('retries with User-Agent: mu when first response is 403 cf-mitigated', async () => {
+  it('retries with User-Agent: mu when the first response is a 403 cf-mitigated', async () => {
     const calls: { url: string; ua: string | undefined }[] = [];
     setFetch(async (url, init) => {
       const headers = new Headers(init?.headers);
@@ -153,7 +146,7 @@ describe('mu-webfetch — Cloudflare retry', () => {
 });
 
 describe('mu-webfetch — abort + timeout', () => {
-  it('times out when the request hangs longer than the requested timeout', async () => {
+  it('times out when the request stays blocked longer than the requested timeout', async () => {
     setFetch((_url, init) => {
       return new Promise((_resolve, reject) => {
         const sig = init?.signal;
@@ -166,7 +159,7 @@ describe('mu-webfetch — abort + timeout', () => {
     expect(out).toContain('timed out');
   });
 
-  it('rejects sub-floor timeout values up-front', async () => {
+  it('rejects timeout values below the minimum threshold outright', async () => {
     setFetch(() => Promise.reject(new Error('fetch should not run')));
     const out = await run({ url: 'https://example.com/x', timeout: 0 });
     expect(out).toContain('Error:');
@@ -175,33 +168,26 @@ describe('mu-webfetch — abort + timeout', () => {
 });
 
 describe('mu-webfetch — charset detection (#216)', () => {
-  it('decodes windows-1252 from Content-Type header', async () => {
-    // 0x91/0x92 = curly single quotes in windows-1252; would render as U+FFFD in UTF-8.
-    const bytes = new Uint8Array([0x91, 0x68, 0x69, 0x92]); // 'hi'
-    setFetch(async () =>
-      new Response(bytes, { headers: { 'content-type': 'text/plain; charset=windows-1252' } })
-    );
+  it('decodes windows-1252 from the Content-Type header', async () => {
+    const bytes = new Uint8Array([0x91, 0x68, 0x69, 0x92]);
+    setFetch(async () => new Response(bytes, { headers: { 'content-type': 'text/plain; charset=windows-1252' } }));
     const out = await run({ url: 'https://example.com/x' });
-    expect(out).toContain('‘hi’'); // U+2018/U+2019 curly quotes
+    expect(out).toContain('‘hi’');
     expect(out).not.toContain('�');
   });
 
-  it('decodes shift_jis from Content-Type header', async () => {
-    // "こんにちは" in shift_jis.
+  it('decodes shift_jis from the Content-Type header', async () => {
     const bytes = new Uint8Array([0x82, 0xb1, 0x82, 0xf1, 0x82, 0xc9, 0x82, 0xbf, 0x82, 0xcd]);
-    setFetch(async () =>
-      new Response(bytes, { headers: { 'content-type': 'text/plain; charset=shift_jis' } })
-    );
+    setFetch(async () => new Response(bytes, { headers: { 'content-type': 'text/plain; charset=shift_jis' } }));
     const out = await run({ url: 'https://example.com/x' });
     expect(out).toBe('こんにちは');
   });
 
-  it('falls back to <meta charset> when header lacks charset', async () => {
-    // "Ñoño" encoded in windows-1252 is [0xD1, 0x6F, 0xF1, 0x6F].
+  it('falls back to <meta charset> when the header does not specify a charset', async () => {
     const head = new TextEncoder().encode(
       '<html><head><meta charset="windows-1252"></head><body><p>',
     );
-    const payload = new Uint8Array([0xd1, 0x6f, 0xf1, 0x6f]); // Ñoño
+    const payload = new Uint8Array([0xd1, 0x6f, 0xf1, 0x6f]);
     const tail = new TextEncoder().encode('</p></body></html>');
     const bytes = new Uint8Array(head.length + payload.length + tail.length);
     bytes.set(head, 0);
@@ -213,11 +199,11 @@ describe('mu-webfetch — charset detection (#216)', () => {
     expect(out).not.toContain('�');
   });
 
-  it('falls back to <meta http-equiv="Content-Type"> when header lacks charset', async () => {
+  it('falls back to <meta http-equiv="Content-Type"> when the header does not specify a charset', async () => {
     const head = new TextEncoder().encode(
       '<html><head><meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1"></head><body><p>',
     );
-    const payload = new Uint8Array([0xe9]); // é in iso-8859-1
+    const payload = new Uint8Array([0xe9]);
     const tail = new TextEncoder().encode('</p></body></html>');
     const bytes = new Uint8Array(head.length + payload.length + tail.length);
     bytes.set(head, 0);
@@ -229,7 +215,7 @@ describe('mu-webfetch — charset detection (#216)', () => {
     expect(out).not.toContain('�');
   });
 
-  it('falls back to UTF-8 when charset label is unknown', async () => {
+  it('falls back to UTF-8 when the charset label is unknown', async () => {
     const bytes = new TextEncoder().encode('hello UTF-8');
     setFetch(async () =>
       new Response(bytes, { headers: { 'content-type': 'text/plain; charset=bogus-encoding-xyz' } })
@@ -239,7 +225,6 @@ describe('mu-webfetch — charset detection (#216)', () => {
   });
 
   it('defaults to UTF-8 when no charset is declared anywhere', async () => {
-    // "héllo" in UTF-8 is [0x68, 0xc3, 0xa9, 0x6c, 0x6c, 0x6f]
     const bytes = new Uint8Array([0x68, 0xc3, 0xa9, 0x6c, 0x6c, 0x6f]);
     setFetch(async () => new Response(bytes, { headers: { 'content-type': 'text/plain' } }));
     const out = await run({ url: 'https://example.com/x' });
@@ -274,7 +259,7 @@ describe('mu-webfetch — turndown failure (#217)', () => {
 describe('mu-webfetch — tool surface', () => {
   it('declares its tool system prompt', () => {
     const tool = getTool();
-    expect(tool.systemPrompt).toContain('## webfetch');
+    expect(tool.prompt).toContain('## webfetch');
   });
 });
 
@@ -286,7 +271,7 @@ describe('mu-webfetch — SSRF protection (#213)', () => {
     expect(out).toContain('internal');
   });
 
-  it('rejects cloud metadata endpoint 169.254.169.254', async () => {
+  it('rejects the cloud metadata endpoint 169.254.169.254', async () => {
     setFetch(() => Promise.reject(new Error('fetch should not run')));
     const out = await run({ url: 'http://169.254.169.254/latest/meta-data/' });
     expect(out).toContain('Error:');
@@ -300,28 +285,28 @@ describe('mu-webfetch — SSRF protection (#213)', () => {
     expect(out).toContain('internal');
   });
 
-  it('rejects RFC1918 http://10.0.0.5/', async () => {
+  it('rejects http://10.0.0.5/ (RFC1918)', async () => {
     setFetch(() => Promise.reject(new Error('fetch should not run')));
     const out = await run({ url: 'http://10.0.0.5/' });
     expect(out).toContain('Error:');
     expect(out).toContain('internal');
   });
 
-  it('rejects IPv6 loopback http://[::1]/', async () => {
+  it('rejects the IPv6 loopback http://[::1]/', async () => {
     setFetch(() => Promise.reject(new Error('fetch should not run')));
     const out = await run({ url: 'http://[::1]/' });
     expect(out).toContain('Error:');
     expect(out).toContain('internal');
   });
 
-  it('rejects IPv4-mapped IPv6 http://[::ffff:127.0.0.1]/', async () => {
+  it('rejects the IPv4-mapped IPv6 http://[::ffff:127.0.0.1]/', async () => {
     setFetch(() => Promise.reject(new Error('fetch should not run')));
     const out = await run({ url: 'http://[::ffff:127.0.0.1]/' });
     expect(out).toContain('Error:');
     expect(out).toContain('internal');
   });
 
-  it('allows a public HTTPS URL through validation (fetch mocked)', async () => {
+  it('lets a public HTTPS URL pass validation (mocked fetch)', async () => {
     setFetch(async () => new Response('ok', { headers: { 'content-type': 'text/plain' } }));
     const out = await run({ url: 'https://example.com/x' });
     expect(out).toBe('ok');
@@ -342,7 +327,7 @@ describe('mu-webfetch — SSRF protection (#213)', () => {
     expect(n).toBe(1);
   });
 
-  it('caps redirect chains at MAX_REDIRECTS', async () => {
+  it('limits redirect chains to MAX_REDIRECTS', async () => {
     let n = 0;
     setFetch(async (_url) => {
       n++;

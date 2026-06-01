@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { formatError, type Tool } from 'mu-core';
-import { looksBinary, sanitizePath, validatedCwd, writeAtomic } from './utils';
+import { type ContentPart, text, type Tool } from 'mu-core';
+import { formatError, looksBinary, sanitizePath, validatedCwd, writeAtomic } from './utils';
 
 import type { ToolFactoryOptions } from './types';
 
@@ -12,12 +12,13 @@ interface EditFileArgs {
   to?: unknown;
 }
 
-export function createEditFileTool(opts: EditFileToolOptions): Tool<EditFileArgs, string> {
+export function createEditFileTool(opts: EditFileToolOptions): Tool {
   const getCwd = validatedCwd(opts.getCwd);
   return {
     name: 'edit',
     description:
       'Replace an exact substring in an existing file. `from` must occur exactly once — include surrounding context to disambiguate. Whitespace must match exactly.',
+    prompt: 'Prefer `edit` over `write` for changes to existing files; `from` must match exactly and occur once.',
     parameters: {
       type: 'object',
       properties: {
@@ -32,30 +33,29 @@ export function createEditFileTool(opts: EditFileToolOptions): Tool<EditFileArgs
       required: ['path', 'from', 'to'],
       additionalProperties: false,
     },
-    execute(args) {
+    run(input): Promise<ContentPart[]> {
+      const args = (input ?? {}) as EditFileArgs;
       if (typeof args.path !== 'string') {
-        return 'Error: edit requires a string `path`';
+        return Promise.resolve([text('Error: edit requires a string `path`')]);
       }
       if (typeof args.from !== 'string') {
-        return 'Error: edit requires a string `from`';
+        return Promise.resolve([text('Error: edit requires a string `from`')]);
       }
       if (typeof args.to !== 'string') {
-        return 'Error: edit requires a string `to`';
+        return Promise.resolve([text('Error: edit requires a string `to`')]);
       }
-      const rawPath = args.path;
-      const path = sanitizePath(rawPath, getCwd());
+      const path = sanitizePath(args.path, getCwd());
       const oldString = args.from;
       const newString = args.to;
 
       if (!existsSync(path)) {
-        return `Error: File not found: ${path}`;
+        return Promise.resolve([text(`Error: File not found: ${path}`)]);
       }
       try {
         if (looksBinary(path)) {
-          return `Error: Refusing to edit binary file: ${path}`;
+          return Promise.resolve([text(`Error: Refusing to edit binary file: ${path}`)]);
         }
         const content = readFileSync(path, 'utf-8');
-        // Count occurrences without materializing N+1 substrings; bail at 2.
         let count = 0;
         let searchFrom = 0;
         while (count < 2) {
@@ -65,21 +65,16 @@ export function createEditFileTool(opts: EditFileToolOptions): Tool<EditFileArgs
           searchFrom = idx + oldString.length;
         }
         if (count === 0) {
-          return 'Error: "from" not found in file';
+          return Promise.resolve([text('Error: "from" not found in file')]);
         }
         if (count > 1) {
-          return 'Error: "from" found multiple times, must be unique';
+          return Promise.resolve([text('Error: "from" found multiple times, must be unique')]);
         }
-        // Atomic temp+rename: readers either see the old or new contents, never a partial file.
-        // Note: TOCTOU is still possible between the read above and the rename below — a concurrent
-        // writer could clobber our edit, or be clobbered by it. Atomic write at least guarantees
-        // no torn writes on crash.
         writeAtomic(path, content.replace(oldString, newString));
-        return `File edited: ${path}`;
+        return Promise.resolve([text(`File edited: ${path}`)]);
       } catch (err) {
-        return formatError(err);
+        return Promise.resolve([text(formatError(err))]);
       }
     },
-    onError: formatError,
   };
 }

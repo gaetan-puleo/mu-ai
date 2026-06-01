@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { formatError, type Tool } from 'mu-core';
-import { sanitizePath, validatedCwd } from './utils';
+import { type ContentPart, text, type Tool } from 'mu-core';
+import { formatError, sanitizePath, validatedCwd } from './utils';
 
 import type { ToolFactoryOptions } from './types';
 
@@ -40,7 +40,6 @@ function listDirRecursive(dir: string, prefix: string, depth: number, maxDepth: 
     const icon = isSymlink ? '🔗' : isDir ? '📁' : '📄';
     lines.push(`${prefix}${connector}${icon} ${entry}`);
 
-    // Skip symlinks to avoid infinite loops on circular references.
     if (recursive && isDir && !isSymlink && depth < maxDepth) {
       const extension = isLast ? '    ' : '│   ';
       lines.push(listDirRecursive(fullPath, prefix + extension, depth + 1, maxDepth, recursive));
@@ -50,11 +49,13 @@ function listDirRecursive(dir: string, prefix: string, depth: number, maxDepth: 
   return lines.join('\n');
 }
 
-export function createListDirTool(opts: ListDirToolOptions): Tool<ListDirArgs, string> {
+export function createListDirTool(opts: ListDirToolOptions): Tool {
   const getCwd = validatedCwd(opts.getCwd);
   return {
     name: 'list_dir',
     description: 'List the contents of a directory. Optionally recurse with a depth limit.',
+    prompt:
+      'Explore directories with `list_dir`. Reuse a listing already shown in the conversation instead of listing the same path again.',
     parameters: {
       type: 'object',
       properties: {
@@ -65,28 +66,27 @@ export function createListDirTool(opts: ListDirToolOptions): Tool<ListDirArgs, s
       required: ['path'],
       additionalProperties: false,
     },
-    execute(args) {
+    run(input): Promise<ContentPart[]> {
+      const args = (input ?? {}) as ListDirArgs;
       if (typeof args.path !== 'string') {
-        return 'Error: list_dir requires a string `path`';
+        return Promise.resolve([text('Error: list_dir requires a string `path`')]);
       }
-      const rawPath = args.path;
       const cwd = getCwd();
-      const path = sanitizePath(rawPath, cwd);
+      const path = sanitizePath(args.path, cwd);
       if (!existsSync(path)) {
-        return `Error: Directory not found: ${path}`;
+        return Promise.resolve([text(`Error: Directory not found: ${path}`)]);
       }
       if (!statSync(path).isDirectory()) {
-        return `Error: Path is not a directory: ${path}`;
+        return Promise.resolve([text(`Error: Path is not a directory: ${path}`)]);
       }
       try {
         const recursive = typeof args.recursive === 'boolean' ? args.recursive : false;
         const maxDepth = typeof args.depth === 'number' ? args.depth : 2;
         const lines = listDirRecursive(path, '', 0, maxDepth, recursive);
-        return lines || '(empty directory)';
+        return Promise.resolve([text(lines || '(empty directory)')]);
       } catch (err) {
-        return formatError(err);
+        return Promise.resolve([text(formatError(err))]);
       }
     },
-    onError: formatError,
   };
 }

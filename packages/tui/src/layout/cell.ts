@@ -1,6 +1,5 @@
 import { DEFAULT_BG, DEFAULT_FG, type Rgba, rgbaEqual } from './color';
 
-/** Visual style applied to a single cell. */
 export interface CellStyle {
   fg: Rgba;
   bg: Rgba;
@@ -11,24 +10,15 @@ export interface CellStyle {
   strikethrough: boolean;
   reverse: boolean;
   blink: boolean;
-  /** OSC 8 hyperlink target, if any. */
   link?: string;
 }
 
-/**
- * A single screen cell.
- *
- * Wide characters occupy two columns: the primary cell carries `width: 2`
- * and the column immediately after carries `width: 0, grapheme: ''` as a
- * continuation marker.
- */
 export interface Cell {
   grapheme: string;
   width: 0 | 1 | 2;
   style: CellStyle;
 }
 
-/** Shared default style. Treat as read-only — never mutate. */
 export const DEFAULT_STYLE: CellStyle = {
   fg: DEFAULT_FG,
   bg: DEFAULT_BG,
@@ -41,7 +31,6 @@ export const DEFAULT_STYLE: CellStyle = {
   blink: false,
 };
 
-/** A fresh, mutable copy of the default style. */
 export function defaultStyle(): CellStyle {
   return {
     fg: DEFAULT_FG,
@@ -56,12 +45,10 @@ export function defaultStyle(): CellStyle {
   };
 }
 
-/** A fresh blank cell (space with default style). */
 export function emptyCell(): Cell {
   return { grapheme: ' ', width: 1, style: defaultStyle() };
 }
 
-/** Continuation cell marker for the second column of a wide character. */
 export function continuationCell(): Cell {
   return { grapheme: '', width: 0, style: defaultStyle() };
 }

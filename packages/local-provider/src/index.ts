@@ -1,44 +1,15 @@
-import type {
-  ContextMap,
-  ContextPartKind,
-  LLMProvider,
-  LLMProviderResult,
-  LLMStreamEvent,
-  Message,
-  Plugin,
-  Tool,
-  ToolCall,
-} from 'mu-core';
+import type { ContentPart, Message, Provider, StreamEvent, Tool, Usage } from 'mu-core';
 import OpenAI from 'openai';
 import type { Stream } from 'openai/core/streaming';
 import type {
   ChatCompletionChunk,
+  ChatCompletionContentPart,
   ChatCompletionCreateParamsStreaming,
   ChatCompletionMessageParam,
   ChatCompletionTool,
 } from 'openai/resources/chat/completions';
-import {
-  collectLlamaSwapContext,
-  detectLlamaSwap,
-  getLlamaSwapOpenAIBaseUrl,
-  prepareLlamaSwapChatRequest,
-  tokenizeLlamaSwap,
-} from './llama-swap';
-import {
-  type LocalBackendInfo,
-  type LocalLLMResponseContext,
-  type LocalModel,
-  type LocalProviderConfig,
-  LocalProviderError,
-} from './types';
-
-type ToolCallDelta = ChatCompletionChunk.Choice.Delta.ToolCall;
-
-interface ReasoningDelta {
-  reasoning_content?: unknown;
-  reasoning?: unknown;
-  reasoningContent?: unknown;
-}
+import { type Backend, detectBackend } from './backend';
+import { type LocalBackendInfo, type LocalModel, type LocalProviderConfig, LocalProviderError } from './types';
 
 export type {
   LLMResponseContextProps,
@@ -59,12 +30,8 @@ export async function detectLocalBackend(config: {
   apiKey?: string;
 }): Promise<LocalBackendInfo> {
   const baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
-
-  const result = await detectLlamaSwap({ baseUrl, apiKey: config.apiKey });
-  if (result) {
-    return result;
-  }
-
+  const found = await detectBackend({ baseUrl, apiKey: config.apiKey });
+  if (found) return found.info;
   throw new LocalProviderError(
     config.kind ? `Cannot detect ${config.kind} backend at ${baseUrl}` : `Unsupported local backend at ${baseUrl}`,
     config.kind ? 'backend_unreachable' : 'backend_unsupported',
@@ -80,422 +47,256 @@ export async function listLocalModels(config: {
   return backend.models;
 }
 
-function convertMessages(messages: Message[]): ChatCompletionMessageParam[] {
-  return messages.map((message) => {
-    if (message.role === 'tool') {
-      return {
-        role: 'tool',
-        content: message.content,
-        tool_call_id: message.tool_id,
-      } as ChatCompletionMessageParam;
-    }
+type ToolCallPart = Extract<ContentPart, { type: 'tool_call' }>;
+type ToolCallDelta = ChatCompletionChunk.Choice.Delta.ToolCall;
 
-    if (message.role === 'assistant' && message.tool_calls?.length) {
-      return {
-        role: 'assistant',
-        content: message.content || null,
-        tool_calls: message.tool_calls.map((call) => ({
-          id: call.id,
-          type: 'function',
-          function: {
-            name: call.name,
-            arguments: call.args,
-          },
-        })),
-      } as ChatCompletionMessageParam;
-    }
-
-    return {
-      role: message.role,
-      content: message.content,
-    } as ChatCompletionMessageParam;
-  });
-}
-
-// `Tool.description` is now a `Resolvable<string | undefined>`. The OpenAI
-// schema we ship in the request body needs a plain string, so we resolve it
-// synchronously: if the host wired a lazy function, we invoke it once and
-// take the synchronous return; we don't await a Promise here because building
-// the request payload is itself sync. Async resolvers degrade to no
-// description, which is the spec-allowed `undefined` value.
-function resolveDescriptionSync(value: Tool['description']): string | undefined {
-  if (typeof value === 'function') {
-    try {
-      const out = (value as () => unknown)();
-      return typeof out === 'string' ? out : undefined;
-    } catch {
-      return undefined;
-    }
+const toBase64 = (data: Uint8Array): string => {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < data.length; i += chunk) {
+    binary += String.fromCharCode(...data.subarray(i, i + chunk));
   }
-  return value;
-}
-
-function convertTools(tools: Record<string, Tool>): ChatCompletionTool[] {
-  return Object.values(tools).map((tool) => ({
-    type: 'function',
-    function: {
-      name: tool.name,
-      description: resolveDescriptionSync(tool.description),
-      parameters: tool.parameters,
-    },
-  }));
-}
-
-function estimateTokens(value: string): number {
-  const trimmed = value.trim();
-  if (!trimmed) return 0;
-  return Math.max(1, Math.ceil(trimmed.length / 4));
-}
-
-function toolContextKind(tool: Tool): ContextPartKind {
-  const name = tool.name.toLowerCase();
-  if (name.includes('skill')) return 'skills';
-  if (name.startsWith('mcp') || name.includes('_mcp') || name.includes('mcp_')) return 'mcp';
-  return 'tools';
-}
-
-export type TokenizeFn = (content: string) => Promise<number | undefined>;
-
-const BUCKET_SEPARATOR = '\n\n';
-
-function aggregateBuckets(messages: Message[], tools: Record<string, Tool>): Map<ContextPartKind, string[]> {
-  const buckets = new Map<ContextPartKind, string[]>();
-  const push = (kind: ContextPartKind, content: string) => {
-    if (!content) return;
-    const list = buckets.get(kind) ?? [];
-    list.push(content);
-    buckets.set(kind, list);
-  };
-
-  for (const message of messages) {
-    if (message.role === 'system') {
-      push('system', message.content);
-    } else if (message.role === 'tool') {
-      push('tool_results', message.content);
-    } else if (message.role === 'user') {
-      push('messages', message.content);
-    } else {
-      // assistant — only role left in the union with a payload to bucket.
-      push('messages', message.content);
-      if (message.tool_calls?.length) {
-        push('messages', JSON.stringify(message.tool_calls));
-      }
-    }
-  }
-
-  for (const tool of Object.values(tools)) {
-    const schema = convertTools({ [tool.name]: tool })[0];
-    push(toolContextKind(tool), JSON.stringify(schema));
-  }
-
-  return buckets;
-}
-
-async function buildContextMap(config: {
-  model: string;
-  messages: Message[];
-  tools: Record<string, Tool>;
-  usage?: LocalLLMResponseContext['usage'];
-  backendContext?: LocalLLMResponseContext;
-  tokenize?: TokenizeFn;
-}): Promise<ContextMap> {
-  const buckets = aggregateBuckets(config.messages, config.tools);
-  const entries = await Promise.all(
-    Array.from(buckets.entries()).map(async ([kind, contents]) => {
-      const joined = contents.join(BUCKET_SEPARATOR);
-      const { tokens, estimated } = await countBucketTokens(joined, config.tokenize);
-      return { kind, tokens, estimated };
-    }),
-  );
-
-  const partsEstimated = entries.some((entry) => entry.estimated);
-  const out = entries.map(({ kind, tokens, estimated }) => ({
-    kind,
-    label: labelContextPart(kind),
-    tokens,
-    estimated,
-  }));
-
-  const windowTokens = config.backendContext?.props?.n_ctx ?? config.backendContext?.currentSlot?.n_ctx;
-  const usedTokens = config.usage?.promptTokens;
-
-  return {
-    model: config.model,
-    usedTokens,
-    windowTokens,
-    estimated: partsEstimated,
-    parts: out,
-  };
-}
-
-async function countBucketTokens(content: string, tokenize?: TokenizeFn): Promise<{ tokens: number; estimated: boolean }> {
-  if (!content) return { tokens: 0, estimated: false };
-  if (tokenize) {
-    const real = await tokenize(content);
-    if (real !== undefined) return { tokens: real, estimated: false };
-  }
-  return { tokens: estimateTokens(content), estimated: true };
-}
-
-function labelContextPart(kind: ContextPartKind): string {
-  switch (kind) {
-    case 'system':
-      return 'system';
-    case 'tools':
-      return 'tools';
-    case 'messages':
-      return 'messages';
-    case 'tool_results':
-      return 'tool results';
-    case 'skills':
-      return 'skills';
-    case 'mcp':
-      return 'mcp';
-    case 'other':
-      return 'other';
-  }
-}
-
-const createLocalProvider = (config: LocalProviderConfig): LLMProvider => {
-  let backendPromise: Promise<LocalBackendInfo> | undefined;
-  let client: OpenAI | undefined;
-
-  return async (messages, tools): Promise<LLMProviderResult> => {
-    if (!backendPromise) {
-      backendPromise = detectLocalBackend({
-        kind: config.kind,
-        baseUrl: config.baseUrl ?? DEFAULT_BASE_URL,
-        apiKey: config.apiKey,
-      }).catch((err) => {
-        backendPromise = undefined;
-        throw err;
-      });
-    }
-    const backend = await backendPromise;
-    const model = config.model;
-
-    const ClientCtor = config.openAIClient ?? OpenAI;
-    client ??= new ClientCtor({
-      baseURL: getLlamaSwapOpenAIBaseUrl(backend.baseUrl),
-      apiKey: config.apiKey ?? 'local',
-    });
-    const activeClient = client;
-
-    const convertedTools = convertTools(tools);
-    // SDK-typed params plus vendor extras (llama-swap accepts id_slot/cache_prompt
-    // which the SDK doesn't model).
-    type RequestOptions = ChatCompletionCreateParamsStreaming & {
-      id_slot?: number;
-      cache_prompt?: boolean;
-    };
-    const requestOptions: RequestOptions = {
-      model,
-      messages: convertMessages(messages),
-      ...(convertedTools.length > 0 ? { tools: convertedTools } : {}),
-      stream: true,
-      stream_options: { include_usage: true },
-    };
-
-    let selectedSlotId: number | undefined;
-
-    if (backend.kind === 'llama-swap') {
-      const extras = await prepareLlamaSwapChatRequest({
-        baseUrl: backend.baseUrl,
-        apiKey: config.apiKey,
-        model,
-      });
-      if (extras) {
-        selectedSlotId = extras.id_slot;
-        Object.assign(requestOptions, extras);
-      }
-    }
-
-    const streamTimeoutMs = config.streamTimeoutMs ?? DEFAULT_STREAM_TIMEOUT_MS;
-    const hostSignal = config.getAbortSignal?.();
-
-    async function* streamCompletion(): AsyncIterable<LLMStreamEvent> {
-      let content = '';
-      let usage: LocalLLMResponseContext['usage'] | undefined;
-      const toolCallBuffers = new Map<string, { id: string; name: string; args: string; emitted: boolean }>();
-      let finishReason: string | undefined;
-      let syntheticKeyCounter = 0;
-
-      // Compose the abort signal: idle-timeout + optional host-provided signal.
-      const controller = new AbortController();
-      let idleTimer: ReturnType<typeof setTimeout> | undefined;
-      let timedOut = false;
-
-      const armIdleTimer = () => {
-        if (streamTimeoutMs <= 0) return;
-        clearIdleTimer();
-        idleTimer = setTimeout(() => {
-          timedOut = true;
-          controller.abort();
-        }, streamTimeoutMs);
-      };
-      const clearIdleTimer = () => {
-        if (idleTimer !== undefined) {
-          clearTimeout(idleTimer);
-          idleTimer = undefined;
-        }
-      };
-
-      const onHostAbort = () => controller.abort();
-      if (hostSignal) {
-        if (hostSignal.aborted) {
-          controller.abort();
-        } else {
-          hostSignal.addEventListener('abort', onHostAbort, { once: true });
-        }
-      }
-
-      armIdleTimer();
-      const stream: Stream<ChatCompletionChunk> = await activeClient.chat.completions.create(
-        requestOptions,
-        { signal: controller.signal },
-      );
-
-      try {
-        for await (const chunk of stream) {
-          armIdleTimer();
-          if (chunk.usage) {
-            usage = {
-              promptTokens: chunk.usage.prompt_tokens ?? 0,
-              completionTokens: chunk.usage.completion_tokens ?? 0,
-              totalTokens: chunk.usage.total_tokens ?? 0,
-            };
-          }
-
-          const choice = chunk.choices?.[0];
-          const choiceDelta = choice?.delta;
-          const reasoningDelta = extractReasoningDelta(choiceDelta);
-          if (reasoningDelta) {
-            yield { type: 'reasoning_delta', content: reasoningDelta };
-          }
-
-          const delta = choiceDelta?.content;
-          if (delta) {
-            content += delta;
-            yield { type: 'delta', content: delta };
-          }
-
-          const toolCallDeltas: ToolCallDelta[] | undefined = choiceDelta?.tool_calls;
-          if (toolCallDeltas) {
-            for (const tc of toolCallDeltas) {
-              // Key by index when present, else by id, else by a synthetic per-stream key.
-              const key = tc.index !== undefined
-                ? `i:${tc.index}`
-                : tc.id
-                ? `id:${tc.id}`
-                : `s:${syntheticKeyCounter++}`;
-              const buf = toolCallBuffers.get(key) ?? { id: '', name: '', args: '', emitted: false };
-              if (tc.id) buf.id = tc.id;
-              if (tc.function?.name) buf.name = tc.function.name;
-              if (tc.function?.arguments) buf.args += tc.function.arguments;
-              toolCallBuffers.set(key, buf);
-            }
-          }
-
-          if (choice?.finish_reason) {
-            finishReason = choice.finish_reason;
-          }
-
-          if (choice?.finish_reason === 'tool_calls') {
-            for (const buf of toolCallBuffers.values()) {
-              if (buf.emitted || !buf.name) continue;
-              buf.emitted = true;
-              yield {
-                type: 'tool_call',
-                call: { id: buf.id, name: buf.name, args: buf.args },
-              };
-            }
-          }
-        }
-      } catch (err) {
-        clearIdleTimer();
-        hostSignal?.removeEventListener('abort', onHostAbort);
-        if (timedOut) {
-          throw new Error(`Local provider stream timed out after ${streamTimeoutMs}ms of inactivity`);
-        }
-        if (hostSignal?.aborted) {
-          throw new Error('Local provider stream aborted by host');
-        }
-        throw err;
-      }
-      clearIdleTimer();
-      hostSignal?.removeEventListener('abort', onHostAbort);
-
-      // Fallback only when the stream actually finished with tool_calls (or never set a
-      // finish_reason at all). On 'stop' or other terminal reasons, discard partial buffer.
-      const shouldEmitBuffered = finishReason === undefined || finishReason === 'tool_calls';
-      if (shouldEmitBuffered) {
-        for (const buf of toolCallBuffers.values()) {
-          if (buf.emitted || !buf.name) continue;
-          buf.emitted = true;
-          yield {
-            type: 'tool_call',
-            call: { id: buf.id, name: buf.name, args: buf.args },
-          };
-        }
-      }
-
-      let backendContext: LocalLLMResponseContext | undefined;
-
-      if (backend.kind === 'llama-swap') {
-        backendContext = await collectLlamaSwapContext({
-          baseUrl: backend.baseUrl,
-          apiKey: config.apiKey,
-          model,
-          selectedSlotId,
-        });
-      }
-
-      const collectedToolCalls: ToolCall[] = [];
-      if (shouldEmitBuffered) {
-        for (const buf of toolCallBuffers.values()) {
-          if (!buf.name) continue;
-          collectedToolCalls.push({
-            id: buf.id,
-            name: buf.name,
-            args: buf.args,
-          });
-        }
-      }
-
-      const tokenize: TokenizeFn | undefined = backend.kind === 'llama-swap'
-        ? (content: string) => tokenizeLlamaSwap({ baseUrl: backend.baseUrl, apiKey: config.apiKey, model, content })
-        : undefined;
-
-      const contextMap = backendContext || usage
-        ? await buildContextMap({ model, messages, tools, usage, backendContext, tokenize })
-        : undefined;
-
-      const responseContext: LocalLLMResponseContext | undefined = backendContext || usage
-        ? { ...backendContext, usage, contextMap }
-        : undefined;
-
-      yield {
-        type: 'done',
-        response: {
-          content,
-          tool_calls: collectedToolCalls.length > 0 ? collectedToolCalls : undefined,
-          context: responseContext,
-        },
-      };
-    }
-
-    return streamCompletion();
-  };
+  return btoa(binary);
 };
 
-function extractReasoningDelta(delta: ChatCompletionChunk.Choice.Delta | undefined): string {
-  if (!delta) return '';
-  const record = delta as ReasoningDelta;
-  const value = record.reasoning_content ?? record.reasoning ?? record.reasoningContent;
-  return typeof value === 'string' ? value : '';
+const audioFormat = (mime: string): 'wav' | 'mp3' => (mime.includes('mp3') || mime.includes('mpeg') ? 'mp3' : 'wav');
+
+const partsToText = (parts: ContentPart[]): string =>
+  parts
+    .map((part) =>
+      part.type === 'text' ? part.text : part.type === 'tool_result' ? partsToText(part.content) : `[${part.type}]`
+    )
+    .join('');
+
+const toUserContent = (parts: ContentPart[]): string | ChatCompletionContentPart[] => {
+  if (parts.every((part) => part.type === 'text')) return partsToText(parts);
+  return parts.map((part): ChatCompletionContentPart => {
+    if (part.type === 'image') {
+      return { type: 'image_url', image_url: { url: `data:${part.mime};base64,${toBase64(part.data)}` } };
+    }
+    if (part.type === 'audio') {
+      return { type: 'input_audio', input_audio: { data: toBase64(part.data), format: audioFormat(part.mime) } };
+    }
+    return { type: 'text', text: part.type === 'text' ? part.text : `[${part.type}]` };
+  });
+};
+
+const argsToString = (input: unknown): string => (typeof input === 'string' ? input : JSON.stringify(input ?? {}));
+
+export const convertMessages = (messages: Message[]): ChatCompletionMessageParam[] => {
+  const out: ChatCompletionMessageParam[] = [];
+  for (const message of messages) {
+    for (const part of message.content) {
+      if (part.type === 'tool_result') {
+        out.push({ role: 'tool', tool_call_id: part.id, content: partsToText(part.content) });
+      }
+    }
+    const rest = message.content.filter((part) => part.type !== 'tool_result');
+    if (rest.length === 0) continue;
+
+    if (message.role === 'assistant') {
+      const calls = rest.filter((part): part is ToolCallPart => part.type === 'tool_call');
+      const text = rest.filter((part) => part.type === 'text').map((part) => (part as { text: string }).text).join('');
+      out.push({
+        role: 'assistant',
+        content: text || null,
+        ...(calls.length > 0
+          ? {
+            tool_calls: calls.map((call) => ({
+              id: call.id,
+              type: 'function' as const,
+              function: { name: call.name, arguments: argsToString(call.input) },
+            })),
+          }
+          : {}),
+      });
+    } else if (message.role === 'system') {
+      out.push({ role: 'system', content: partsToText(rest) });
+    } else {
+      out.push({ role: 'user', content: toUserContent(rest) });
+    }
+  }
+  return out;
+};
+
+export const convertTools = (tools: Tool[]): ChatCompletionTool[] =>
+  tools.map((tool) => ({
+    type: 'function',
+    function: { name: tool.name, description: tool.description, parameters: tool.parameters },
+  }));
+
+const parseArgs = (args: string): unknown => {
+  if (!args) return {};
+  try {
+    return JSON.parse(args);
+  } catch {
+    return args;
+  }
+};
+
+async function* streamChunks(
+  client: OpenAI,
+  requestOptions: ChatCompletionCreateParamsStreaming,
+  hostSignal: AbortSignal | undefined,
+  streamTimeoutMs: number,
+  contextWindow: number | undefined,
+): AsyncIterable<StreamEvent> {
+  const buffers = new Map<string, { key: string; id: string; name: string; args: string; emitted: boolean }>();
+  let finishReason: string | undefined;
+  let syntheticKeyCounter = 0;
+  let usage: Usage | undefined;
+
+  const controller = new AbortController();
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+
+  const clearIdleTimer = () => {
+    if (idleTimer !== undefined) {
+      clearTimeout(idleTimer);
+      idleTimer = undefined;
+    }
+  };
+  const armIdleTimer = () => {
+    if (streamTimeoutMs <= 0) return;
+    clearIdleTimer();
+    idleTimer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, streamTimeoutMs);
+  };
+
+  const onHostAbort = () => controller.abort();
+  if (hostSignal) {
+    if (hostSignal.aborted) controller.abort();
+    else hostSignal.addEventListener('abort', onHostAbort, { once: true });
+  }
+
+  function* flush(): Generator<ContentPart> {
+    for (const buf of buffers.values()) {
+      if (buf.emitted || !buf.name) continue;
+      buf.emitted = true;
+      yield { type: 'tool_call', id: buf.id || buf.key, name: buf.name, input: parseArgs(buf.args) };
+    }
+  }
+
+  armIdleTimer();
+  const stream: Stream<ChatCompletionChunk> = await client.chat.completions.create(requestOptions, {
+    signal: controller.signal,
+  });
+
+  try {
+    for await (const chunk of stream) {
+      armIdleTimer();
+      const choice = chunk.choices?.[0];
+
+      const delta = choice?.delta?.content;
+      if (delta) yield { type: 'text', text: delta };
+
+      const reasoningDelta = choice?.delta as
+        | { reasoning_content?: string; reasoning?: string; reasoningContent?: string }
+        | undefined;
+      const reasoning = reasoningDelta?.reasoning_content ?? reasoningDelta?.reasoning ??
+        reasoningDelta?.reasoningContent;
+      if (reasoning) yield { type: 'reasoning', text: reasoning };
+
+      const toolCallDeltas = choice?.delta?.tool_calls as ToolCallDelta[] | undefined;
+      if (toolCallDeltas) {
+        for (const tc of toolCallDeltas) {
+          const key = tc.index !== undefined ? `i:${tc.index}` : tc.id ? `id:${tc.id}` : `s:${syntheticKeyCounter++}`;
+          const buf = buffers.get(key) ?? { key, id: '', name: '', args: '', emitted: false };
+          if (tc.id) buf.id = tc.id;
+          if (tc.function?.name) buf.name = tc.function.name;
+          if (tc.function?.arguments) buf.args += tc.function.arguments;
+          buffers.set(key, buf);
+        }
+      }
+
+      if (chunk.usage) {
+        usage = {
+          input: chunk.usage.prompt_tokens,
+          output: chunk.usage.completion_tokens,
+          total: chunk.usage.total_tokens,
+        };
+      }
+
+      if (choice?.finish_reason) finishReason = choice.finish_reason;
+      if (choice?.finish_reason === 'tool_calls') yield* flush();
+    }
+  } catch (err) {
+    clearIdleTimer();
+    hostSignal?.removeEventListener('abort', onHostAbort);
+    if (timedOut) throw new Error(`Local provider stream timed out after ${streamTimeoutMs}ms of inactivity`);
+    if (hostSignal?.aborted) throw new Error('Local provider stream aborted by host');
+    throw err;
+  }
+  clearIdleTimer();
+  hostSignal?.removeEventListener('abort', onHostAbort);
+
+  if (finishReason === undefined || finishReason === 'tool_calls') yield* flush();
+
+  if (usage || contextWindow !== undefined) {
+    yield { type: 'usage', usage: { ...usage, ...(contextWindow !== undefined ? { contextWindow } : {}) } };
+  }
 }
 
-export const createLocalProviderPlugin = (config: LocalProviderConfig): Plugin => ({
-  name: 'mu-local-provider',
-  provider: createLocalProvider(config),
-});
+export const createLocalProvider = (config: LocalProviderConfig = {}): Provider => {
+  let detected: Promise<{ backend: Backend; info: LocalBackendInfo }> | undefined;
+  let client: OpenAI | undefined;
+  const ctxByModel = new Map<string, number | undefined>();
+
+  return {
+    async *stream(req) {
+      const model = req.model || config.model;
+      if (!model) throw new LocalProviderError('No model specified', 'config_invalid');
+
+      if (!detected) {
+        detected = detectBackend({ baseUrl: config.baseUrl ?? DEFAULT_BASE_URL, apiKey: config.apiKey })
+          .then((found) => {
+            if (found) return found;
+            throw new LocalProviderError(
+              config.kind ? `Cannot detect ${config.kind} backend` : 'Unsupported local backend',
+              config.kind ? 'backend_unreachable' : 'backend_unsupported',
+            );
+          })
+          .catch((err) => {
+            detected = undefined;
+            throw err;
+          });
+      }
+      const { backend, info } = await detected;
+
+      const ClientCtor = config.openAIClient ?? OpenAI;
+      client ??= new ClientCtor({
+        baseURL: backend.openAIBaseUrl(info.baseUrl),
+        apiKey: config.apiKey ?? 'local',
+      });
+
+      const tools = convertTools(req.tools);
+      const requestOptions: ChatCompletionCreateParamsStreaming & { id_slot?: number; cache_prompt?: boolean } = {
+        model,
+        messages: convertMessages(req.messages),
+        ...(tools.length > 0 ? { tools } : {}),
+        stream: true,
+        stream_options: { include_usage: true },
+      };
+
+      const extras = await backend.prepareChatRequest({ baseUrl: info.baseUrl, apiKey: config.apiKey, model });
+      if (extras) Object.assign(requestOptions, extras);
+
+      if (!ctxByModel.has(model)) {
+        ctxByModel.set(
+          model,
+          await backend.contextWindow({ baseUrl: info.baseUrl, apiKey: config.apiKey, model }).catch(() => undefined),
+        );
+      }
+
+      yield* streamChunks(
+        client,
+        requestOptions,
+        req.signal,
+        config.streamTimeoutMs ?? DEFAULT_STREAM_TIMEOUT_MS,
+        ctxByModel.get(model),
+      );
+    },
+  };
+};

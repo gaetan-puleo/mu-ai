@@ -1,31 +1,31 @@
 #!/usr/bin/env -S deno run -A
-import { createLocalProviderPlugin, listLocalModels } from 'mu-local-provider';
+import process from 'node:process';
+import { join } from 'node:path';
+import { createHarness, loadAgents } from 'mu-harness';
+import { createLocalProvider, listLocalModels } from 'mu-local-provider';
 import { createMuTools } from 'mu-tools';
-import {
-  bootstrap as harnessBootstrap,
-  createAgentRuntime,
-  createJsonlSessionStore,
-  createPrimaryAgentState,
-  createResumingStore,
-  createXdgPaths,
-  type PersistedSessionStore,
-  pickProviderPlugin,
-} from 'mu-harness';
-import { getConfigPath, loadConfig, loadState, saveState } from '../src/config';
-import { install, uninstall } from '../src/install';
-import { main } from '../src/main';
+import { getConfigPath, loadConfig, loadState, xdgDirs } from '../src/config';
+import { installPlugin, loadPlugins, uninstallPlugin } from '../src/plugins';
+import { buildSystemPrompt } from '../src/systemPrompt';
+import { runApp } from '../src/main';
+
+const normalizeModel = (model?: string): string | undefined => {
+  if (!model) return undefined;
+  return model.includes('/') ? model : `local/${model}`;
+};
 
 async function run(): Promise<void> {
   const args = process.argv.slice(2);
   const [cmd, arg] = args;
+
   if (cmd === 'install') {
-    if (!arg) throw new Error('usage: mu install <npm:spec | path.ts>');
-    await install(arg);
+    if (!arg) throw new Error('usage: mu install <npm:spec | jsr:spec | ./path.ts>');
+    installPlugin(arg);
     return;
   }
   if (cmd === 'uninstall') {
-    if (!arg) throw new Error('usage: mu uninstall <npm:spec>');
-    uninstall(arg);
+    if (!arg) throw new Error('usage: mu uninstall <spec>');
+    uninstallPlugin(arg);
     return;
   }
 
@@ -40,114 +40,53 @@ async function run(): Promise<void> {
     );
   }
 
-  const paths = createXdgPaths('mu');
-  const projectLocal = `${process.cwd()}/.mu`;
+  const xdg = xdgDirs();
+  const cwd = process.cwd();
+  const projectLocal = join(cwd, '.mu');
+  const providerConfig = { kind: config.kind, baseUrl: config.baseUrl, apiKey: config.apiKey };
 
-  // ── Single state writer ───────────────────────────────────────────────
-  // All `state` mutations go through this helper. `main.ts` no longer loads
-  // or saves state of its own — otherwise two writers (each with their own
-  // in-memory copy) would silently clobber each other on flush.
-  const persistState = (): void => {
+  let initialRef = normalizeModel(state.model);
+  if (!initialRef) {
     try {
-      saveState(state);
+      const models = await listLocalModels(providerConfig);
+      initialRef = models[0] ? `local/${models[0].id}` : 'local/default';
     } catch {
-      /* ignore */
-    }
-  };
-
-  const initialModel = state.model ?? '';
-
-  // Mutable provider config so `onModelChange` can swap models without
-  // recreating the plugin (the local provider reads `config.model` lazily).
-  const providerConfig: { kind?: 'llama-swap'; baseUrl: string; model: string; apiKey?: string } = {
-    kind: config.kind as 'llama-swap' | undefined,
-    baseUrl: config.baseUrl,
-    model: initialModel,
-  };
-
-  // ── Session store ─────────────────────────────────────────────────────
-  const baseStore = createJsonlSessionStore(paths.sessionsDir);
-  let resumeId: string | undefined;
-  if (wantContinue) {
-    resumeId = baseStore.summaries()[0]?.id;
-    if (!resumeId) {
-      process.stderr.write('[coding-agent] no previous session to resume; starting a new one\n');
+      initialRef = 'local/default';
     }
   }
-  const store: PersistedSessionStore = resumeId ? createResumingStore(baseStore, resumeId) : baseStore;
 
-  // ── Primary-agent state (active + one-shot override) ──────────────────
-  // bootstrap needs `getActivePrimary` before `primaryAgents` exist, so the
-  // state lives behind a ref that bootstrap reads lazily.
-  const primaryRef: { state?: ReturnType<typeof createPrimaryAgentState> } = {};
+  const plugins = await loadPlugins(config.plugins);
 
-  const result = await harnessBootstrap({
+  const diskAgents = await loadAgents(join(xdg.configHome, 'mu', 'agents'));
+  const projectAgents = await loadAgents(join(projectLocal, 'agents'));
+  const promptAgents = [...projectAgents, ...diskAgents, ...plugins.flatMap((p) => p.agents ?? [])];
+
+  const harness = await createHarness({
     hostName: 'mu',
-    paths,
-    extraSkillsDirs: [`${projectLocal}/skills`],
-    extraAgentsDirs: [`${projectLocal}/agents`],
-    extraPermissionsFiles: [`${projectLocal}/permissions.json`],
-    npmPlugins: config.plugins,
-    baseTools: createMuTools(),
-    sessionStore: store,
-    permissionSource: undefined,
-    defaultPermissionDecision: 'ask',
-    getActivePrimary: () => primaryRef.state?.effective(),
+    xdg,
+    cwd,
+    providers: { local: createLocalProvider(providerConfig) },
+    model: initialRef,
+    tools: createMuTools({ getCwd: () => cwd }),
+    plugins,
+    agents: projectAgents,
+    system: buildSystemPrompt(promptAgents),
   });
 
-  primaryRef.state = createPrimaryAgentState({
-    agents: result.primaryAgents,
-    initialName: state.activeAgent,
-    onActiveChange: (name) => {
-      state.activeAgent = name;
-      persistState();
-    },
-  });
-  const primaryState = primaryRef.state;
+  let session;
+  if (wantContinue) {
+    const recent = await harness.sessions.list({ cwd });
+    if (recent[0]) {
+      session = await harness.sessions.open(recent[0].id);
+    } else {
+      process.stderr.write('[mu] no previous session to resume; starting a new one\n');
+      session = harness.sessions.create();
+    }
+  } else {
+    session = harness.sessions.create();
+  }
 
-  pickProviderPlugin({
-    plugins: result.plugins,
-    requestedName: config.provider,
-    fallback: createLocalProviderPlugin(providerConfig),
-  });
-  const useLocal = !config.provider;
-
-  const agent = createAgentRuntime({
-    tools: result.tools,
-    plugins: result.plugins,
-    hooks: result.hooks,
-    systemPrompt: result.systemPrompt,
-    toolFilter: result.toolFilter,
-    model: initialModel,
-    listModels: useLocal
-      ? () => listLocalModels({ kind: providerConfig.kind, baseUrl: providerConfig.baseUrl })
-      : async () => [],
-    onModelChange: (next: string) => {
-      if (useLocal) providerConfig.model = next;
-      state.model = next;
-      persistState();
-    },
-    store: result.store,
-    bus: result.bus,
-  });
-
-  // Auto-rebinds to the active session whenever `/new` creates one.
-  baseStore.persistFollowingBus(agent.bus, agent.currentSession().id);
-
-  await main(agent, {
-    thinkingVisible: state.thinkingVisible,
-    onThinkingVisibleChange: (visible) => {
-      state.thinkingVisible = visible;
-      persistState();
-    },
-    primaryAgents: result.primaryAgents,
-    getActivePrimary: () => primaryState.active(),
-    setActivePrimary: (next) => primaryState.setActive(next.name),
-    getOverridePrimary: () => primaryState.override(),
-    setOverridePrimary: (next) => primaryState.setOverride(next),
-    subAgents: result.subAgents,
-    dispatchSubAgent: result.dispatchSubAgent,
-  });
+  await runApp({ harness, session, providerConfig, state });
 }
 
 run().catch((err) => {

@@ -1,95 +1,84 @@
-import { expect } from '@std/expect';
-import { describe, it } from '@std/testing/bdd';
+import { assertEquals } from '@std/assert';
+import type { ContentPart, Provider } from 'mu-core';
+import { createAgentSession } from '../session';
 import { createChannelManager } from './manager';
-import type { Channel, ChannelOutEvent } from './types';
 
-function makeChannel(id: string): { channel: Channel; received: ChannelOutEvent[]; started: boolean; stopped: boolean } {
-  const received: ChannelOutEvent[] = [];
-  const state = { started: false, stopped: false };
-  const channel: Channel = {
-    id,
-    kind: 'test',
-    start() {
-      state.started = true;
-    },
-    stop() {
-      state.stopped = true;
-    },
-    send(event) {
-      received.push(event);
+const scripted = (turns: ContentPart[][]): Provider => {
+  let i = 0;
+  return {
+    async *stream() {
+      for (const event of turns[i++]) yield event;
     },
   };
-  return { channel, received, get started() { return state.started; }, get stopped() { return state.stopped; } };
-}
+};
 
-describe('createChannelManager', () => {
-  it('starts channels on add', async () => {
-    const mgr = createChannelManager();
-    const a = makeChannel('a');
-    await mgr.add(a.channel);
-    expect(a.started).toBe(true);
+Deno.test('open does not create a session, send creates it (lazy)', async () => {
+  let created = 0;
+  const manager = createChannelManager({
+    createSession: () => {
+      created++;
+      return createAgentSession({ provider: scripted([[{ type: 'text', text: 'hi' }]]), model: 'mock' });
+    },
   });
 
-  it('rejects duplicate ids', async () => {
-    const mgr = createChannelManager();
-    const a = makeChannel('a');
-    await mgr.add(a.channel);
-    const b = makeChannel('a');
-    await expect(mgr.add(b.channel)).rejects.toThrow();
+  const a = manager.open({ title: 'A' });
+  manager.open({ title: 'B' });
+  manager.open({ title: 'C' });
+  assertEquals(created, 0);
+  assertEquals(a.started, false);
+
+  await a.send('coucou');
+  assertEquals(created, 1);
+  assertEquals(a.started, true);
+  assertEquals(a.messages.at(-1), { role: 'assistant', content: [{ type: 'text', text: 'hi' }] });
+});
+
+Deno.test('a distinct session per channel', async () => {
+  let created = 0;
+  const manager = createChannelManager({
+    createSession: () => {
+      created++;
+      return createAgentSession({ provider: scripted([[{ type: 'text', text: 'ok' }]]), model: 'mock' });
+    },
   });
 
-  it('broadcasts events to every channel', async () => {
-    const mgr = createChannelManager();
-    const a = makeChannel('a');
-    const b = makeChannel('b');
-    await mgr.add(a.channel);
-    await mgr.add(b.channel);
-    await mgr.broadcast({ type: 'assistant_start' });
-    expect(a.received).toHaveLength(1);
-    expect(b.received).toHaveLength(1);
+  const a = manager.open({ id: 'a' });
+  const b = manager.open({ id: 'b' });
+
+  await a.send('x');
+  await b.send('y');
+
+  assertEquals(created, 2);
+  assertEquals(a.messages.length, 2);
+  assertEquals(b.messages.length, 2);
+});
+
+Deno.test('subscribe multiplexes events tagged by channelId', async () => {
+  const manager = createChannelManager({
+    createSession: () => createAgentSession({ provider: scripted([[{ type: 'text', text: 'ok' }]]), model: 'mock' }),
   });
 
-  it('routes single send to one channel', async () => {
-    const mgr = createChannelManager();
-    const a = makeChannel('a');
-    const b = makeChannel('b');
-    await mgr.add(a.channel);
-    await mgr.add(b.channel);
-    await mgr.send('a', { type: 'assistant_start' });
-    expect(a.received).toHaveLength(1);
-    expect(b.received).toHaveLength(0);
-  });
+  const events: string[] = [];
+  manager.subscribe((event) => events.push(`${event.channelId}:${event.type}`));
 
-  it('delivers input events to listeners with the channel id', async () => {
-    const mgr = createChannelManager();
-    const seen: Array<{ id: string; type: string }> = [];
-    mgr.onInput((id, ev) => {
-      seen.push({ id, type: ev.type });
-    });
-    const ctxs: Array<{ deliver: (e: { type: 'user_input'; text: string }) => void | Promise<void> }> = [];
-    const channel: Channel = {
-      id: 'a',
-      kind: 'test',
-      start(ctx) {
-        ctxs.push({ deliver: ctx.deliver });
-      },
-      stop() {},
-      send() {},
-    };
-    await mgr.add(channel);
-    await ctxs[0].deliver({ type: 'user_input', text: 'hi' });
-    expect(seen).toEqual([{ id: 'a', type: 'user_input' }]);
-  });
+  const a = manager.open({ id: 'a', title: 'A' });
+  await a.send('x');
 
-  it('stopAll stops every channel', async () => {
-    const mgr = createChannelManager();
-    const a = makeChannel('a');
-    const b = makeChannel('b');
-    await mgr.add(a.channel);
-    await mgr.add(b.channel);
-    await mgr.stopAll();
-    expect(a.stopped).toBe(true);
-    expect(b.stopped).toBe(true);
-    expect(mgr.list()).toHaveLength(0);
+  assertEquals(events[0], 'a:channel_open');
+  assertEquals(events.includes('a:turn_start'), true);
+  assertEquals(events.includes('a:turn_end'), true);
+});
+
+Deno.test('close removes the channel and emits channel_close', () => {
+  const manager = createChannelManager({
+    createSession: () => createAgentSession({ provider: scripted([[]]), model: 'mock' }),
   });
+  const events: string[] = [];
+  manager.subscribe((event) => events.push(event.type));
+
+  const a = manager.open({ id: 'a' });
+  assertEquals(manager.list().length, 1);
+  manager.close(a.id);
+  assertEquals(manager.get('a'), undefined);
+  assertEquals(events.includes('channel_close'), true);
 });

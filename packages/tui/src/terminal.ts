@@ -236,7 +236,6 @@ export class ProcessTerminal implements Terminal {
       try {
         cleanup();
       } catch {
-        /* ignore cleanup errors */
       }
     }
     this.cleanupHandlers.length = 0;
@@ -270,7 +269,6 @@ export class ProcessTerminal implements Terminal {
     try {
       await drainStdin();
     } catch {
-      /* best-effort drain */
     } finally {
       this.restoreInputNow();
     }

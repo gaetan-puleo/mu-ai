@@ -1,28 +1,10 @@
 import { cellsToAnsi } from './ansi';
-import {
-  type Cell,
-  type CellStyle,
-  continuationCell,
-  defaultStyle,
-  emptyCell,
-} from './cell';
+import { type Cell, cellEqual, type CellStyle, continuationCell, defaultStyle, emptyCell } from './cell';
 import { blendOver, OPAQUE_BLACK, type Rgba, withOpacity } from './color';
 import { intersectRect, isEmptyRect } from './insets';
 import type { BorderStyle, Rect } from './types';
 import { DEFAULT_BORDER_CHARS } from './types';
 
-/**
- * Cell-based screen buffer with alpha-aware compositing.
- *
- * - `cells` is a flat row-major array: `cells[y * width + x]`.
- * - `backdropColor` is the renderer's effective background color. When the
- *   buffer is finalized to ANSI, any cell whose background is still partially
- *   transparent is blended against this color. This matches OpenTUI's PR #824
- *   behavior, which fixed compositing-against-black for transparent overlays.
- * - `opacityStack` carries cumulative opacity for nested transparent
- *   containers. A parent at 0.5 with a child at 0.5 yields 0.25 effective
- *   opacity for the child's writes.
- */
 export interface CellBuffer {
   width: number;
   height: number;
@@ -31,7 +13,6 @@ export interface CellBuffer {
   opacityStack: number[];
 }
 
-/** Create a blank buffer. Defaults the backdrop to opaque black. */
 export function createCellBuffer(width: number, height: number, backdropColor?: Rgba): CellBuffer {
   const w = Math.max(0, width);
   const h = Math.max(0, height);
@@ -69,8 +50,8 @@ function bufferRect(buf: CellBuffer): Rect {
 }
 
 function hasDecoration(style: CellStyle): boolean {
-  return style.reverse || style.underline || style.bold || style.italic || style.dim
-    || style.strikethrough || style.blink || style.link !== undefined;
+  return style.reverse || style.underline || style.bold || style.italic || style.dim ||
+    style.strikethrough || style.blink || style.link !== undefined;
 }
 
 function getIndex(buf: CellBuffer, x: number, y: number): number {
@@ -81,16 +62,6 @@ export function getCell(buf: CellBuffer, x: number, y: number): Cell {
   return buf.cells[getIndex(buf, x, y)];
 }
 
-/**
- * Composite a single incoming cell onto position `(x, y)`.
- *
- * - If incoming is a "transparent space" (grapheme === ' ' and bg.a < 1),
- *   the underlying grapheme/fg is preserved and only the background blends.
- * - Otherwise the grapheme is replaced, fg is taken from the incoming cell,
- *   and bg is blended over the existing bg.
- *
- * Wide characters (`width === 2`) also stamp a continuation cell at `x + 1`.
- */
 export function compositeCell(buf: CellBuffer, x: number, y: number, incoming: Cell, opacity = 1): void {
   if (x < 0 || x >= buf.width || y < 0 || y >= buf.height) return;
   if (incoming.width === 0) return;
@@ -99,12 +70,6 @@ export function compositeCell(buf: CellBuffer, x: number, y: number, incoming: C
   const incomingBg = opacity < 1 ? withOpacity(incoming.style.bg, opacity) : incoming.style.bg;
   const incomingFg = opacity < 1 ? withOpacity(incoming.style.fg, opacity) : incoming.style.fg;
 
-  // Background compositing:
-  //   - incoming fully transparent (a=0): leave existing bg untouched
-  //   - incoming opaque (a=1):           replace existing bg
-  //   - partial (0<a<1):                 blend over existing (or backdrop if
-  //                                      the existing bg is still transparent,
-  //                                      since that's what will eventually show)
   let newBg: Rgba;
   if (incomingBg.a <= 0) {
     newBg = existing.style.bg;
@@ -117,15 +82,10 @@ export function compositeCell(buf: CellBuffer, x: number, y: number, incoming: C
 
   const isTransparentSpace = incoming.grapheme === ' ' && incomingBg.a < 1 && !hasDecoration(incoming.style);
   if (isTransparentSpace) {
-    // Preserve underlying glyph; only the background changes (which is a
-    // no-op when incoming bg is fully transparent).
     existing.style = { ...existing.style, bg: newBg };
     return;
   }
 
-  // Non-space (or opaque space): the incoming glyph replaces what was there.
-  // The fg is the incoming fg (cells "own" their fg). The bg is whatever the
-  // bg-compositing branch above produced.
   const newStyle: CellStyle = {
     ...incoming.style,
     fg: incomingFg,
@@ -144,7 +104,6 @@ export function compositeCell(buf: CellBuffer, x: number, y: number, incoming: C
   }
 }
 
-/** Fill `rect` with a background color, blending it onto whatever is already there. */
 export function fillBackground(buf: CellBuffer, rect: Rect, color: Rgba, clip: Rect): void {
   if (color.a <= 0) return;
   const opacity = effectiveOpacity(buf);
@@ -163,13 +122,6 @@ export function fillBackground(buf: CellBuffer, rect: Rect, color: Rgba, clip: R
   }
 }
 
-/**
- * Write a row of parsed cells starting at `(x, y)`, clipped to `clip`.
- *
- * Each incoming cell is composited (alpha-aware). Wide chars are honored.
- * Cells outside the clip are dropped; wide chars whose continuation cell
- * would fall outside the clip are replaced with a space.
- */
 export function writeCells(buf: CellBuffer, x: number, y: number, cells: Cell[], clip: Rect): void {
   if (cells.length === 0) return;
   const safe = intersectRect(clip, bufferRect(buf));
@@ -187,7 +139,6 @@ export function writeCells(buf: CellBuffer, x: number, y: number, cells: Cell[],
 
     if (cell.width === 2) {
       if (col + 1 >= safe.x + safe.width || col < safe.x) {
-        // Wide char would straddle the clip edge — substitute a space.
         if (col >= safe.x && col < safe.x + safe.width) {
           const sub: Cell = {
             grapheme: ' ',
@@ -208,7 +159,6 @@ export function writeCells(buf: CellBuffer, x: number, y: number, cells: Cell[],
   }
 }
 
-/** Draw a border around `rect`. Borders use the default cell style. */
 export function drawBorderCells(buf: CellBuffer, rect: Rect, style: BorderStyle | true, clip: Rect): void {
   if (rect.width <= 0 || rect.height <= 0) return;
   const safe = intersectRect(clip, bufferRect(buf));
@@ -257,7 +207,6 @@ export function drawBorderCells(buf: CellBuffer, rect: Rect, style: BorderStyle 
   }
 }
 
-/** Serialize the buffer to one ANSI-styled string per row. */
 export function cellBufferToLines(buf: CellBuffer): string[] {
   const lines: string[] = new Array(buf.height);
   for (let y = 0; y < buf.height; y++) {
@@ -270,13 +219,6 @@ export function cellBufferToLines(buf: CellBuffer): string[] {
   return lines;
 }
 
-/**
- * Finalize a cell for ANSI emission. Terminals don't render alpha, so any
- * cell whose background is partially transparent gets composited against the
- * backdrop here. Cells that were never touched (bg.a === 0) are left as
- * default so they emit no background SGR and the terminal's actual
- * background shows through.
- */
 function finalizeCell(buf: CellBuffer, cell: Cell): Cell {
   const bg = cell.style.bg;
   if (bg.a >= 1) return cell;
@@ -305,4 +247,90 @@ function resolveBorder(style: BorderStyle | true): {
     left: style.left !== false,
     chars: style.chars ?? DEFAULT_BORDER_CHARS,
   };
+}
+
+function cellIsBlank(cell: Cell): boolean {
+  if (cell.grapheme !== ' ' && cell.grapheme !== '') return false;
+  const s = cell.style;
+  if (s.bold || s.dim || s.italic || s.underline || s.strikethrough || s.reverse || s.blink || s.link !== undefined) {
+    return false;
+  }
+  if (s.fg.intent !== 'default') return false;
+  if (s.bg.intent !== 'default' && s.bg.a > 0) return false;
+  return true;
+}
+
+function isBlankRow(buf: CellBuffer, y: number): boolean {
+  const base = y * buf.width;
+  for (let x = 0; x < buf.width; x++) {
+    if (!cellIsBlank(buf.cells[base + x])) return false;
+  }
+  return true;
+}
+
+export function bufferUsedHeight(buf: CellBuffer): number {
+  for (let y = buf.height - 1; y >= 0; y--) {
+    if (!isBlankRow(buf, y)) return y + 1;
+  }
+  return 0;
+}
+
+export interface DiffRun {
+  y: number;
+  x: number;
+  cells: Cell[];
+  clear?: boolean;
+}
+
+export function diffBuffer(prev: CellBuffer, next: CellBuffer, maxRow: number, mergeGap = 4): DiffRun[] {
+  const runs: DiffRun[] = [];
+  const width = next.width;
+  const rows = Math.min(maxRow, next.height);
+
+  for (let y = 0; y < rows; y++) {
+    const base = y * width;
+
+    if (isBlankRow(next, y)) {
+      if (!isBlankRow(prev, y)) runs.push({ y, x: 0, cells: [], clear: true });
+      continue;
+    }
+
+    let x = 0;
+    let prevEnd = 0;
+    while (x < width) {
+      if (cellEqual(prev.cells[base + x], next.cells[base + x])) {
+        x++;
+        continue;
+      }
+
+      let start = x;
+      while (start > prevEnd && next.cells[base + start].width === 0) start--;
+
+      let lastChange = x;
+      let gap = 0;
+      let xi = x + 1;
+      while (xi < width) {
+        if (!cellEqual(prev.cells[base + xi], next.cells[base + xi])) {
+          lastChange = xi;
+          gap = 0;
+        } else {
+          gap++;
+          if (gap > mergeGap) break;
+        }
+        xi++;
+      }
+
+      let end = lastChange + 1;
+      if (end < width && next.cells[base + end].width === 0) end++;
+
+      const cells: Cell[] = [];
+      for (let i = start; i < end; i++) cells.push(finalizeCell(next, next.cells[base + i]));
+      runs.push({ y, x: start, cells });
+
+      prevEnd = end;
+      x = end;
+    }
+  }
+
+  return runs;
 }

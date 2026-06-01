@@ -2,127 +2,10 @@ import { expect } from '@std/expect';
 import { describe, it } from '@std/testing/bdd';
 
 import { capability, createDefaultCapabilities } from './capabilities';
-import type { InputEvent } from './events';
 import { type KeyChord, keyMatches } from './keybinds';
 import { parseInput } from './keyboard';
 import { TerminalInputParser } from './parser';
-import { TUI } from './tui';
-import type { Component, Focusable } from './types/component';
-import { isFocusable } from './types/guards';
-import type { Terminal } from './types/terminal';
 import { sliceByColumn, stripAnsi, truncateToWidth, visibleWidth, wrapText } from './utils';
-
-class CapturingTerminal implements Terminal {
-  columns = 5;
-  rows = 3;
-  writes: string[] = [];
-
-  write(data: string): void {
-    this.writes.push(data);
-  }
-  hideCursor(): void {
-    // Test terminal no-op.
-  }
-  showCursor(): void {
-    // Test terminal no-op.
-  }
-  clearScreen(): void {
-    // Test terminal no-op.
-  }
-  clearLine(): void {
-    // Test terminal no-op.
-  }
-  clearFromCursor(): void {
-    // Test terminal no-op.
-  }
-  moveBy(): void {
-    // Test terminal no-op.
-  }
-}
-
-describe('component guards', () => {
-  it('detects focusable components', () => {
-    const component: Focusable = {
-      focused: true,
-      render: () => [],
-    };
-    expect(isFocusable(component)).toBe(true);
-    expect(isFocusable({ render: () => [] })).toBe(false);
-    expect(isFocusable(null)).toBe(false);
-  });
-
-  it('accepts handleEvent on components', () => {
-    const events: string[] = [];
-    const component: Component = {
-      render: () => [],
-      handleEvent: (event) => events.push(event.type),
-    };
-    component.handleEvent?.(
-      { type: 'text', text: 'hello', raw: 'hello' },
-      { rect: { x: 0, y: 0, width: 1, height: 1 }, contentRect: { x: 0, y: 0, width: 1, height: 1 }, focused: true },
-    );
-    expect(events).toEqual(['text']);
-  });
-});
-
-describe('TUI rendering', () => {
-  it('does not use CRLF row advances during diff renders after full-width lines', () => {
-    const terminal = new CapturingTerminal();
-    const component: Component = {
-      render: () => ['aaaaa', 'bbbbb', 'ccccc'],
-    };
-    const tui = new TUI(terminal, { synchronizedOutput: false });
-    tui.addChild(component);
-
-    (tui as unknown as { doRender: () => void }).doRender();
-    component.render = () => ['aXaaa', 'bXbbb', 'ccccc'];
-    (tui as unknown as { doRender: () => void }).doRender();
-
-    const diffWrite = terminal.writes.at(-1) ?? '';
-    expect(diffWrite).not.toContain('\r\n');
-  });
-
-  it('redraws from the saved anchor when rendered line count grows', () => {
-    const terminal = new CapturingTerminal();
-    const component: Component = {
-      render: () => ['one', 'two'],
-    };
-    const tui = new TUI(terminal, { synchronizedOutput: false });
-    tui.addChild(component);
-
-    (tui as unknown as { doRender: () => void }).doRender();
-    (tui as unknown as { doRender: () => void }).doRender();
-    component.render = () => ['one', 'two', 'three'];
-    (tui as unknown as { doRender: () => void }).doRender();
-
-    const growthWrite = terminal.writes.at(-1) ?? '';
-    expect(growthWrite.startsWith('\x1b8')).toBe(true);
-    expect(growthWrite).toContain('\r\n');
-    expect(growthWrite).toContain('\x1b7');
-    expect(growthWrite).not.toContain('\x1b[2J');
-  });
-
-  it('lets input interceptors consume events before focus handling', () => {
-    const terminal = new CapturingTerminal();
-    let handled = 0;
-    const component: Component = {
-      render: () => [''],
-      handleEvent: () => handled++,
-    };
-    const tui = new TUI(terminal, { synchronizedOutput: false });
-    tui.addChild(component);
-    tui.setFocus(component);
-    tui.addInputInterceptor((event) => event.type === 'text');
-
-    (tui as unknown as { dispatchEvent: (event: InputEvent) => void }).dispatchEvent({
-      type: 'text',
-      text: 'x',
-      raw: 'x',
-    });
-
-    expect(handled).toBe(0);
-  });
-});
 
 describe('parseInput', () => {
   it('parses printable keys with text payloads', () => {
@@ -193,7 +76,6 @@ describe('parseInput', () => {
     expect(parseInput('\x1b[<35;10;5M')).toMatchObject({ type: 'mouse', kind: 'move', button: 'unknown' });
     expect(parseInput('\x1b[<64;10;5M')).toMatchObject({ type: 'mouse', kind: 'wheel', button: 'wheelUp' });
   });
-
 });
 
 describe('TerminalInputParser', () => {

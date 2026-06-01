@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
-import { formatError, type Tool } from 'mu-core';
-import { looksBinary, sanitizePath, validatedCwd, writeAtomic } from './utils';
+import { type ContentPart, text, type Tool } from 'mu-core';
+import { formatError, looksBinary, sanitizePath, validatedCwd, writeAtomic } from './utils';
 
 import type { ToolFactoryOptions } from './types';
 
@@ -11,11 +11,12 @@ interface WriteFileArgs {
   content?: unknown;
 }
 
-export function createWriteFileTool(opts: WriteFileToolOptions): Tool<WriteFileArgs, string> {
+export function createWriteFileTool(opts: WriteFileToolOptions): Tool {
   const getCwd = validatedCwd(opts.getCwd);
   return {
     name: 'write',
     description: 'Create or overwrite a file. Use `edit` for partial changes to existing files.',
+    prompt: 'Use `write` only to create a new file or fully replace one; for changes to an existing file use `edit`.',
     parameters: {
       type: 'object',
       properties: {
@@ -25,28 +26,25 @@ export function createWriteFileTool(opts: WriteFileToolOptions): Tool<WriteFileA
       required: ['path', 'content'],
       additionalProperties: false,
     },
-    execute(args) {
+    run(input): Promise<ContentPart[]> {
+      const args = (input ?? {}) as WriteFileArgs;
       if (typeof args.path !== 'string') {
-        return 'Error: write requires a string `path`';
+        return Promise.resolve([text('Error: write requires a string `path`')]);
       }
       if (typeof args.content !== 'string') {
-        return 'Error: write requires a string `content`';
+        return Promise.resolve([text('Error: write requires a string `content`')]);
       }
-      const rawPath = args.path;
-      const path = sanitizePath(rawPath, getCwd());
+      const path = sanitizePath(args.path, getCwd());
       const content = args.content;
       try {
-        // Refuse to overwrite an existing binary file: doing so silently turns
-        // its bytes into UTF-8-encoded text and destroys the original.
         if (existsSync(path) && looksBinary(path)) {
-          return `Error: Refusing to overwrite binary file: ${path}`;
+          return Promise.resolve([text(`Error: Refusing to overwrite binary file: ${path}`)]);
         }
         writeAtomic(path, content);
-        return `File written: ${path}`;
+        return Promise.resolve([text(`File written: ${path}`)]);
       } catch (err) {
-        return formatError(err);
+        return Promise.resolve([text(formatError(err))]);
       }
     },
-    onError: formatError,
   };
 }

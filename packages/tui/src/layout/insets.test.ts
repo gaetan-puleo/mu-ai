@@ -1,23 +1,16 @@
 import { expect } from '@std/expect';
 import { describe, it } from '@std/testing/bdd';
 
-import {
-  borderInsets,
-  containsPoint,
-  intersectRect,
-  isEmptyRect,
-  normalizeInsets,
-  shrinkRect,
-} from './insets';
+import { borderInsets, containsPoint, intersectRect, isEmptyRect, normalizeInsets, shrinkRect } from './insets';
 
 describe('insets', () => {
-  it('normalizes number shorthand', () => {
+  it('normalizes the numeric shorthand notation', () => {
     expect(normalizeInsets(2)).toEqual({ top: 2, right: 2, bottom: 2, left: 2 });
     expect(normalizeInsets()).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
     expect(normalizeInsets({ left: 3 })).toEqual({ top: 0, right: 0, bottom: 0, left: 3 });
   });
 
-  it('derives border insets from style', () => {
+  it('derives border insets from the style', () => {
     expect(borderInsets(true)).toEqual({ top: 1, right: 1, bottom: 1, left: 1 });
     expect(borderInsets(false)).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
     expect(borderInsets({ top: true, right: false, bottom: true, left: true })).toEqual({
@@ -35,7 +28,7 @@ describe('insets', () => {
     expect(shrunk).toEqual({ x: 9, y: 6, width: 4, height: 6 });
   });
 
-  it('clamps shrink to non-negative size', () => {
+  it('clamps shrinking to a non-negative size', () => {
     const tiny = shrinkRect({ x: 0, y: 0, width: 2, height: 2 }, { top: 5, right: 5, bottom: 5, left: 5 });
     expect(tiny).toEqual({ x: 5, y: 5, width: 0, height: 0 });
   });

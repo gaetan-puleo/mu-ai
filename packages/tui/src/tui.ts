@@ -1,88 +1,68 @@
-import {
-  type Capabilities,
-  createDefaultCapabilities,
-  mergeCapabilities,
-  type PartialCapabilities,
-} from './capabilities';
 import type { InputEvent } from './events';
-import { FocusManager } from './focusManager';
 import { InputRouter } from './inputRouter';
 import type { GlobalKeybinding } from './keybinds';
 import { colorToRgba, OPAQUE_BLACK, type Rgba } from './layout/color';
-import type { Color, LayoutEntry } from './layout/types';
+import { containsPoint } from './layout/insets';
+import type { Color } from './layout/types';
+import { type Command, commandPalette } from './components/command-palette';
 import { Renderer } from './renderer';
-import type { Component } from './types/component';
+import type { Component, SurfaceEntry } from './surface';
 import type { Terminal } from './types/terminal';
+import { modal, type ModalOptions, toast as toastView, type ToastKind } from './views';
 
-export interface TuiOptions<TContext = unknown> {
-  capabilities?: PartialCapabilities;
+export interface TuiOptions {
   synchronizedOutput?: boolean;
-  /**
-   * Application-defined value forwarded into every `RenderContext.userContext`
-   * and `EventContext.userContext`. The TUI core treats this as opaque data;
-   * intended for consumer-defined providers such as theming.
-   *
-   * Type with `new TUI<MyContext>(terminal, { userContext })` so hosts get
-   * typed access via `getUserContext()` / `setUserContext()` without casts.
-   */
-  userContext?: TContext;
 }
 
-/**
- * Orchestrator that owns lifecycle, terminal binding, and the top-level
- * children/capabilities state. Delegates rendering to {@link Renderer},
- * input dispatch to {@link InputRouter}, and focus traversal to
- * {@link FocusManager} — each in a sibling module.
- *
- * Optionally generic over the `userContext` payload so hosts can type their
- * theme/provider blob without casts.
- */
-export class TUI<TContext = unknown> {
-  private readonly terminal: Terminal;
-  private readonly capabilities: Capabilities;
-  private readonly children: Component[] = [];
-  private layoutEntries: LayoutEntry[] = [];
+export interface LayerHandle {
+  close(): void;
+}
+
+export interface ToastHandle {
+  dismiss(): void;
+}
+
+interface LayerEntry {
+  layer: Component;
+  prevFocus: Component | null;
+  onClose?: () => void;
+}
+
+interface ToastEntry {
+  view: Component;
+}
+
+export class TUI {
+  private root: Component | null = null;
+  private focused: Component | null = null;
+  private entries: SurfaceEntry[] = [];
+  private backdrop: Rgba = OPAQUE_BLACK;
+  private layers: LayerEntry[] = [];
+  private toasts: ToastEntry[] = [];
+  private escapeUnsub: (() => void) | undefined;
   private started = false;
   private terminalFocused = true;
-  private userContext: TContext | undefined;
-  private backdropColor: Rgba = OPAQUE_BLACK;
 
   private readonly renderer: Renderer;
   private readonly inputRouter: InputRouter;
-  private readonly focusManager: FocusManager;
 
-  constructor(terminal: Terminal, options: TuiOptions<TContext> = {}) {
-    this.terminal = terminal;
-    this.userContext = options.userContext;
-
-    this.capabilities = mergeCapabilities(terminal.capabilities ?? createDefaultCapabilities(), options.capabilities);
-
-    this.focusManager = new FocusManager({
-      getLayoutEntries: () => this.layoutEntries,
-      getChildren: () => this.children,
-    });
-
+  constructor(private readonly terminal: Terminal, options: TuiOptions = {}) {
     this.renderer = new Renderer(
       terminal,
       {
-        getChildren: () => this.children,
-        getFocusedComponent: () => this.focusManager.getFocused(),
-        getCapabilities: () => this.capabilities,
-        getUserContext: () => this.userContext,
-        getBackdropColor: () => this.backdropColor,
-        getTerminalFocused: () => this.terminalFocused,
-        setLayoutEntries: (entries) => {
-          this.layoutEntries = entries;
+        getRoot: () => this.composedRoot(),
+        isFocused: (component) => component === this.focused && this.terminalFocused,
+        setEntries: (entries) => {
+          this.entries = entries;
         },
+        getBackdropColor: () => this.backdrop,
       },
       options.synchronizedOutput ?? true,
     );
 
     this.inputRouter = new InputRouter({
-      getTerminal: () => this.terminal,
-      getLayoutEntries: () => this.layoutEntries,
-      getFocusedComponent: () => this.focusManager.getFocused(),
-      getUserContext: () => this.userContext,
+      getFocused: () => this.focused,
+      getEntries: () => this.entries,
       getTerminalFocused: () => this.terminalFocused,
       setTerminalFocused: (focused) => {
         this.terminalFocused = focused;
@@ -91,58 +71,144 @@ export class TUI<TContext = unknown> {
     });
   }
 
-  /**
-   * Update the application-defined context value forwarded into render/event
-   * contexts. Triggers a full redraw so consumers immediately see the new
-   * value.
-   */
-  setUserContext(value: TContext): void {
-    this.userContext = value;
+  setRoot(component: Component | null): void {
+    this.root = component;
     this.requestRender(true);
   }
 
-  /** Get the current typed user context value (or `undefined` if unset). */
-  getUserContext(): TContext | undefined {
-    return this.userContext;
-  }
-
-  /**
-   * Set the terminal's effective background color. This is the color used as
-   * the base when compositing semi-transparent layers — without it, transparent
-   * overlays would composite against black instead of the user's actual
-   * terminal background.
-   */
   setBackgroundColor(color: Color): void {
-    const rgba = colorToRgba(color);
-    this.backdropColor = { ...rgba, a: 1 };
+    this.backdrop = { ...colorToRgba(color), a: 1 };
     this.requestRender(true);
+  }
+
+  setFocus(component: Component | null): void {
+    this.focused = component;
+    this.requestRender();
+  }
+
+  getFocused(): Component | null {
+    return this.focused;
+  }
+
+  pushLayer(layer: Component, opts: { focus?: Component; onClose?: () => void } = {}): LayerHandle {
+    const entry: LayerEntry = { layer, prevFocus: this.focused, onClose: opts.onClose };
+    this.layers.push(entry);
+    if (opts.focus) this.focused = opts.focus;
+    if (!this.escapeUnsub) {
+      this.escapeUnsub = this.addGlobalKeybinding({ chord: { key: 'escape' }, handler: () => this.popTopLayer() });
+    }
+    this.requestRender(true);
+    return { close: () => this.removeLayer(entry) };
+  }
+
+  showModal(content: Component, opts: ModalOptions & { onClose?: () => void } = {}): LayerHandle {
+    return this.pushLayer(modal(content, opts), { focus: content, onClose: opts.onClose });
+  }
+
+  showCommandPalette(commands: Command[]): LayerHandle {
+    const ref: { handle?: LayerHandle } = {};
+    const palette = commandPalette(commands, {
+      onRun: (command) => {
+        ref.handle?.close();
+        command.run();
+      },
+    });
+    ref.handle = this.pushLayer(palette, { focus: palette });
+    return ref.handle;
+  }
+
+  toast(message: string, opts: { duration?: number; kind?: ToastKind } = {}): ToastHandle {
+    const entry: ToastEntry = { view: toastView(message, { kind: opts.kind }) };
+    this.toasts.push(entry);
+    this.requestRender();
+    const timer = setTimeout(() => this.dismissToast(entry), opts.duration ?? 3000);
+    return {
+      dismiss: () => {
+        clearTimeout(timer);
+        this.dismissToast(entry);
+      },
+    };
+  }
+
+  private dismissToast(entry: ToastEntry): void {
+    const index = this.toasts.indexOf(entry);
+    if (index === -1) return;
+    this.toasts.splice(index, 1);
+    this.requestRender();
+  }
+
+  private popTopLayer(): void {
+    const top = this.layers[this.layers.length - 1];
+    if (top) this.removeLayer(top);
+  }
+
+  private removeLayer(entry: LayerEntry): void {
+    const index = this.layers.indexOf(entry);
+    if (index === -1) return;
+    this.layers.splice(index, 1);
+    this.focused = entry.prevFocus;
+    if (this.layers.length === 0 && this.escapeUnsub) {
+      this.escapeUnsub();
+      this.escapeUnsub = undefined;
+    }
+    entry.onClose?.();
+    this.requestRender(true);
+  }
+
+  private composedRoot(): Component | null {
+    if (this.layers.length === 0 && this.toasts.length === 0) return this.root;
+    const root = this.root;
+    const layers = this.layers;
+    const toasts = this.toasts;
+    return {
+      render: (s) => {
+        const full = { x: 0, y: 0, width: s.width, height: s.height };
+        if (root) s.child(root, full);
+        for (const entry of layers) s.child(entry.layer, full);
+
+        let y = 0;
+        for (const entry of toasts) {
+          const w = Math.min(40, s.width);
+          const h = s.measure(entry.view, w);
+          if (y + h > s.height) break;
+          s.child(entry.view, { x: s.width - w, y, width: w, height: h });
+          y += h + 1;
+        }
+      },
+    };
+  }
+
+  navigateFocus(direction: 'next' | 'previous'): Component | null {
+    const focusables = this.entries.filter((entry) => entry.component.handleInput).map((entry) => entry.component);
+    if (focusables.length === 0) return null;
+    const current = this.focused ? focusables.indexOf(this.focused) : -1;
+    const forward = direction === 'next';
+    const next = forward ? (current + 1) % focusables.length : (current - 1 + focusables.length) % focusables.length;
+    this.setFocus(focusables[next]);
+    return focusables[next];
   }
 
   addGlobalKeybinding(binding: GlobalKeybinding): () => void {
     return this.inputRouter.addGlobalKeybinding(binding);
   }
 
-  addChild(component: Component): void {
-    this.children.push(component);
+  addInputInterceptor(listener: (event: InputEvent) => boolean | undefined): () => void {
+    return this.inputRouter.addInputInterceptor(listener);
   }
 
-  removeChild(component: Component): void {
-    const index = this.children.indexOf(component);
-    if (index !== -1) {
-      this.children.splice(index, 1);
+  requestRender(force = false): void {
+    this.renderer.requestRender(force);
+  }
+
+  renderNow(): void {
+    this.renderer.doRender();
+  }
+
+  componentAt(x: number, y: number): Component | null {
+    for (let i = this.entries.length - 1; i >= 0; i--) {
+      if (containsPoint(this.entries[i].rect, x, y)) return this.entries[i].component;
     }
-  }
-
-  setFocus(component: Component | null): void {
-    this.focusManager.setFocus(component);
-  }
-
-  getFocused(): Component | null {
-    return this.focusManager.getFocused();
-  }
-
-  navigateFocus(direction: 'up' | 'down' | 'left' | 'right'): Component | null {
-    return this.focusManager.navigateFocus(direction);
+    return null;
   }
 
   start(): void {
@@ -151,11 +217,11 @@ export class TUI<TContext = unknown> {
     this.renderer.setStopped(false);
     this.inputRouter.setStopped(false);
     this.terminal.start?.(
-      (data: string) => this.inputRouter.feed(data),
+      (data) => this.inputRouter.feed(data),
       () => this.handleResize(),
     );
     this.terminal.hideCursor();
-    this.requestRender();
+    this.requestRender(true);
   }
 
   stop(): void {
@@ -163,41 +229,12 @@ export class TUI<TContext = unknown> {
     this.started = false;
     this.renderer.setStopped(true);
     this.inputRouter.setStopped(true);
-
     this.renderer.moveCursorAfterRenderedContent();
-
     this.terminal.stop?.();
     this.terminal.showCursor();
   }
 
-  requestRender(force = false): void {
-    this.renderer.requestRender(force);
-  }
-
-  addInputInterceptor(listener: (event: InputEvent) => boolean | undefined): () => void {
-    return this.inputRouter.addInputInterceptor(listener);
-  }
-
   private handleResize(): void {
-    this.inputRouter.dispatchEvent({ type: 'resize', columns: this.terminal.columns, rows: this.terminal.rows });
     this.requestRender(true);
-  }
-
-  /**
-   * Test-only seam used by `tui.test.ts` — delegates to {@link InputRouter}.
-   * Kept on the class so existing `(tui as unknown as { dispatchEvent }).dispatchEvent(...)`
-   * casts continue to work after the refactor.
-   */
-  private dispatchEvent(event: InputEvent): void {
-    this.inputRouter.dispatchEvent(event);
-  }
-
-  /**
-   * Test-only seam used by `tui.test.ts` — delegates to {@link Renderer}.
-   * Kept on the class so existing `(tui as unknown as { doRender }).doRender()`
-   * casts continue to work after the refactor.
-   */
-  private doRender(): void {
-    this.renderer.doRender();
   }
 }

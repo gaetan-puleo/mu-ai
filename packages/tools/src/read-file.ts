@@ -1,12 +1,11 @@
 import { existsSync } from 'node:fs';
-import { formatError, type Tool } from 'mu-core';
-import { looksBinary, readLineRange, sanitizePath, validatedCwd } from './utils';
+import { type ContentPart, text, type Tool } from 'mu-core';
+import { formatError, looksBinary, readLineRange, sanitizePath, validatedCwd } from './utils';
 
 import type { ToolFactoryOptions } from './types';
 
 type ReadFileToolOptions = ToolFactoryOptions;
 
-/** Wire-level shape declared in `parameters` below. Narrowed at the boundary. */
 interface ReadFileArgs {
   path?: unknown;
   start?: unknown;
@@ -28,7 +27,6 @@ function executeReadFileSingle(
       return `Error: Refusing to read binary file: ${path}`;
     }
 
-    // Stream the requested range only; never load the whole file into memory.
     const requestedStart = Math.max(1, start ?? 1);
     const requestedEnd = end ?? Number.MAX_SAFE_INTEGER;
     if (requestedStart > requestedEnd) {
@@ -60,11 +58,13 @@ function executeReadFileSingle(
   }
 }
 
-export function createReadFileTool(opts: ReadFileToolOptions): Tool<ReadFileArgs, string> {
+export function createReadFileTool(opts: ReadFileToolOptions): Tool {
   const getCwd = validatedCwd(opts.getCwd);
   return {
     name: 'read',
     description: 'Read text file(s) with line numbers. `path` may be a single path or array.',
+    prompt:
+      'Read files with `read` before editing or quoting them; reuse a file already shown in the conversation instead of re-reading it.',
     parameters: {
       type: 'object',
       properties: {
@@ -75,27 +75,29 @@ export function createReadFileTool(opts: ReadFileToolOptions): Tool<ReadFileArgs
       required: ['path'],
       additionalProperties: false,
     },
-    execute(args) {
-      // Narrow at the boundary — finding #148 calls out the prior `as string`
-      // cast pattern. Schema-as-types is best-effort; the runtime trusts but
-      // verifies before doing work.
-      const rawPath = args.path;
-      const paths: string[] = Array.isArray(rawPath)
-        ? rawPath.filter((p): p is string => typeof p === 'string')
-        : typeof rawPath === 'string'
-        ? [rawPath]
-        : [];
-      if (paths.length === 0) {
-        return 'Error: read requires `path` (string or array of strings)';
-      }
-      const start = typeof args.start === 'number' ? args.start : undefined;
-      const end = typeof args.end === 'number' ? args.end : undefined;
-      const cwd = getCwd();
+    run(input): Promise<ContentPart[]> {
+      const args = (input ?? {}) as ReadFileArgs;
+      try {
+        const rawPath = args.path;
+        const paths: string[] = Array.isArray(rawPath)
+          ? rawPath.filter((p): p is string => typeof p === 'string')
+          : typeof rawPath === 'string'
+          ? [rawPath]
+          : [];
+        if (paths.length === 0) {
+          return Promise.resolve([text('Error: read requires `path` (string or array of strings)')]);
+        }
+        const start = typeof args.start === 'number' ? args.start : undefined;
+        const end = typeof args.end === 'number' ? args.end : undefined;
+        const cwd = getCwd();
 
-      return paths
-        .map((p) => executeReadFileSingle(p, cwd, start, end))
-        .join('\n\n');
+        const result = paths
+          .map((p) => executeReadFileSingle(p, cwd, start, end))
+          .join('\n\n');
+        return Promise.resolve([text(result)]);
+      } catch (err) {
+        return Promise.resolve([text(formatError(err))]);
+      }
     },
-    onError: formatError,
   };
 }

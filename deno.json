@@ -36,7 +36,7 @@
   "lint": {
     "rules": {
       "tags": ["recommended"],
-      "exclude": ["no-explicit-any", "no-sloppy-imports", "require-await"]
+      "exclude": ["no-explicit-any", "no-sloppy-imports", "require-await", "no-empty"]
     }
   },
   "exclude": ["**/dist", "**/node_modules", "**/npm"]

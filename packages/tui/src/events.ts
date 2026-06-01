@@ -39,6 +39,8 @@ export interface MouseInputEvent extends Modifiers {
   button: MouseButton;
   x: number;
   y: number;
+  localX?: number;
+  localY?: number;
   coordinateSpace: 'cells' | 'pixels';
   source: 'sgr' | 'x10' | 'urxvt' | 'pixel' | 'unknown';
   raw: string;

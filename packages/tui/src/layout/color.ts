@@ -1,43 +1,24 @@
 import type { Color } from './types';
 
-/**
- * Color intent — preserves how a color should be emitted to the terminal.
- *
- * - `rgb`: literal 24-bit color, emitted as `CSI 38;2;R;G;B m`.
- * - `indexed`: ANSI palette slot, emitted as `CSI 38;5;N m`. Keeps an RGB
- *   snapshot so blending math can work against an approximate value.
- * - `default`: terminal default color, emitted as `CSI 39 m` / `CSI 49 m`.
- *
- * When two colors of different intents are blended together, the result is
- * downgraded to `rgb` because the original intent metadata cannot be preserved
- * across compositing math.
- */
 export type ColorIntent = 'rgb' | 'indexed' | 'default';
 
-/** RGBA color with intent metadata. r/g/b are 0-255, a is 0.0-1.0. */
 export interface Rgba {
   r: number;
   g: number;
   b: number;
   a: number;
   intent: ColorIntent;
-  /** Palette index when intent is `'indexed'`. */
   index?: number;
 }
 
-/** Default foreground — terminal's configured fg, fully opaque. */
 export const DEFAULT_FG: Rgba = { r: 200, g: 200, b: 200, a: 1, intent: 'default' };
 
-/** Default background — fully transparent so cells behind show through. */
 export const DEFAULT_BG: Rgba = { r: 0, g: 0, b: 0, a: 0, intent: 'default' };
 
-/** Fully transparent rgb (used as a generic "blend-through" sentinel). */
 export const TRANSPARENT: Rgba = { r: 0, g: 0, b: 0, a: 0, intent: 'rgb' };
 
-/** Opaque black, used as the fallback backdrop when none is provided. */
 export const OPAQUE_BLACK: Rgba = { r: 0, g: 0, b: 0, a: 1, intent: 'rgb' };
 
-/** ANSI 16-color palette RGB approximations (xterm-style). */
 const NAMED_COLOR_INDEX: Record<string, number> = {
   black: 0,
   red: 1,
@@ -58,25 +39,24 @@ const NAMED_COLOR_INDEX: Record<string, number> = {
 };
 
 const ANSI_16_RGB: Array<[number, number, number]> = [
-  [0, 0, 0], // black
-  [170, 0, 0], // red
-  [0, 170, 0], // green
-  [170, 85, 0], // yellow
-  [0, 0, 170], // blue
-  [170, 0, 170], // magenta
-  [0, 170, 170], // cyan
-  [170, 170, 170], // white
-  [85, 85, 85], // brightBlack
-  [255, 85, 85], // brightRed
-  [85, 255, 85], // brightGreen
-  [255, 255, 85], // brightYellow
-  [85, 85, 255], // brightBlue
-  [255, 85, 255], // brightMagenta
-  [85, 255, 255], // brightCyan
-  [255, 255, 255], // brightWhite
+  [0, 0, 0],
+  [170, 0, 0],
+  [0, 170, 0],
+  [170, 85, 0],
+  [0, 0, 170],
+  [170, 0, 170],
+  [0, 170, 170],
+  [170, 170, 170],
+  [85, 85, 85],
+  [255, 85, 85],
+  [85, 255, 85],
+  [255, 255, 85],
+  [85, 85, 255],
+  [255, 85, 255],
+  [85, 255, 255],
+  [255, 255, 255],
 ];
 
-/** Convert a layout `Color` to an `Rgba` with appropriate intent. */
 export function colorToRgba(color: Color, alpha = 1): Rgba {
   if (color === 'default') {
     return { ...DEFAULT_FG, a: alpha };
@@ -93,22 +73,15 @@ export function colorToRgba(color: Color, alpha = 1): Rgba {
   return { ...TRANSPARENT };
 }
 
-/** Build an Rgba from an ANSI 256-color palette index (0-255). */
 export function indexedColor(index: number, alpha = 1): Rgba {
   const [r, g, b] = palette256(index);
   return { r, g, b, a: alpha, intent: 'indexed', index };
 }
 
-/** Build a literal RGB color. */
 export function rgbColor(r: number, g: number, b: number, alpha = 1): Rgba {
   return { r, g, b, a: alpha, intent: 'rgb' };
 }
 
-/**
- * Porter-Duff source-over compositing.
- * Fast paths: front.a === 0 returns back, front.a === 1 returns front.
- * Intent downgrades to `rgb` when the two inputs disagree.
- */
 export function blendOver(front: Rgba, back: Rgba): Rgba {
   if (front.a <= 0) return back;
   if (front.a >= 1) return front;
@@ -118,7 +91,6 @@ export function blendOver(front: Rgba, back: Rgba): Rgba {
   const outA = fa + ba * (1 - fa);
   if (outA <= 0) return { ...TRANSPARENT };
 
-  // Premultiplied blend, then unpremultiply.
   const r = (front.r * fa + back.r * ba * (1 - fa)) / outA;
   const g = (front.g * fa + back.g * ba * (1 - fa)) / outA;
   const b = (front.b * fa + back.b * ba * (1 - fa)) / outA;
@@ -134,14 +106,12 @@ export function blendOver(front: Rgba, back: Rgba): Rgba {
   };
 }
 
-/** Multiply the alpha channel of `color` by `opacity`. */
 export function withOpacity(color: Rgba, opacity: number): Rgba {
   if (opacity >= 1) return color;
   if (opacity <= 0) return { ...color, a: 0 };
   return { ...color, a: color.a * opacity };
 }
 
-/** Fast equality for diffing/coalescing. */
 export function rgbaEqual(a: Rgba, b: Rgba): boolean {
   return (
     a.r === b.r &&
@@ -153,10 +123,7 @@ export function rgbaEqual(a: Rgba, b: Rgba): boolean {
   );
 }
 
-/** Emit minimal SGR parameters for a color on the given layer. */
 export function rgbaToSgr(color: Rgba, layer: 'fg' | 'bg'): string {
-  // For semi-transparent colors that reach the emit stage, the caller is
-  // expected to have already composited against the backdrop. Emit opaque RGB.
   if (color.intent === 'default') {
     return layer === 'fg' ? '39' : '49';
   }
@@ -202,7 +169,6 @@ function parseHex(hex: string): Rgba | undefined {
   return undefined;
 }
 
-/** Resolve an ANSI 256-color palette index to its RGB approximation. */
 export function palette256(index: number): [number, number, number] {
   if (index < 0 || index > 255) return [0, 0, 0];
   if (index < 16) return ANSI_16_RGB[index];

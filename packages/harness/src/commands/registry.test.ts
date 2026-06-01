@@ -1,66 +1,68 @@
 import { expect } from '@std/expect';
-import { describe, it } from '@std/testing/bdd';
-import { type Command, createCommandRegistry } from './registry';
+import { createCommandRegistry } from './registry';
+import type { Command } from './types';
 
-const noop: Command<unknown>['run'] = () => {};
+const noop: Command = { name: 'noop', description: 'does nothing', run: () => ({ ok: true }) };
 
-describe('CommandRegistry', () => {
-  it('registers and lists commands in registration order', () => {
-    const r = createCommandRegistry();
-    r.register({ name: 'a', description: 'A', run: noop });
-    r.register({ name: 'b', description: 'B', run: noop });
-    expect(r.list().map((c) => c.name)).toEqual(['a', 'b']);
+Deno.test('registers and runs a command', async () => {
+  const registry = createCommandRegistry([noop]);
+  const echo: Command = { name: 'echo', description: 'echoes args', run: (args) => ({ ok: true, output: args }) };
+  registry.register(echo);
+  const result = await registry.run('/echo hello world');
+  expect(result).toEqual({ ok: true, output: 'hello world' });
+});
+
+Deno.test('resolves aliases', async () => {
+  const registry = createCommandRegistry();
+  registry.register({ name: 'quit', description: 'exit', aliases: ['q'], run: () => ({ ok: true, output: 'bye' }) });
+  expect((await registry.run('/q')).output).toBe('bye');
+});
+
+Deno.test('an unknown command returns an error result', async () => {
+  const registry = createCommandRegistry();
+  const result = await registry.run('/nope');
+  expect(result.ok).toBe(false);
+});
+
+Deno.test("an input that isn't a command returns an error result", async () => {
+  const registry = createCommandRegistry();
+  expect((await registry.run('hello')).ok).toBe(false);
+});
+
+Deno.test('a duplicate registration throws unless override', () => {
+  const registry = createCommandRegistry([noop]);
+  expect(() => registry.register(noop)).toThrow();
+  expect(() => registry.register({ ...noop, description: 'new' }, { override: true })).not.toThrow();
+  expect(registry.get('noop')?.description).toBe('new');
+});
+
+Deno.test('passes the context to the command', async () => {
+  const registry = createCommandRegistry();
+  registry.register({
+    name: 'whoami',
+    description: 'session',
+    run: (_args, ctx) => ({ ok: true, output: ctx.sessionId }),
   });
+  expect((await registry.run('/whoami', { sessionId: 's1' })).output).toBe('s1');
+});
 
-  it('throws on duplicate registration', () => {
-    const r = createCommandRegistry();
-    r.register({ name: 'a', description: 'A', run: noop });
-    expect(() => r.register({ name: 'a', description: 'A2', run: noop }))
-      .toThrow(/already registered/);
+Deno.test('run surfaces thrown errors as a result', async () => {
+  const registry = createCommandRegistry();
+  registry.register({
+    name: 'boom',
+    description: 'throws',
+    run: () => {
+      throw new Error('kaboom');
+    },
   });
+  const result = await registry.run('/boom');
+  expect(result).toEqual({ ok: false, error: 'kaboom' });
+});
 
-  it('unregister removes from both lookup and order', () => {
-    const r = createCommandRegistry();
-    r.register({ name: 'a', description: 'A', run: noop });
-    r.register({ name: 'b', description: 'B', run: noop });
-    r.unregister('a');
-    expect(r.list().map((c) => c.name)).toEqual(['b']);
-    expect(r.get('a')).toBeUndefined();
-  });
-
-  it('match returns command + parsed args', () => {
-    const r = createCommandRegistry();
-    const cmd: Command = { name: 'model', description: 'switch', run: noop };
-    r.register(cmd);
-    const result = r.match('/model gpt-4');
-    expect(result?.command).toBe(cmd);
-    expect(result?.args).toBe('gpt-4');
-  });
-
-  it('match returns undefined for non-command input', () => {
-    const r = createCommandRegistry();
-    r.register({ name: 'new', description: '', run: noop });
-    expect(r.match('hello')).toBeUndefined();
-  });
-
-  it('match returns undefined for an unknown command name', () => {
-    const r = createCommandRegistry();
-    r.register({ name: 'new', description: '', run: noop });
-    expect(r.match('/ghost')).toBeUndefined();
-  });
-
-  it('passes the host context object through to run()', async () => {
-    const r = createCommandRegistry<{ count: number }>();
-    let captured: { count: number } | undefined;
-    r.register({
-      name: 'tick',
-      description: '',
-      run: (_args, ctx) => {
-        captured = ctx;
-      },
-    });
-    const match = r.match('/tick');
-    await match?.command.run(match.args, { count: 7 });
-    expect(captured).toEqual({ count: 7 });
-  });
+Deno.test('unregister removes the command and its aliases', async () => {
+  const registry = createCommandRegistry();
+  registry.register({ name: 'quit', description: 'exit', aliases: ['q'], run: () => ({ ok: true }) });
+  registry.unregister('quit');
+  expect(registry.get('quit')).toBeUndefined();
+  expect((await registry.run('/q')).ok).toBe(false);
 });

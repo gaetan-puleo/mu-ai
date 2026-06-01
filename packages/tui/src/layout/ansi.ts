@@ -1,21 +1,7 @@
 import { charWidth } from '../utils';
 import { type Cell, type CellStyle, continuationCell, defaultStyle, styleEqual } from './cell';
-import { DEFAULT_BG, DEFAULT_FG, indexedColor, palette256, rgbaToSgr, type Rgba, rgbColor } from './color';
+import { DEFAULT_BG, DEFAULT_FG, indexedColor, palette256, type Rgba, rgbaToSgr, rgbColor } from './color';
 
-/**
- * Parse an ANSI-styled string into a row of `Cell`s.
- *
- * The parser is a small state machine over bytes:
- *
- *   - `0x1b [ ... m`            — SGR; updates current style
- *   - `0x1b ] 8 ; ; url ST/BEL` — OSC 8 hyperlink open
- *   - `0x1b ] 8 ; ; ST/BEL`     — OSC 8 hyperlink close
- *   - other CSI / OSC / DCS     — consumed and ignored
- *   - printable text            — emitted as cells using current style
- *
- * Wide characters produce a width-2 primary cell followed by a width-0
- * continuation cell, mirroring `utils.charWidth`.
- */
 export function parseLine(line: string): Cell[] {
   const cells: Cell[] = [];
   let style = defaultStyle();
@@ -42,7 +28,6 @@ export function parseLine(line: string): Cell[] {
     i += step;
 
     if (w === 0) {
-      // Control char or zero-width: skip silently.
       continue;
     }
 
@@ -53,13 +38,6 @@ export function parseLine(line: string): Cell[] {
   return cells;
 }
 
-/**
- * Serialize a row of `Cell`s to an ANSI-styled string with minimal SGR deltas.
- *
- * - Coalesces runs of identical style into a single transition.
- * - Skips continuation cells (`width === 0`).
- * - Emits an explicit reset at the end so the row is self-contained.
- */
 export function cellsToAnsi(cells: Cell[]): string {
   let out = '';
   let prev: CellStyle | null = null;
@@ -99,14 +77,13 @@ function consumeEscape(
   if (index >= input.length) return index;
   const next = input.charCodeAt(index);
 
-  // CSI: ESC [ params intermediates final
-  if (next === 0x5b /* '[' */) {
+  if (next === 0x5b) {
     let j = index + 1;
     while (j < input.length) {
       const c = input.charCodeAt(j);
       if (c >= 0x40 && c <= 0x7e) {
         const params = input.slice(index + 1, j);
-        if (c === 0x6d /* 'm' */) {
+        if (c === 0x6d) {
           setStyle(applySgr(currentStyle, params));
         }
         return j + 1;
@@ -116,8 +93,7 @@ function consumeEscape(
     return input.length;
   }
 
-  // OSC: ESC ] payload (BEL | ESC \)
-  if (next === 0x5d /* ']' */) {
+  if (next === 0x5d) {
     let j = index + 1;
     while (j < input.length) {
       const c = input.charCodeAt(j);
@@ -126,7 +102,7 @@ function consumeEscape(
         applyOsc(payload, setStyle, currentStyle);
         return j + 1;
       }
-      if (c === 0x1b && j + 1 < input.length && input.charCodeAt(j + 1) === 0x5c /* '\' */) {
+      if (c === 0x1b && j + 1 < input.length && input.charCodeAt(j + 1) === 0x5c) {
         const payload = input.slice(index + 1, j);
         applyOsc(payload, setStyle, currentStyle);
         return j + 2;
@@ -136,7 +112,6 @@ function consumeEscape(
     return input.length;
   }
 
-  // DCS / APC / PM / SOS: ESC X ... ST  — consume until ST.
   if (next === 0x50 || next === 0x5e || next === 0x5f || next === 0x58) {
     let j = index + 1;
     while (j < input.length - 1) {
@@ -148,12 +123,10 @@ function consumeEscape(
     return input.length;
   }
 
-  // Any other ESC sequence: skip the following byte.
   return index + 1;
 }
 
 function applyOsc(payload: string, setStyle: (style: CellStyle) => void, current: CellStyle): void {
-  // OSC 8 ; params ; url   (hyperlink)
   if (payload.startsWith('8;')) {
     const semi = payload.indexOf(';', 2);
     const url = semi === -1 ? '' : payload.slice(semi + 1);
@@ -164,7 +137,6 @@ function applyOsc(payload: string, setStyle: (style: CellStyle) => void, current
 
 function applySgr(current: CellStyle, params: string): CellStyle {
   const next: CellStyle = cloneStyle(current);
-  // Empty SGR (e.g. "\x1b[m") is equivalent to reset.
   if (params.length === 0) return resetStyle(next);
 
   const parts = params.split(';');
@@ -254,7 +226,6 @@ function applySgr(current: CellStyle, params: string): CellStyle {
   return next;
 }
 
-/** Consume an extended color spec following `38` or `48`. Returns count consumed. */
 function parseExtendedColor(parts: string[], from: number, set: (rgba: Rgba) => void): number {
   const mode = parts[from] === undefined ? -1 : Number.parseInt(parts[from], 10);
   if (mode === 5) {
@@ -315,7 +286,6 @@ function sgrDelta(prev: CellStyle | null, next: CellStyle): string {
   const params: string[] = [];
 
   if (!prev) {
-    // First cell: emit only non-default attributes.
     if (next.bold) params.push('1');
     if (next.dim) params.push('2');
     if (next.italic) params.push('3');

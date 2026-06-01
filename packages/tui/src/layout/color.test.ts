@@ -21,17 +21,17 @@ describe('color', () => {
       expect(red.a).toBe(1);
     });
 
-    it('parses 6-digit hex as rgb intent', () => {
+    it('parses a 6-digit hex into rgb intent', () => {
       const c = colorToRgba('#ff8000');
       expect(c).toEqual({ r: 0xff, g: 0x80, b: 0x00, a: 1, intent: 'rgb' });
     });
 
-    it('parses 3-digit hex by doubling each nibble', () => {
+    it('parses a 3-digit hex by doubling each nibble', () => {
       const c = colorToRgba('#abc');
       expect(c).toEqual({ r: 0xaa, g: 0xbb, b: 0xcc, a: 1, intent: 'rgb' });
     });
 
-    it('parses 8-digit hex with alpha', () => {
+    it('parses an 8-digit hex with alpha', () => {
       const c = colorToRgba('#ff000080');
       expect(c.r).toBe(0xff);
       expect(c.a).toBeCloseTo(128 / 255, 3);
@@ -40,19 +40,19 @@ describe('color', () => {
   });
 
   describe('blendOver', () => {
-    it('returns back when front alpha is 0', () => {
+    it('returns back when the front alpha is 0', () => {
       const front = { ...rgbColor(255, 0, 0), a: 0 };
       const back = rgbColor(0, 0, 255);
       expect(blendOver(front, back)).toBe(back);
     });
 
-    it('returns front when front alpha is 1', () => {
+    it('returns front when the front alpha is 1', () => {
       const front = rgbColor(255, 0, 0);
       const back = rgbColor(0, 0, 255);
       expect(blendOver(front, back)).toBe(front);
     });
 
-    it('mixes halfway when front alpha is 0.5 over opaque', () => {
+    it('blends halfway when the front alpha is 0.5 over an opaque base', () => {
       const front = { ...rgbColor(255, 0, 0), a: 0.5 };
       const back = rgbColor(0, 0, 255);
       const out = blendOver(front, back);
@@ -61,7 +61,7 @@ describe('color', () => {
       expect(out.a).toBe(1);
     });
 
-    it('downgrades intent to rgb when intents differ', () => {
+    it('downgrades the intent to rgb when the intents differ', () => {
       const front = { ...colorToRgba('red'), a: 0.5 };
       const back = rgbColor(0, 0, 255);
       expect(blendOver(front, back).intent).toBe('rgb');
@@ -69,14 +69,14 @@ describe('color', () => {
   });
 
   describe('withOpacity', () => {
-    it('multiplies alpha by opacity factor', () => {
+    it('multiplies the alpha by the opacity factor', () => {
       const c = withOpacity(rgbColor(10, 20, 30, 0.8), 0.5);
       expect(c.a).toBeCloseTo(0.4, 3);
     });
   });
 
   describe('rgbaToSgr', () => {
-    it('emits 39/49 for default intent', () => {
+    it('emits 39/49 for the default intent', () => {
       expect(rgbaToSgr(DEFAULT_FG, 'fg')).toBe('39');
       expect(rgbaToSgr({ ...DEFAULT_FG, intent: 'default' }, 'bg')).toBe('49');
     });
@@ -94,7 +94,7 @@ describe('color', () => {
       expect(rgbaToSgr(indexedColor(100), 'fg')).toBe('38;5;100');
     });
 
-    it('emits truecolor for rgb intent', () => {
+    it('emits truecolor for the rgb intent', () => {
       expect(rgbaToSgr(rgbColor(255, 128, 0), 'fg')).toBe('38;2;255;128;0');
     });
   });

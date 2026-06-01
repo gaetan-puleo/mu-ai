@@ -5,7 +5,6 @@ import { resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname ?? '.', '..');
 
-// Publish order is a topological sort of the internal dependency graph.
 const PACKAGES = [
   { name: 'mu-core', dir: 'core' },
   { name: 'mu-tui', dir: 'tui' },
@@ -16,10 +15,6 @@ const PACKAGES = [
 ] as const;
 
 const INTERNAL_NAMES = new Set<string>(PACKAGES.map((pkg) => pkg.name));
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function run(cmd: string, cwd = ROOT) {
   console.log(`\n$ ${cmd}`);
@@ -45,10 +40,6 @@ function bumpVersion(current: string, bump: 'patch' | 'minor' | 'major'): string
       return `${major}.${minor}.${patch + 1}`;
   }
 }
-
-// ---------------------------------------------------------------------------
-// CLI
-// ---------------------------------------------------------------------------
 
 function usage(): never {
   console.log(`
@@ -76,7 +67,6 @@ const versionArg = args.find((a) => !a.startsWith('--'));
 
 if (!versionArg) usage();
 
-// Resolve the target version
 const currentVersion = readPkg(resolve(ROOT, 'packages', PACKAGES[0].dir)).version as string;
 const BUMP_TYPES = new Set(['patch', 'minor', 'major']);
 
@@ -92,10 +82,6 @@ if (!/^\d+\.\d+\.\d+$/.test(nextVersion)) {
 console.log(`\nVersion: ${currentVersion} → ${nextVersion}`);
 if (dryRun) console.log('(dry-run — no changes will be made)\n');
 
-// ---------------------------------------------------------------------------
-// 1. Update versions in every package.json
-// ---------------------------------------------------------------------------
-
 const originalPkgs: Map<string, Record<string, unknown>> = new Map();
 
 for (const { name, dir: packageDir } of PACKAGES) {
@@ -104,7 +90,6 @@ for (const { name, dir: packageDir } of PACKAGES) {
   originalPkgs.set(dir, JSON.parse(JSON.stringify(pkg)));
   pkg.version = nextVersion;
 
-  // Update internal dependency references
   for (const depField of ['dependencies', 'devDependencies', 'peerDependencies']) {
     const deps = pkg[depField] as Record<string, string> | undefined;
     if (!deps) continue;
@@ -123,24 +108,12 @@ for (const { name, dir: packageDir } of PACKAGES) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 2. Publish packages in dependency order
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// 2. Build npm packages via dnt
-// ---------------------------------------------------------------------------
-
 console.log('\nBuilding npm packages…');
 if (dryRun) {
   console.log('  (would run) deno run -A scripts/build_npm.ts');
 } else {
   run('deno run -A --sloppy-imports scripts/build_npm.ts');
 }
-
-// ---------------------------------------------------------------------------
-// 3. Publish packages in dependency order (from npm/ output dirs)
-// ---------------------------------------------------------------------------
 
 console.log('\nPublishing packages…');
 
@@ -155,10 +128,6 @@ for (const { name, dir: packageDir } of PACKAGES) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 4. Restore workspace:* references in source package.json files
-// ---------------------------------------------------------------------------
-
 if (!dryRun) {
   for (const [dir, original] of originalPkgs) {
     original.version = nextVersion;
@@ -166,10 +135,6 @@ if (!dryRun) {
   }
   console.log('\n  ✓ Restored workspace:* references in source package.json files');
 }
-
-// ---------------------------------------------------------------------------
-// 5. Git tag
-// ---------------------------------------------------------------------------
 
 const gitTag = `v${nextVersion}`;
 if (dryRun) {

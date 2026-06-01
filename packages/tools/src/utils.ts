@@ -11,14 +11,11 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 
-/**
- * Sanitize a file path from LLM arguments.
- * Local models often wrap paths in extra quotes or add whitespace.
- *
- * When `cwd` is supplied, relative paths are resolved against it instead of
- * `process.cwd()` — this lets the agent operate on a different working
- * directory than the host process.
- */
+export function formatError(err: unknown): string {
+  if (err instanceof Error) return `Error: ${err.message}`;
+  return `Error: ${String(err)}`;
+}
+
 export function sanitizePath(raw: string, cwd?: string): string {
   let p = raw.trim();
   if ((p.startsWith('"') && p.endsWith('"')) || (p.startsWith("'") && p.endsWith("'"))) {
@@ -30,12 +27,6 @@ export function sanitizePath(raw: string, cwd?: string): string {
   return p;
 }
 
-/**
- * Build a cwd accessor that validates the directory exists on first use.
- * Throws a clear error if `getCwd()` returns a path that is missing or
- * not a directory. Validation is cached per resolved path to avoid
- * stat'ing on every tool call.
- */
 export function validatedCwd(getCwd: () => string): () => string {
   const checked = new Set<string>();
   return () => {
@@ -56,11 +47,6 @@ export function validatedCwd(getCwd: () => string): () => string {
   };
 }
 
-/**
- * Heuristic binary-file detection: a NUL byte in the first 8 KiB.
- * Matches what `git`, `grep`, and most editors do. Cheaper than running
- * a full UTF-8 validator and reliable in practice.
- */
 export function looksBinary(path: string): boolean {
   const SAMPLE = 8192;
   const buf = Buffer.alloc(SAMPLE);
@@ -77,15 +63,6 @@ export function looksBinary(path: string): boolean {
   }
 }
 
-/**
- * Read a 1-indexed inclusive line range without loading the whole file.
- * Streams bytes through a file descriptor in fixed chunks and stops once
- * the requested end line is consumed.
- *
- * Returns the joined slice of lines (newline-separated, no trailing newline)
- * and the actual range observed. `totalKnown` is true only if EOF was reached
- * before stopping early.
- */
 export function readLineRange(
   path: string,
   start: number,
@@ -101,7 +78,6 @@ export function readLineRange(
     const out: string[] = [];
     let eof = false;
 
-    // Reads next decoded chunk text and a flag indicating EOF.
     const nextChunk = (): string | null => {
       const bytes = readSync(fd, buf, 0, CHUNK, offset);
       if (bytes === 0) {
@@ -116,17 +92,14 @@ export function readLineRange(
       const text = nextChunk();
       if (text === null) break;
       const combined = pending + text;
-      // Keep last partial line in `pending`; emit complete lines.
       let lineStart = 0;
       for (let i = 0; i < combined.length; i++) {
-        if (combined.charCodeAt(i) === 10 /* \n */) {
+        if (combined.charCodeAt(i) === 10) {
           const line = combined.slice(lineStart, i);
           if (currentLine >= start && currentLine <= end) out.push(line);
           currentLine++;
           lineStart = i + 1;
           if (currentLine > end) {
-            // Past requested range — we don't need the rest.
-            // Note: totalLines below is unknown in this branch.
             pending = '';
             break outer;
           }
@@ -135,7 +108,6 @@ export function readLineRange(
       pending = combined.slice(lineStart);
     }
 
-    // Flush final partial line on EOF (file without trailing newline).
     if (eof && pending.length > 0) {
       if (currentLine >= start && currentLine <= end) out.push(pending);
       currentLine++;
@@ -153,13 +125,6 @@ export function readLineRange(
   }
 }
 
-/**
- * Atomic write: writes content to a sibling temp file and renames over the
- * target. `rename` is atomic on POSIX within the same filesystem, so readers
- * never observe a partial write. Creates parent directories as needed.
- *
- * `content` may be a string (written as UTF-8) or a Buffer (raw bytes).
- */
 export function writeAtomic(path: string, content: string | Buffer): void {
   const parentDir = dirname(path);
   if (!existsSync(parentDir)) {
@@ -174,11 +139,9 @@ export function writeAtomic(path: string, content: string | Buffer): void {
     }
     renameSync(tmp, path);
   } catch (err) {
-    // Best-effort cleanup; ignore if temp never made it to disk.
     try {
       rmSync(tmp, { force: true });
     } catch {
-      // ignore
     }
     throw err;
   }

@@ -1,19 +1,13 @@
 import { spawn } from 'node:child_process';
-import { formatError, type Tool, type ToolContext } from 'mu-core';
+import { type ContentPart, text, type Tool } from 'mu-core';
 import type { ToolFactoryOptions } from './types';
-import { validatedCwd } from './utils';
+import { formatError, validatedCwd } from './utils';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
-const DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024; // 10 MiB
+const DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
 const TRUNCATION_MARKER = '\n…[truncated: output exceeded maxOutputBytes]';
 const SIGKILL_DELAY_MS = 1_000;
 
-/**
- * Wire-level args shape declared in the JSON schema below. The runtime parses
- * the JSON for us before calling `execute`, so we still narrow at the boundary
- * (LLMs occasionally emit `{ cmd: 123 }` or omit fields) before trusting
- * `parsed.cmd`.
- */
 interface BashArgs {
   cmd?: unknown;
 }
@@ -31,8 +25,6 @@ function executeBash(command: string, opts: ExecuteBashOptions): Promise<string>
       detached: true,
       cwd: opts.cwd,
     });
-    // Without `unref`, a detached child keeps the parent's event loop alive
-    // after the parent should have exited.
     proc.unref();
 
     let stdoutBytes = 0;
@@ -69,14 +61,11 @@ function executeBash(command: string, opts: ExecuteBashOptions): Promise<string>
     const killProc = (signal: 'SIGTERM' | 'SIGKILL'): void => {
       if (!proc.pid) return;
       try {
-        // Negative PID targets the process group created by `detached: true`,
-        // so we terminate children too (e.g. `bash -c 'sleep 60 & wait'`).
         process.kill(-proc.pid, signal);
       } catch {
         try {
           proc.kill(signal);
         } catch {
-          // Process already gone — fine.
         }
       }
     };
@@ -86,7 +75,6 @@ function executeBash(command: string, opts: ExecuteBashOptions): Promise<string>
       killed = true;
       abortReason = reason;
       killProc('SIGTERM');
-      // Escalate to SIGKILL if the process doesn't exit promptly.
       killTimer = setTimeout(() => killProc('SIGKILL'), SIGKILL_DELAY_MS);
     };
 
@@ -116,7 +104,6 @@ function executeBash(command: string, opts: ExecuteBashOptions): Promise<string>
         else stderrBytes += data.length;
         return;
       }
-      // Partial fit: keep prefix, mark truncated, and stop the child to bound work.
       chunks.push(data.subarray(0, remaining));
       if (stream === 'stdout') {
         stdoutBytes += remaining;
@@ -153,7 +140,6 @@ function executeBash(command: string, opts: ExecuteBashOptions): Promise<string>
     proc.on('close', (code) => finalize(code));
 
     proc.on('error', (err) => {
-      // If the process is already settled, this is a late error after close — ignore.
       if (settled) return;
       settle(formatError(err));
     });
@@ -161,23 +147,19 @@ function executeBash(command: string, opts: ExecuteBashOptions): Promise<string>
 }
 
 interface BashToolOptions extends ToolFactoryOptions {
-  /** Cap on combined stdout/stderr bytes. Default 10 MiB. */
   maxOutputBytes?: number;
-  /**
-   * Per-call abort hook — read once at execute time. Retained for hosts that
-   * predate the `ToolContext.signal` plumbing; if both are present we prefer
-   * the context signal so the runtime stays in control of cancellation.
-   */
   getAbortSignal?: () => AbortSignal | undefined;
 }
 
-export function createBashTool(opts: BashToolOptions): Tool<BashArgs, string> {
+export function createBashTool(opts: BashToolOptions): Tool {
   const maxOutputBytes = opts.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
   const getCwd = validatedCwd(opts.getCwd);
   const fallbackAbortSignal = opts.getAbortSignal;
   return {
     name: 'bash',
     description: 'Run a shell command via bash in the project cwd. Returns stdout+stderr; non-zero exit is an error.',
+    prompt:
+      'Use `bash` only for actions no file tool covers. Treat command output already shown in the conversation as current and authoritative — do not re-run a command just to verify it.',
     parameters: {
       type: 'object',
       properties: {
@@ -186,21 +168,21 @@ export function createBashTool(opts: BashToolOptions): Tool<BashArgs, string> {
       required: ['cmd'],
       additionalProperties: false,
     },
-    execute(args, ctx?: ToolContext) {
-      // Defensive narrow: schema says `cmd: string`, but cast-without-check is
-      // exactly the class of bug finding #149 calls out. If the LLM sends a
-      // number or nothing, fall through to onError.
+    async run(input, ctx): Promise<ContentPart[]> {
+      const args = (input ?? {}) as BashArgs;
       if (typeof args.cmd !== 'string') {
-        return 'Error: bash requires a string `cmd`';
+        return [text('Error: bash requires a string `cmd`')];
       }
-      return executeBash(args.cmd, {
-        cwd: getCwd(),
-        maxOutputBytes,
-        // Prefer the runtime-supplied signal; fall back to the legacy hook so
-        // pre-context hosts (or tests) keep working unchanged.
-        abortSignal: ctx?.signal ?? fallbackAbortSignal?.(),
-      });
+      try {
+        const result = await executeBash(args.cmd, {
+          cwd: getCwd(),
+          maxOutputBytes,
+          abortSignal: ctx?.signal ?? fallbackAbortSignal?.(),
+        });
+        return [text(result)];
+      } catch (err) {
+        return [text(formatError(err))];
+      }
     },
-    onError: formatError,
   };
 }

@@ -1,35 +1,25 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, extname, join } from 'node:path';
+import { readdir, readFile, stat } from 'node:fs/promises';
+import { join } from 'node:path';
 import { parseSkill } from './parser';
 import type { Skill } from './types';
 
-/**
- * Load all skills from every directory in `skillsDirs`.
- *
- * v1 behavior: top-level `.md` files only (no recursion). When two skills
- * share a name, the one from the later directory in the list wins —
- * directories are in precedence order.
- *
- * Missing directories are skipped silently. Malformed skill files throw.
- */
-export function loadSkills(skillsDirs: string[]): Skill[] {
-  const byName = new Map<string, Skill>();
-
-  for (const dir of skillsDirs) {
-    if (!existsSync(dir)) continue;
-    const stat = statSync(dir);
-    if (!stat.isDirectory()) continue;
-
-    const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
-    for (const entry of entries) {
-      if (!entry.isFile() || extname(entry.name) !== '.md') continue;
-      const filePath = join(dir, entry.name);
-      const source = readFileSync(filePath, 'utf-8');
-      const fallbackName = basename(entry.name, '.md');
-      const skill = parseSkill({ source, filePath, fallbackName });
-      byName.set(skill.name, skill);
+export const loadSkills = async (dir: string): Promise<Skill[]> => {
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return [];
+  }
+  const skills: Skill[] = [];
+  for (const entry of entries.sort()) {
+    const skillDir = join(dir, entry);
+    try {
+      if (!(await stat(skillDir)).isDirectory()) continue;
+      const source = await readFile(join(skillDir, 'SKILL.md'), 'utf-8');
+      skills.push(parseSkill(source, entry, skillDir));
+    } catch {
+      continue;
     }
   }
-
-  return [...byName.values()];
-}
+  return skills;
+};

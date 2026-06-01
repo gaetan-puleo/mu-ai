@@ -1,59 +1,176 @@
-import { expect } from '@std/expect';
-import { describe, it } from '@std/testing/bdd';
+import { assertEquals } from '@std/assert';
+import { commandPalette } from './components/command-palette';
+import { editor } from './components/editor';
+import { selectList } from './components/select-list';
+import type { InputEvent } from './events';
+import { TUI } from './tui';
+import type { Terminal } from './types/terminal';
+import { column, text } from './views';
 
-import { Box } from './components/Box';
-import { Modal } from './components/Modal';
-import { Text } from './components/Text';
-import { createDefaultCapabilities } from './capabilities';
-import { layoutTree, sortForRender } from './layout/engine';
-import { cellBufferToLines, createCellBuffer } from './layout/cellbuffer';
-import { drawEntry } from './layout/render';
-import { stripAnsi } from './utils';
+const key = (k: string): InputEvent => ({
+  type: 'key',
+  key: k,
+  kind: 'press',
+  source: 'legacy',
+  raw: '',
+  shift: false,
+  ctrl: false,
+  alt: false,
+  meta: false,
+});
 
-const caps = createDefaultCapabilities();
+class FakeTerminal implements Terminal {
+  columns = 20;
+  rows = 4;
+  output = '';
+  write(data: string): void {
+    this.output += data;
+  }
+  hideCursor(): void {}
+  showCursor(): void {}
+  clearScreen(): void {}
+  clearLine(): void {}
+  clearFromCursor(): void {}
+  moveBy(): void {}
+}
 
-describe('render pipeline smoke', () => {
-  it('plain text on default background emits no SGR (terminal styling preserved)', () => {
-    const text = new Text({ text: 'Hello world', layout: { width: 11, height: 1 } });
-    const entries = layoutTree([text], { x: 0, y: 0, width: 20, height: 1 }, null, caps);
-    const buf = createCellBuffer(20, 1);
-    for (const e of sortForRender(entries)) drawEntry(buf, e, null, caps);
-    const line = cellBufferToLines(buf)[0];
+const plainText = (raw: string): string =>
+  raw
+    // deno-lint-ignore no-control-regex
+    .replace(/\x1b\][0-9];[^\x07]*\x07/g, '')
+    // deno-lint-ignore no-control-regex
+    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+    // deno-lint-ignore no-control-regex
+    .replace(/\x1b[78]/g, '');
 
-    // The text should be visible without any ANSI escape codes — that means
-    // the terminal's own default colors will apply (no surprise black bg
-    // showing up on light terminals).
-    expect(line).toBe('Hello world         ');
-    expect(stripAnsi(line)).toBe('Hello world         ');
-  });
+Deno.test('TUI renders the root surface into the terminal', () => {
+  const term = new FakeTerminal();
+  const tui = new TUI(term, { synchronizedOutput: false });
+  tui.setRoot(column([text('hello'), text('world')]));
+  tui.renderNow();
 
-  it('text inside a colored Box gets the box bg', () => {
-    const text = new Text({ text: 'Hi', layout: { width: 2, height: 1 } });
-    const box = new Box({
-      layout: { width: 10, height: 1, backgroundColor: '#112233' },
-      children: [text],
-    });
-    const entries = layoutTree([box], { x: 0, y: 0, width: 10, height: 1 }, null, caps);
-    const buf = createCellBuffer(10, 1);
-    for (const e of sortForRender(entries)) drawEntry(buf, e, null, caps);
-    const line = cellBufferToLines(buf)[0];
+  const out = plainText(term.output);
+  assertEquals(out.includes('hello'), true);
+  assertEquals(out.includes('world'), true);
+});
 
-    expect(line).toContain('48;2;17;34;51'); // #112233
-    expect(stripAnsi(line)).toContain('Hi');
-  });
+Deno.test('a stateful component (editor) receives input', () => {
+  const term = new FakeTerminal();
+  const tui = new TUI(term, { synchronizedOutput: false });
+  const ed = editor({ value: 'hi' });
+  tui.setRoot(ed);
+  tui.setFocus(ed);
 
-  it('modal blends a dimmer over underlying content', () => {
-    const underlying = new Box({
-      layout: { width: 'fill', height: 'fill', backgroundColor: '#00c8c8' }, // cyan
-    });
-    const modal = new Modal({ title: 'X', body: 'Y', width: 6, height: 3 });
-    const entries = layoutTree([underlying, modal], { x: 0, y: 0, width: 20, height: 5 }, modal, caps);
-    const buf = createCellBuffer(20, 5);
-    for (const e of sortForRender(entries)) drawEntry(buf, e, modal, caps);
-    const lines = cellBufferToLines(buf);
+  ed.handleInput({ type: 'text', text: '!', raw: '!' });
+  assertEquals(ed.getValue(), 'hi!');
 
-    // Default 70% black backdrop over cyan (#00c8c8 = 0,200,200) → (0,60,60).
-    const hasBlendedBackdrop = lines.some((l) => l.includes('48;2;0;60;60'));
-    expect(hasBlendedBackdrop).toBe(true);
-  });
+  tui.renderNow();
+  assertEquals(plainText(term.output).includes('hi!'), true);
+});
+
+Deno.test('showModal: real modal on top, focus capture, close', () => {
+  const term = new FakeTerminal();
+  term.columns = 30;
+  term.rows = 10;
+  const tui = new TUI(term, { synchronizedOutput: false });
+  tui.setRoot(text('background'));
+
+  const inner = editor({ value: 'edit' });
+  const handle = tui.showModal(inner, { title: 'Confirm' });
+  assertEquals(tui.getFocused(), inner);
+
+  tui.renderNow();
+  const shown = plainText(term.output);
+  assertEquals(shown.includes('Confirm'), true);
+  assertEquals(shown.includes('edit'), true);
+
+  handle.close();
+  assertEquals(tui.getFocused(), null);
+  term.output = '';
+  tui.renderNow();
+  assertEquals(plainText(term.output).includes('Confirm'), false);
+});
+
+Deno.test('selectList navigates by keyboard and selects', () => {
+  let chosen = '';
+  const list = selectList([
+    { label: 'a', value: 'a' },
+    { label: 'b', value: 'b' },
+    { label: 'c', value: 'c' },
+  ]);
+  list.onSelect = (item) => {
+    chosen = item.value;
+  };
+  list.handleInput(key('down'));
+  list.handleInput(key('enter'));
+  assertEquals(chosen, 'b');
+});
+
+Deno.test('commandPalette filters by typing then runs', () => {
+  let ran = '';
+  const palette = commandPalette(
+    [
+      { id: 'open', label: 'Open file', run: () => (ran = 'open') },
+      { id: 'save', label: 'Save file', run: () => (ran = 'save') },
+      { id: 'quit', label: 'Quit', run: () => (ran = 'quit') },
+    ],
+    { onRun: (command) => command.run() },
+  );
+  for (const ch of 'quit') palette.handleInput({ type: 'text', text: ch, raw: ch });
+  palette.handleInput(key('enter'));
+  assertEquals(ran, 'quit');
+});
+
+Deno.test('toast: rendered top right then dismissed', () => {
+  const term = new FakeTerminal();
+  term.columns = 40;
+  term.rows = 8;
+  const tui = new TUI(term, { synchronizedOutput: false });
+  tui.setRoot(text('app'));
+
+  const handle = tui.toast('Saved!', { kind: 'success', duration: 100000 });
+  tui.renderNow();
+  assertEquals(plainText(term.output).includes('Saved!'), true);
+
+  handle.dismiss();
+  term.output = '';
+  tui.renderNow();
+  assertEquals(plainText(term.output).includes('Saved!'), false);
+});
+
+Deno.test('showCommandPalette: layer takes focus, runs and closes', () => {
+  const term = new FakeTerminal();
+  term.columns = 40;
+  term.rows = 12;
+  const tui = new TUI(term, { synchronizedOutput: false });
+  tui.setRoot(text('app'));
+
+  let ran = '';
+  tui.showCommandPalette([
+    { id: 'a', label: 'Alpha', run: () => (ran = 'a') },
+    { id: 'b', label: 'Beta', run: () => (ran = 'b') },
+  ]);
+  const palette = tui.getFocused();
+  tui.renderNow();
+  assertEquals(plainText(term.output).includes('Alpha'), true);
+
+  palette?.handleInput?.(key('down'));
+  palette?.handleInput?.(key('enter'));
+  assertEquals(ran, 'b');
+  assertEquals(tui.getFocused(), null);
+});
+
+Deno.test('the cell-diff emits a single change after a full render', () => {
+  const term = new FakeTerminal();
+  const tui = new TUI(term, { synchronizedOutput: false });
+  const label = { value: 'aaaaa' };
+  tui.setRoot({ render: (s) => s.text(0, 0, label.value) });
+
+  tui.renderNow();
+  term.output = '';
+  label.value = 'aaaXa';
+  tui.renderNow();
+
+  assertEquals(term.output.includes('X'), true);
+  assertEquals(term.output.includes('aaaaa'), false);
 });

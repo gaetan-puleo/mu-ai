@@ -7,10 +7,6 @@ export function stripAnsi(s: string): string {
   return s.replace(ANSI_RE, '');
 }
 
-/**
- * Calculate the visible width of a string, ignoring ANSI escape codes.
- * CJK characters count as 2, everything else as 1.
- */
 export function visibleWidth(s: string): number {
   const stripped = stripAnsi(s);
   let w = 0;
@@ -151,10 +147,6 @@ export function charWidth(code: number): number {
   return 1;
 }
 
-/**
- * Truncate a string to `width` visible columns, preserving ANSI codes.
- * Appends `ellipsis` (default: `"…"`) if truncated.
- */
 export function truncateToWidth(s: string, width: number, ellipsis = '\u2026'): string {
   if (visibleWidth(s) <= width) return s;
   const ellipsisWidth = visibleWidth(ellipsis);
@@ -259,10 +251,6 @@ function wrapSegment(segment: string, width: number): string[] {
   return state.lines;
 }
 
-/**
- * Slice a string by visible column range, preserving ANSI codes.
- * `strict: true` prevents splitting a wide character at the boundary.
- */
 export function sliceByColumn(s: string, start: number, end: number, strict = false): string {
   let col = 0;
   let result = '';

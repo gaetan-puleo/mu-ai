@@ -1,30 +1,21 @@
 import { type InputEvent, type KeyInputEvent, type Modifiers, type MouseInputEvent, NO_MODIFIERS } from './events';
 
-// CSI-u / Kitty-like keyboard event: ESC [ code ; modifiers u, with optional Kitty subfields.
 // deno-lint-ignore no-control-regex
 const CSI_U_RE = /^\x1b\[(\d+)(?::[\d:]+)?(?:;(\d+(?::\d+)?))?(?:;([\d:]+))?u$/;
-// Historical parser compatibility for older CSI-u-like encodings: ESC [ < code ; modifiers u.
 // deno-lint-ignore no-control-regex
 const LEGACY_KITTY_RE = /^\x1b\[<(\d+);(\d+)u$/;
-// xterm modifyOtherKeys family. Terminals disagree on parameter order, so decode both common shapes.
 // deno-lint-ignore no-control-regex
 const XTERM_MODIFIED_RE = /^\x1b\[27;(\d+);(\d+)~$/;
-// SGR mouse: ESC [ < Cb ; Cx ; Cy M / m.
 // deno-lint-ignore no-control-regex
 const SGR_MOUSE_RE = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/;
-// Basic CSI keys: ESC [ code ~.
 // deno-lint-ignore no-control-regex
 const CSI_TILDE_RE = /^\x1b\[([0-9;]*)~$/;
-// CSI keys with final letters: arrows, Home/End, focus reports.
 // deno-lint-ignore no-control-regex
 const CSI_KEY_RE = /^\x1b\[([0-9;]*)([A-HIOPR])$/;
-// SS3 function/application cursor keys: ESC O P, ESC O A, etc.
 // deno-lint-ignore no-control-regex
 const SS3_RE = /^\x1bO([A-DFHPQS])$/;
-// Alt-prefixed printable/control input.
 // deno-lint-ignore no-control-regex
 const ALT_PREFIX_RE = /^\x1b(.+)$/;
-// Ctrl+A-Z: single byte 0x01-0x1a.
 // deno-lint-ignore no-control-regex
 const CTRL_RE = /^[\x01-\x1a]$/;
 
@@ -337,4 +328,3 @@ function isControlSequence(raw: string): boolean {
     raw.startsWith('\x1bX')
   );
 }
-

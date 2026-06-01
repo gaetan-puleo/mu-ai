@@ -17,7 +17,7 @@ describe('sanitizePath', () => {
     }
   });
 
-  it('resolves relative paths against cwd', () => {
+  it('resolves relative paths against the cwd', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'sanitize-rel-'));
     try {
       const result = sanitizePath('subdir/file.txt', cwd);
@@ -34,7 +34,7 @@ describe('sanitizePath', () => {
 });
 
 describe('looksBinary', () => {
-  it('detects NUL byte as binary', () => {
+  it('detects a NUL byte as binary', () => {
     const dir = mkdtempSync(join(tmpdir(), 'binary-'));
     try {
       const p = join(dir, 'bin');
@@ -56,7 +56,7 @@ describe('looksBinary', () => {
     }
   });
 
-  it('treats empty file as non-binary', () => {
+  it('treats an empty file as non-binary', () => {
     const dir = mkdtempSync(join(tmpdir(), 'empty-'));
     try {
       const p = join(dir, 'empty');
@@ -83,7 +83,7 @@ describe('readLineRange', () => {
     }
   });
 
-  it('returns full file when end > total', () => {
+  it('returns the entire file when end > total', () => {
     const dir = mkdtempSync(join(tmpdir(), 'range-end-'));
     try {
       const p = join(dir, 'lines.txt');
@@ -97,7 +97,7 @@ describe('readLineRange', () => {
     }
   });
 
-  it('stops reading once past the requested range (avoids loading whole file)', () => {
+  it('stops reading once the requested range is exceeded (avoids loading the whole file)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'range-stop-'));
     try {
       const p = join(dir, 'big.txt');
@@ -113,7 +113,7 @@ describe('readLineRange', () => {
     }
   });
 
-  it('handles last line without trailing newline', () => {
+  it('handles the last line without a trailing newline', () => {
     const dir = mkdtempSync(join(tmpdir(), 'range-noeol-'));
     try {
       const p = join(dir, 'noeol.txt');
@@ -127,7 +127,7 @@ describe('readLineRange', () => {
 });
 
 describe('writeAtomic', () => {
-  it('writes file content and leaves no temp behind on success', () => {
+  it('writes the file content and leaves no temp file on success', () => {
     const dir = mkdtempSync(join(tmpdir(), 'atomic-'));
     try {
       const p = join(dir, 'out.txt');
@@ -152,7 +152,7 @@ describe('writeAtomic', () => {
     }
   });
 
-  it('preserves raw bytes when given a Buffer', () => {
+  it('preserves raw bytes when a Buffer is provided', () => {
     const dir = mkdtempSync(join(tmpdir(), 'atomic-bin-'));
     try {
       const p = join(dir, 'raw.bin');
@@ -167,12 +167,12 @@ describe('writeAtomic', () => {
 });
 
 describe('validatedCwd', () => {
-  it('throws when cwd does not exist', () => {
+  it("throws when the cwd doesn't exist", () => {
     const accessor = validatedCwd(() => join(tmpdir(), 'definitely-missing-xyz-123'));
     expect(() => accessor()).toThrow(/Invalid cwd/);
   });
 
-  it('throws when cwd is a file, not a directory', () => {
+  it('throws when the cwd is a file, not a directory', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cwd-file-'));
     try {
       const p = join(dir, 'a-file');
@@ -184,7 +184,7 @@ describe('validatedCwd', () => {
     }
   });
 
-  it('returns the cwd when valid', () => {
+  it('returns the cwd when it is valid', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cwd-ok-'));
     try {
       const accessor = validatedCwd(() => dir);

@@ -1,0 +1,399 @@
+import type { ContentPart, Message } from 'mu-core';
+import { column, type Component, truncateToWidth, visibleWidth, wrapText } from 'mu-tui';
+import type { AgentSessionEvent } from 'mu-harness';
+import { renderMarkdown } from './markdown';
+import { styleToAnsi, type Theme } from './theme';
+
+const RESET = '\x1b[0m';
+const PAD = 1;
+const COLLAPSE_LIMIT = 8;
+
+export type Entry =
+  | { kind: 'user'; text: string }
+  | { kind: 'reasoning'; text: string; closed: boolean }
+  | { kind: 'assistant'; text: string }
+  | { kind: 'tool_call'; name: string; input: unknown }
+  | { kind: 'shell'; cmd: string; output: string; error: boolean }
+  | {
+    kind: 'subagent';
+    agent: string;
+    status: SubAgentStatus;
+    tools: number;
+    activity: string;
+    result: string;
+    log: string[];
+    open: boolean;
+  }
+  | { kind: 'note'; text: string; error: boolean };
+
+type ReasoningEntry = Extract<Entry, { kind: 'reasoning' }>;
+type SubAgentEntry = Extract<Entry, { kind: 'subagent' }>;
+
+export type SubAgentStatus = 'running' | 'done' | 'error';
+
+export interface SubAgentHandle {
+  addTool(label: string): void;
+  finish(result: string): void;
+  fail(message: string): void;
+}
+
+const partsToText = (parts: readonly ContentPart[]): string =>
+  parts.map((part) => (part.type === 'text' ? part.text : part.type === 'tool_result' ? partsToText(part.content) : ''))
+    .join('');
+
+const isToolResults = (message: Message): boolean =>
+  message.content.length > 0 && message.content.every((part) => part.type === 'tool_result');
+
+export class Transcript {
+  entries: Entry[] = [];
+  expanded = false;
+  thinkingVisible = false;
+  private pending: { kind: 'assistant'; text: string } | undefined;
+  private pendingReasoning: ReasoningEntry | undefined;
+
+  reset(): void {
+    this.entries = [];
+    this.pending = undefined;
+    this.pendingReasoning = undefined;
+  }
+
+  private closeReasoning(): void {
+    if (this.pendingReasoning) this.pendingReasoning.closed = !this.thinkingVisible;
+    this.pendingReasoning = undefined;
+  }
+
+  toggleExpanded(): boolean {
+    if (!this.entries.some((e) => e.kind === 'shell')) return false;
+    this.expanded = !this.expanded;
+    return true;
+  }
+
+  toggleReasoning(): boolean {
+    this.thinkingVisible = !this.thinkingVisible;
+    for (const entry of this.entries) {
+      if (entry.kind === 'reasoning') entry.closed = !this.thinkingVisible;
+    }
+    return this.thinkingVisible;
+  }
+
+  appendUser(text: string): void {
+    this.entries.push({ kind: 'user', text });
+  }
+
+  note(content: string, error = false): void {
+    this.entries.push({ kind: 'note', text: content, error });
+  }
+
+  appendSubAgent(agent: string): SubAgentHandle {
+    const entry: SubAgentEntry = {
+      kind: 'subagent',
+      agent,
+      status: 'running',
+      tools: 0,
+      activity: '',
+      result: '',
+      log: [],
+      open: false,
+    };
+    this.entries.push(entry);
+    return {
+      addTool: (label) => {
+        entry.tools += 1;
+        entry.activity = label;
+        entry.log.push(label);
+      },
+      finish: (result) => {
+        entry.status = 'done';
+        entry.activity = '';
+        entry.result = result;
+      },
+      fail: (message) => {
+        entry.status = 'error';
+        entry.activity = '';
+        entry.result = message;
+      },
+    };
+  }
+
+  appendShell(cmd: string): { setOutput: (output: string, error?: boolean) => void } {
+    const entry: Entry = { kind: 'shell', cmd, output: '', error: false };
+    this.entries.push(entry);
+    return {
+      setOutput: (output, error = false) => {
+        entry.output = output;
+        entry.error = error;
+      },
+    };
+  }
+
+  seed(messages: readonly Message[]): void {
+    this.reset();
+    for (const message of messages) {
+      if (message.role === 'system') continue;
+      if (message.role === 'assistant') {
+        const txt = partsToText(message.content);
+        if (txt) this.entries.push({ kind: 'assistant', text: txt });
+        for (const part of message.content) {
+          if (part.type === 'tool_call') this.entries.push({ kind: 'tool_call', name: part.name, input: part.input });
+        }
+      } else if (!isToolResults(message)) {
+        this.entries.push({ kind: 'user', text: partsToText(message.content) });
+      }
+    }
+  }
+
+  applyEvent(event: AgentSessionEvent): void {
+    switch (event.type) {
+      case 'turn_start':
+        this.pending = undefined;
+        this.pendingReasoning = undefined;
+        return;
+      case 'reasoning': {
+        if (!this.pendingReasoning) {
+          this.pendingReasoning = { kind: 'reasoning', text: '', closed: !this.thinkingVisible };
+          this.entries.push(this.pendingReasoning);
+        }
+        this.pendingReasoning.text += event.text;
+        return;
+      }
+      case 'text': {
+        this.closeReasoning();
+        if (!this.pending) {
+          this.pending = { kind: 'assistant', text: '' };
+          this.entries.push(this.pending);
+        }
+        this.pending.text += event.text;
+        return;
+      }
+      case 'tool_call':
+        this.closeReasoning();
+        if (event.name === 'subagent') return;
+        this.entries.push({ kind: 'tool_call', name: event.name, input: event.input });
+        return;
+      case 'message': {
+        const message = event.message;
+        if (message.role === 'assistant') {
+          const txt = partsToText(message.content);
+          if (this.pending) this.pending.text = txt;
+          else if (txt) this.entries.push({ kind: 'assistant', text: txt });
+          this.pending = undefined;
+          this.closeReasoning();
+        }
+        return;
+      }
+      case 'turn_end':
+      case 'done':
+        this.pending = undefined;
+        this.closeReasoning();
+        return;
+    }
+  }
+}
+
+const stringifyArg = (value: unknown): string => {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map(stringifyArg).filter(Boolean).join(' ');
+  return JSON.stringify(value) ?? '';
+};
+
+const truncateText = (value: string, max: number): string =>
+  value.length > max ? `${value.slice(0, Math.max(0, max - 1))}…` : value;
+
+export function formatToolArgs(name: string, input: unknown, max = 120): string {
+  if (input === null || typeof input !== 'object') return truncateText(String(input ?? ''), max);
+  const args = input as Record<string, unknown>;
+  if (name === 'edit' || name === 'write' || name === 'read' || name === 'list_dir') {
+    return truncateText(stringifyArg(args.path), max);
+  }
+  if (name === 'bash') return truncateText(stringifyArg(args.cmd), max);
+  if (name === 'subagent') return truncateText(stringifyArg(args.agent), max);
+  return truncateText(Object.values(args).map(stringifyArg).filter(Boolean).join(' '), max);
+}
+
+const fit = (line: string, width: number): string => visibleWidth(line) > width ? truncateToWidth(line, width) : line;
+
+const SPACER: Component = { render: (s) => s.text(0, 0, '') };
+
+const userEntry = (value: string, theme: Theme): Component => ({
+  render: (s) => {
+    if (s.width <= 0) return;
+    const bg = theme.styles.userMessage.bg;
+    if (bg) s.fill({ x: 0, y: 0, width: s.width, height: s.height }, bg);
+    const muted = styleToAnsi(theme.styles.muted);
+    const body = styleToAnsi(theme.styles.userMessage);
+    const innerW = Math.max(1, s.width - PAD - 2 - PAD);
+    const wrapped = value.split('\n').flatMap((line) => wrapText(line, innerW));
+    for (let i = 0; i < wrapped.length; i++) {
+      if (i === 0) s.text(PAD, 0, `${muted}❯${RESET}`);
+      s.text(PAD + 2, i, `${body}${wrapped[i]}${RESET}`);
+    }
+  },
+});
+
+const assistantEntry = (value: string, theme: Theme): Component => ({
+  render: (s) => {
+    if (s.width <= 0) return;
+    const innerW = Math.max(1, s.width - PAD * 2);
+    const lines = renderMarkdown(value || '…', innerW, theme);
+    for (let i = 0; i < lines.length; i++) s.text(PAD, i, fit(lines[i], innerW));
+  },
+});
+
+const leftClick = (event: { type: string; kind?: string; button?: string }): boolean =>
+  event.type === 'mouse' && event.kind === 'press' && event.button === 'left';
+
+const reasoningComponent = (entry: ReasoningEntry, theme: Theme): Component => {
+  const style = styleToAnsi(theme.styles.reasoning);
+  if (entry.closed) {
+    return {
+      handleInput: (event) => {
+        if (leftClick(event)) entry.closed = false;
+      },
+      render: (s) => {
+        if (s.width <= 0) return;
+        s.text(PAD, 0, `${style}[thinking]${RESET}`);
+      },
+    };
+  }
+  return {
+    render: (s) => {
+      if (s.width <= 0) return;
+      const innerW = Math.max(1, s.width - PAD * 2);
+      const wrapped = entry.text.split('\n').flatMap((line) => wrapText(line, innerW));
+      for (let i = 0; i < wrapped.length; i++) s.text(PAD, i, `${style}${fit(wrapped[i], innerW)}${RESET}`);
+    },
+  };
+};
+
+const toolEntry = (name: string, input: unknown, theme: Theme): Component => ({
+  render: (s) => {
+    if (s.width <= 0) return;
+    const muted = styleToAnsi(theme.styles.muted);
+    const args = formatToolArgs(name, input);
+    const line = args ? `→ ${name} ${args}` : `→ ${name}`;
+    s.text(PAD, 0, `${muted}${fit(line, Math.max(1, s.width - PAD * 2))}${RESET}`);
+  },
+});
+
+const noteEntry = (value: string, error: boolean, theme: Theme): Component => ({
+  render: (s) => {
+    if (s.width <= 0) return;
+    const innerW = Math.max(1, s.width - PAD * 2);
+    if (error) {
+      const head = styleToAnsi(theme.styles.errorPrefix);
+      const tail = styleToAnsi(theme.styles.errorLine);
+      s.text(PAD, 0, `${head}! ${RESET}${tail}${fit(value, Math.max(1, innerW - 2))}${RESET}`);
+    } else {
+      s.text(PAD, 0, `${styleToAnsi(theme.styles.muted)}${fit(value, innerW)}${RESET}`);
+    }
+  },
+});
+
+const shellEntry = (cmd: string, output: string, error: boolean, expanded: boolean, theme: Theme): Component => {
+  const innerWidthFor = (w: number) => Math.max(1, w - 2);
+  return {
+    render: (s) => {
+      if (s.width <= 0) return;
+      const bg = error ? theme.colors.surfaceMuted : theme.colors.surface;
+      s.fill({ x: 0, y: 0, width: s.width, height: s.height }, bg);
+      const headerStyle = styleToAnsi({ fg: theme.colors.textMuted });
+      const outputStyle = styleToAnsi({ fg: theme.colors.text });
+      const innerW = innerWidthFor(s.width);
+      s.text(1, 1, `${headerStyle}${fit(cmd, innerW)}${RESET}`);
+      const all = wrapText(output, innerW);
+      const lines = expanded || all.length <= COLLAPSE_LIMIT ? all : all.slice(0, COLLAPSE_LIMIT);
+      const truncated = expanded ? 0 : Math.max(0, all.length - COLLAPSE_LIMIT);
+      for (let i = 0; i < lines.length; i++) s.text(1, 3 + i, `${outputStyle}${lines[i]}${RESET}`);
+      let bottom = 3 + lines.length;
+      if (truncated > 0) {
+        s.text(1, bottom, `${headerStyle}... ${truncated} more lines (ctrl+o)${RESET}`);
+        bottom += 1;
+      }
+      s.text(0, bottom, '');
+    },
+  };
+};
+
+const SUBAGENT_ICON: Record<SubAgentStatus, string> = { running: '◐', done: '✓', error: '✗' };
+
+const subAgentEntry = (entry: SubAgentEntry, theme: Theme): Component => {
+  const iconColor = entry.status === 'done'
+    ? theme.colors.success
+    : entry.status === 'error'
+    ? theme.styles.errorPrefix.fg ?? theme.colors.warning
+    : theme.colors.accent;
+  return {
+    handleInput: (event) => {
+      if (leftClick(event)) entry.open = !entry.open;
+    },
+    render: (s) => {
+      if (s.width <= 0) return;
+      const innerW = Math.max(1, s.width - PAD * 2);
+      const icon = styleToAnsi({ fg: iconColor, bold: true });
+      const name = styleToAnsi({ fg: theme.colors.accent, bold: true });
+      const muted = styleToAnsi(theme.styles.muted);
+      const meta = entry.tools > 0 ? ` · ${entry.tools} tool${entry.tools === 1 ? '' : 's'}` : '';
+      const header = `${icon}${
+        SUBAGENT_ICON[entry.status]
+      }${RESET} ${name}@${entry.agent}${RESET}${muted} ${entry.status}${meta}${RESET}`;
+      s.text(PAD, 0, fit(header, innerW));
+      let row = 1;
+      if (entry.open && entry.log.length > 0) {
+        for (const label of entry.log) {
+          s.text(PAD + 2, row, `${muted}→ ${fit(label, Math.max(1, innerW - 2))}${RESET}`);
+          row += 1;
+        }
+      } else if (entry.status === 'running' && entry.activity) {
+        s.text(PAD + 2, row, `${muted}→ ${fit(entry.activity, Math.max(1, innerW - 2))}${RESET}`);
+        row += 1;
+      }
+      if (entry.result) {
+        const lines = renderMarkdown(entry.result, innerW, theme);
+        const shown = entry.open ? lines : lines.slice(0, COLLAPSE_LIMIT);
+        for (const line of shown) {
+          s.text(PAD, row, fit(line, innerW));
+          row += 1;
+        }
+        const hidden = lines.length - shown.length;
+        if (hidden > 0) {
+          s.text(PAD, row, `${muted}… ${hidden} more lines (click)${RESET}`);
+          row += 1;
+        }
+      }
+      s.text(0, row, '');
+    },
+  };
+};
+
+export function entryComponent(entry: Entry, theme: Theme, expanded: boolean): Component {
+  switch (entry.kind) {
+    case 'user':
+      return userEntry(entry.text, theme);
+    case 'reasoning':
+      return reasoningComponent(entry, theme);
+    case 'assistant':
+      return assistantEntry(entry.text, theme);
+    case 'tool_call':
+      return toolEntry(entry.name, entry.input, theme);
+    case 'shell':
+      return shellEntry(entry.cmd, entry.output || '…', entry.error, expanded, theme);
+    case 'subagent':
+      return subAgentEntry(entry, theme);
+    case 'note':
+      return noteEntry(entry.text, entry.error, theme);
+  }
+}
+
+export function transcriptComponent(model: Transcript, theme: Theme): Component {
+  return {
+    render: (s) => {
+      const children: Component[] = [];
+      for (const entry of model.entries) {
+        children.push(entryComponent(entry, theme, model.expanded));
+        children.push(SPACER);
+      }
+      column(children).render(s);
+    },
+  };
+}

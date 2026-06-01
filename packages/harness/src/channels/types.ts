@@ -1,53 +1,27 @@
-import type { AssistantMessage, ToolCall, ToolMessage } from 'mu-core';
+import type { ContentPart, Message } from 'mu-core';
+import type { AgentSessionEvent } from '../session';
 
-/**
- * Input event a channel pushes into the harness. The harness decides how
- * to route it (publish to the runtime, dispatch a command, switch session).
- */
-export type ChannelInEvent =
-  | { type: 'user_input'; text: string }
-  | { type: 'command'; input: string }
-  | { type: 'interrupt' }
-  | { type: 'switch_session'; sessionId: string };
+export type ChannelEvent =
+  | AgentSessionEvent
+  | { type: 'channel_open'; title: string }
+  | { type: 'channel_close' };
 
-/**
- * Output event the harness sends back to a channel for rendering. Mirrors
- * the relevant CoreEvent types plus a few harness-level signals so channels
- * don't need to import mu-core.
- */
-export type ChannelOutEvent =
-  | { type: 'assistant_start' }
-  | { type: 'assistant_delta'; content: string }
-  | { type: 'assistant_message'; message: AssistantMessage }
-  | { type: 'reasoning_delta'; content: string }
-  | { type: 'reasoning_message'; content: string }
-  | { type: 'tool_call'; call: ToolCall }
-  | { type: 'tool_result'; message: ToolMessage }
-  | { type: 'command_result'; ok: boolean; output?: unknown; error?: string }
-  | { type: 'session_switched'; sessionId: string }
-  | { type: 'error'; error: unknown };
-
-export interface ChannelContext {
-  channelId: string;
-  /** Called by the channel to deliver an input event to the harness. */
-  deliver: (event: ChannelInEvent) => void | Promise<void>;
-}
-
-/**
- * Built-in channel families. Hosts may pass any custom string for
- * `Channel.kind` — this list is for autocomplete on the common cases.
- */
-export type ChannelKind = 'tui' | 'ws' | 'telegram' | 'slack' | 'rpc' | (string & {});
+export type ChannelManagerEvent = { channelId: string } & ChannelEvent;
 
 export interface Channel {
-  /** Unique id, e.g. "tui", "telegram:chat-12345". */
-  id: string;
-  /** Family identifier, e.g. "tui", "telegram", "rpc". Useful for routing rules. */
-  kind: ChannelKind;
-  /** Begin reading from the surface and surfacing input via `ctx.deliver`. */
-  start(ctx: ChannelContext): void | Promise<void>;
-  /** Clean shutdown. */
-  stop(): void | Promise<void>;
-  /** Render an event coming from the harness. Channels MAY ignore unknown events. */
-  send(event: ChannelOutEvent): void | Promise<void>;
+  readonly id: string;
+  readonly title: string;
+  readonly started: boolean;
+  readonly messages: readonly Message[];
+  send(input: string | ContentPart[]): Promise<void>;
+  abort(): void;
+  subscribe(listener: (event: AgentSessionEvent) => void): () => void;
+}
+
+export interface ChannelManager {
+  open(opts?: { id?: string; title?: string }): Channel;
+  get(id: string): Channel | undefined;
+  list(): Channel[];
+  close(id: string): void;
+  subscribe(listener: (event: ChannelManagerEvent) => void): () => void;
 }
