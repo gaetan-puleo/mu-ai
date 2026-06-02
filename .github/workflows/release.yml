@@ -16,6 +16,8 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
+      - name: Install workspace deps (sets up node_modules)
+        run: deno install
       - name: Cross-compile standalone binaries
         run: deno task compile
       - name: Attach binaries to the GitHub release
