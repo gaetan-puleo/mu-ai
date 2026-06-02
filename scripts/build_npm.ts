@@ -71,7 +71,7 @@ async function buildCodingAgent(): Promise<void> {
           description: meta.description,
           type: 'module',
           license: 'MIT',
-          bin: { mu: './bin/mu.js' },
+          bin: { mu: 'bin/mu.js' },
           engines: { node: '>=22.5.0' },
           files: ['bin'],
         },
