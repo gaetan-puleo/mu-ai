@@ -12,6 +12,7 @@
     "fmt:check": "deno fmt --check",
     "build:npm": "deno run -A --sloppy-imports scripts/build_npm.ts",
     "publish": "deno run -A --sloppy-imports scripts/publish.ts",
+    "publish:npm": "bash scripts/publish-npm.sh",
     "compile": "deno run -A --sloppy-imports scripts/compile.ts"
   },
   "imports": {
@@ -19,6 +20,7 @@
     "@std/expect": "jsr:@std/expect@^1.0.0",
     "@std/testing": "jsr:@std/testing@^1.0.0",
     "@std/yaml": "jsr:@std/yaml@^1.0.0",
+    "@swc/wasm-typescript": "npm:@swc/wasm-typescript@^1.15.0",
     "croner": "npm:croner@^9.0.0",
     "ws": "npm:ws@^8.18.0"
   },

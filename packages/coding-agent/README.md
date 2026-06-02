@@ -1,7 +1,7 @@
 # coding-agent
 
 Terminal coding assistant built on `mu-core` + `mu-harness` + `mu-tui`. Uses
-`mu-local-provider` (llama-swap) for inference and `mu-tools` for
+`mu-local-provider` (llama-swap) for inference and `mu-ai-tools` for
 filesystem + shell access. Sessions persist as JSONL under
 `$XDG_DATA_HOME/coding-agent/sessions/`; plugins, skills, agents,
 permissions load from `$XDG_CONFIG_HOME/coding-agent/`.

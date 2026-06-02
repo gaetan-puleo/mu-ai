@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Message, Provider, StreamEvent, Tool } from 'mu-core';
 import { type AgentSessionEvent, createHarness, type XdgDirs } from 'mu-harness';
-import { createMuTools } from 'mu-tools';
+import { createMuTools } from 'mu-ai-tools';
 
 const tempXdg = (): { xdg: XdgDirs; dir: string } => {
   const dir = mkdtempSync(join(tmpdir(), 'mu-smoke-'));

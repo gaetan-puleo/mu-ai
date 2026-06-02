@@ -3,7 +3,7 @@ import process from 'node:process';
 import { join } from 'node:path';
 import { createHarness, loadAgents } from 'mu-harness';
 import { createLocalProvider, listLocalModels } from 'mu-local-provider';
-import { createMuTools } from 'mu-tools';
+import { createMuTools } from 'mu-ai-tools';
 import { getConfigPath, loadConfig, loadState, xdgDirs } from '../src/config';
 import { installPlugin, loadPlugins, uninstallPlugin } from '../src/plugins';
 import { buildSystemPrompt } from '../src/systemPrompt';

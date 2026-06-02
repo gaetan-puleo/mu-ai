@@ -1,6 +1,6 @@
 {
   "name": "mu-coding",
-  "version": "0.16.2",
+  "version": "0.16.3",
   "private": true,
   "description": "Minimal terminal AI assistant for local models",
   "type": "module",
@@ -15,8 +15,8 @@
   "dependencies": {
     "mu-core": "workspace:*",
     "mu-harness": "workspace:*",
+    "mu-ai-tools": "workspace:*",
     "mu-local-provider": "workspace:*",
-    "mu-tools": "workspace:*",
     "mu-tui": "workspace:*"
   }
 }

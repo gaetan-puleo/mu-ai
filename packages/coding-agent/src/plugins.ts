@@ -1,5 +1,5 @@
 import process from 'node:process';
-import type { Plugin } from 'mu-harness';
+import { importModule, type Plugin } from 'mu-harness';
 import { loadConfig, saveConfig } from './config';
 
 const isPlugin = (value: unknown): value is Plugin =>
@@ -9,7 +9,7 @@ export async function loadPlugins(specs: string[] = []): Promise<Plugin[]> {
   const plugins: Plugin[] = [];
   for (const spec of specs) {
     try {
-      const mod = await import(spec) as Record<string, unknown>;
+      const mod = await importModule(spec);
       const candidate = mod.default ?? mod.plugin ?? mod;
       if (isPlugin(candidate)) {
         plugins.push(candidate);

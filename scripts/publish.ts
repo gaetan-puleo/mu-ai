@@ -8,6 +8,11 @@ const PACKAGES_DIR = resolve(ROOT, 'packages');
 
 const PUBLISH = [
   { name: 'mu-core', dir: 'core' },
+  { name: 'mu-tui', dir: 'tui' },
+  { name: 'mu-ai-tools', dir: 'tools' },
+  { name: 'mu-local-provider', dir: 'local-provider' },
+  { name: 'mu-harness', dir: 'harness' },
+  { name: 'mu-webfetch', dir: 'webfetch' },
   { name: 'mu-coding', dir: 'coding-agent' },
 ] as const;
 

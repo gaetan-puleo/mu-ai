@@ -19,6 +19,7 @@
     "jsr:@std/yaml@1": "1.1.0",
     "jsr:@ts-morph/bootstrap@0.27": "0.27.0",
     "jsr:@ts-morph/common@0.27": "0.27.0",
+    "npm:@swc/wasm-typescript@^1.15.0": "1.15.40",
     "npm:@types/turndown@^5.0.6": "5.0.6",
     "npm:croner@9": "9.1.0",
     "npm:knip@^6.4.1": "6.14.2_@emnapi+core@1.10.0_@emnapi+runtime@1.10.0",
@@ -347,6 +348,9 @@
       "os": ["win32"],
       "cpu": ["x64"]
     },
+    "@swc/wasm-typescript@1.15.40": {
+      "integrity": "sha512-45gkPqkAGOe6MqEfh//HhgnLlL6WpXl6+iAAcHKg0Tu7gWkfpRfhmEqXyGZs8BUITesnY8CX2jtvXKgML3Hbhg=="
+    },
     "@tybys/wasm-util@0.10.2": {
       "integrity": "sha512-RoBvJ2X0wuKlWFIjrwffGw1IqZHKQqzIchKaadZZfnNpsAYp2mM0h36JtPCjNDAHGgYez/15uMBpfGwchhiMgg==",
       "dependencies": [
@@ -528,6 +532,7 @@
       "jsr:@std/expect@1",
       "jsr:@std/testing@1",
       "jsr:@std/yaml@1",
+      "npm:@swc/wasm-typescript@^1.15.0",
       "npm:croner@9",
       "npm:ws@^8.18.0"
     ],
@@ -540,6 +545,7 @@
       "packages/harness": {
         "packageJson": {
           "dependencies": [
+            "npm:@swc/wasm-typescript@^1.15.0",
             "npm:croner@9"
           ]
         }
