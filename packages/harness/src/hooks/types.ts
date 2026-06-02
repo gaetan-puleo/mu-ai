@@ -1,8 +1,9 @@
-import type { ContentPart, Tool } from 'mu-core';
+import type { ContentPart, Message, Tool } from 'mu-core';
 
 export interface PreparedRequest {
   system?: string;
   tools?: Tool[];
+  messages?: Message[];
 }
 
 export interface AgentSessionHooks {

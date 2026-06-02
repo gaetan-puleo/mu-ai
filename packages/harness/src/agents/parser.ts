@@ -20,6 +20,7 @@ export const parseAgent = (source: string, fallbackName: string): Agent => {
     prompt: body,
     tools: parseToolList(fields.tools),
     model: str(fields.model),
+    color: str(fields.color),
     extends: str(fields.extends),
   };
 };

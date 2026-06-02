@@ -213,8 +213,6 @@ export function formatToolArgs(name: string, input: unknown, max = 120): string 
 
 const fit = (line: string, width: number): string => visibleWidth(line) > width ? truncateToWidth(line, width) : line;
 
-const SPACER: Component = { render: (s) => s.text(0, 0, '') };
-
 const userEntry = (value: string, theme: Theme): Component => ({
   render: (s) => {
     if (s.width <= 0) return;
@@ -223,7 +221,7 @@ const userEntry = (value: string, theme: Theme): Component => ({
     const muted = styleToAnsi(theme.styles.muted);
     const body = styleToAnsi(theme.styles.userMessage);
     const innerW = Math.max(1, s.width - PAD - 2 - PAD);
-    const wrapped = value.split('\n').flatMap((line) => wrapText(line, innerW));
+    const wrapped = value.trim().split('\n').flatMap((line) => wrapText(line, innerW));
     for (let i = 0; i < wrapped.length; i++) {
       if (i === 0) s.text(PAD, 0, `${muted}❯${RESET}`);
       s.text(PAD + 2, i, `${body}${wrapped[i]}${RESET}`);
@@ -235,7 +233,7 @@ const assistantEntry = (value: string, theme: Theme): Component => ({
   render: (s) => {
     if (s.width <= 0) return;
     const innerW = Math.max(1, s.width - PAD * 2);
-    const lines = renderMarkdown(value || '…', innerW, theme);
+    const lines = renderMarkdown(value.trim() || '…', innerW, theme);
     for (let i = 0; i < lines.length; i++) s.text(PAD, i, fit(lines[i], innerW));
   },
 });
@@ -260,7 +258,7 @@ const reasoningComponent = (entry: ReasoningEntry, theme: Theme): Component => {
     render: (s) => {
       if (s.width <= 0) return;
       const innerW = Math.max(1, s.width - PAD * 2);
-      const wrapped = entry.text.split('\n').flatMap((line) => wrapText(line, innerW));
+      const wrapped = entry.text.trim().split('\n').flatMap((line) => wrapText(line, innerW));
       for (let i = 0; i < wrapped.length; i++) s.text(PAD, i, `${style}${fit(wrapped[i], innerW)}${RESET}`);
     },
   };
@@ -280,12 +278,13 @@ const noteEntry = (value: string, error: boolean, theme: Theme): Component => ({
   render: (s) => {
     if (s.width <= 0) return;
     const innerW = Math.max(1, s.width - PAD * 2);
+    const trimmed = value.trim();
     if (error) {
       const head = styleToAnsi(theme.styles.errorPrefix);
       const tail = styleToAnsi(theme.styles.errorLine);
-      s.text(PAD, 0, `${head}! ${RESET}${tail}${fit(value, Math.max(1, innerW - 2))}${RESET}`);
+      s.text(PAD, 0, `${head}! ${RESET}${tail}${fit(trimmed, Math.max(1, innerW - 2))}${RESET}`);
     } else {
-      s.text(PAD, 0, `${styleToAnsi(theme.styles.muted)}${fit(value, innerW)}${RESET}`);
+      s.text(PAD, 0, `${styleToAnsi(theme.styles.muted)}${fit(trimmed, innerW)}${RESET}`);
     }
   },
 });
@@ -300,8 +299,8 @@ const shellEntry = (cmd: string, output: string, error: boolean, expanded: boole
       const headerStyle = styleToAnsi({ fg: theme.colors.textMuted });
       const outputStyle = styleToAnsi({ fg: theme.colors.text });
       const innerW = innerWidthFor(s.width);
-      s.text(1, 1, `${headerStyle}${fit(cmd, innerW)}${RESET}`);
-      const all = wrapText(output, innerW);
+      s.text(1, 1, `${headerStyle}${fit(cmd.trim(), innerW)}${RESET}`);
+      const all = wrapText(output.trim(), innerW);
       const lines = expanded || all.length <= COLLAPSE_LIMIT ? all : all.slice(0, COLLAPSE_LIMIT);
       const truncated = expanded ? 0 : Math.max(0, all.length - COLLAPSE_LIMIT);
       for (let i = 0; i < lines.length; i++) s.text(1, 3 + i, `${outputStyle}${lines[i]}${RESET}`);
@@ -349,7 +348,7 @@ const subAgentEntry = (entry: SubAgentEntry, theme: Theme): Component => {
         row += 1;
       }
       if (entry.result) {
-        const lines = renderMarkdown(entry.result, innerW, theme);
+        const lines = renderMarkdown(entry.result.trim(), innerW, theme);
         const shown = entry.open ? lines : lines.slice(0, COLLAPSE_LIMIT);
         for (const line of shown) {
           s.text(PAD, row, fit(line, innerW));
@@ -361,7 +360,6 @@ const subAgentEntry = (entry: SubAgentEntry, theme: Theme): Component => {
           row += 1;
         }
       }
-      s.text(0, row, '');
     },
   };
 };
@@ -385,13 +383,20 @@ export function entryComponent(entry: Entry, theme: Theme, expanded: boolean): C
   }
 }
 
+const withMarginBottom = (child: Component, rows: number): Component => ({
+  render: (s) => {
+    const h = s.measure(child, s.width);
+    s.child(child, { x: 0, y: 0, width: s.width, height: h });
+    if (rows > 0) s.text(0, h + rows - 1, '');
+  },
+});
+
 export function transcriptComponent(model: Transcript, theme: Theme): Component {
   return {
     render: (s) => {
       const children: Component[] = [];
       for (const entry of model.entries) {
-        children.push(entryComponent(entry, theme, model.expanded));
-        children.push(SPACER);
+        children.push(withMarginBottom(entryComponent(entry, theme, model.expanded), 1));
       }
       column(children).render(s);
     },

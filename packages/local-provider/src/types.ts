@@ -48,6 +48,5 @@ export interface LocalProviderConfig {
   baseUrl?: string;
   model?: string;
   apiKey?: string;
-  streamTimeoutMs?: number;
   openAIClient?: typeof OpenAI;
 }

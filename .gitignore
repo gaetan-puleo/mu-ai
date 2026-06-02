@@ -5,3 +5,6 @@ npm/
 bun.lock
 *.tsbuildinfo
 .dnt-import-map.json
+
+# compiled binary
+/mu

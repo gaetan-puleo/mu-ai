@@ -15,5 +15,4 @@ createRuntime({
 });
 ```
 
-See `LocalProviderConfig` for tunables (`streamTimeoutMs`, `getAbortSignal`,
-`openAIClient`).
+See `LocalProviderConfig` for tunables (`getAbortSignal`, `openAIClient`).

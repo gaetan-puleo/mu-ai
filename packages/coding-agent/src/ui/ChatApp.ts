@@ -21,7 +21,7 @@ import { MultilineEditor } from './editor';
 import { buildCommands, type ChatCommand, type CommandHost, filterCommands } from './commands';
 import { activeMention, type Candidate, collectCandidates, rank } from './picker';
 import { formatTokens, statusComponent, statusFromEvent, type StatusState } from './status';
-import { styleToAnsi, type Theme, ThemeProvider, themesByName } from './theme';
+import { asHexColor, styleToAnsi, type Theme, ThemeProvider, themesByName } from './theme';
 import { formatToolArgs, Transcript, transcriptComponent } from './transcript';
 
 const RESET = '\x1b[0m';
@@ -42,6 +42,9 @@ export interface ChatHost {
   selectModel(ref: string): void;
   modelRef(): string;
   listModels(): Promise<ModelInfo[]>;
+  agentRef(): string;
+  agentColor(): string | undefined;
+  cycleAgent(): string;
   agentNames(): string[];
   subAgents: SubAgentRegistry;
   dispatchSubAgent(agent: string, task: string, parentId: string): Promise<SubAgentResult>;
@@ -458,10 +461,18 @@ export class ChatApp {
       return false;
     }
 
+    if (key === 'tab') return this.cycleAgent();
+
     if (key === 'up') return this.navigateHistory('up');
     if (key === 'down') return this.navigateHistory('down');
 
     return false;
+  }
+
+  private cycleAgent(): boolean {
+    this.host.cycleAgent();
+    this.tui.requestRender();
+    return true;
   }
 
   private onEscape(): boolean {
@@ -856,7 +867,12 @@ export class ChatApp {
     const theme = this.theme();
     const bold = styleToAnsi({ fg: theme.colors.text, bold: true });
     const dim = styleToAnsi({ fg: theme.colors.textMuted });
-    return provider ? `${bold}${id}${RESET}  ${dim}${provider}${RESET}` : `${bold}${id}${RESET}`;
+    const head = provider ? `${bold}${id}${RESET}  ${dim}${provider}${RESET}` : `${bold}${id}${RESET}`;
+    const agent = this.host.agentRef();
+    if (!agent) return head;
+    const hex = asHexColor(this.host.agentColor());
+    const agentSgr = hex ? styleToAnsi({ fg: hex, bold: true }) : dim;
+    return `${head}  ${dim}·${RESET}  ${agentSgr}@${agent}${RESET}`;
   }
 
   private promptGlyph(): string {
@@ -948,6 +964,7 @@ export class ChatApp {
     const inner = column([flex(this.scroll), this.dock()]);
     return {
       render: (s) => {
+        s.fill({ x: 0, y: 0, width: s.width, height: s.height }, this.theme().colors.background);
         if (s.width <= 2) {
           inner.render(s);
           return;

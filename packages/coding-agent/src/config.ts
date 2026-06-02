@@ -36,6 +36,7 @@ export interface CodingAgentConfig {
   apiKey?: string;
   plugins?: string[];
   provider?: string;
+  primaryAgents?: string[];
 }
 
 export interface CodingAgentState {

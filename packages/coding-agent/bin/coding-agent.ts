@@ -1,12 +1,13 @@
 #!/usr/bin/env -S deno run -A
 import process from 'node:process';
 import { join } from 'node:path';
-import { createHarness, loadAgents } from 'mu-harness';
+import { type Agent, type AgentSessionHooks, createHarness, filterTools, loadAgents, type PreparedRequest } from 'mu-harness';
 import { createLocalProvider, listLocalModels } from 'mu-local-provider';
 import { createMuTools } from 'mu-ai-tools';
 import { getConfigPath, loadConfig, loadState, xdgDirs } from '../src/config';
+import { builtinAgents } from '../src/agents';
 import { installPlugin, loadPlugins, uninstallPlugin } from '../src/plugins';
-import { buildSystemPrompt } from '../src/systemPrompt';
+import { BASE_SYSTEM_PROMPT } from '../src/systemPrompt';
 import { runApp } from '../src/main';
 
 const normalizeModel = (model?: string): string | undefined => {
@@ -59,7 +60,37 @@ async function run(): Promise<void> {
 
   const diskAgents = await loadAgents(join(xdg.configHome, 'mu', 'agents'));
   const projectAgents = await loadAgents(join(projectLocal, 'agents'));
-  const promptAgents = [...projectAgents, ...diskAgents, ...plugins.flatMap((p) => p.agents ?? [])];
+  const loadedAgents = [...projectAgents, ...diskAgents, ...plugins.flatMap((p) => p.agents ?? [])];
+  const promptAgents = [...loadedAgents];
+  for (const agent of builtinAgents) {
+    if (!promptAgents.some((a) => a.name === agent.name)) promptAgents.push(agent);
+  }
+
+  const byName = new Map(promptAgents.map((a) => [a.name, a] as const));
+  const wanted = config.primaryAgents ?? ['build', 'plan'];
+  const resolved = wanted.map((n) => byName.get(n)).filter((a): a is Agent => a !== undefined);
+  const cycle: Agent[] = resolved.length > 0 ? resolved : builtinAgents;
+  let agentIndex = 0;
+  const currentAgent = (): Agent => cycle[agentIndex];
+  let lastAgentName: string | undefined;
+  const primaryHook: AgentSessionHooks = {
+    prepareRequest: ({ system, tools }) => {
+      const agent = currentAgent();
+      const switched = lastAgentName !== undefined && lastAgentName !== agent.name;
+      lastAgentName = agent.name;
+      const prepared: PreparedRequest = {
+        system: `${system}\n\n${agent.prompt}`,
+        tools: agent.tools ? filterTools(tools, agent.tools) : tools,
+      };
+      if (switched) {
+        prepared.messages = [{
+          role: 'user',
+          content: [{ type: 'text', text: `<system-reminder>changed to ${agent.name} agent</system-reminder>` }],
+        }];
+      }
+      return prepared;
+    },
+  };
 
   const harness = await createHarness({
     hostName: 'mu',
@@ -69,8 +100,9 @@ async function run(): Promise<void> {
     model: initialRef,
     tools: createMuTools({ getCwd: () => cwd }),
     plugins,
-    agents: projectAgents,
-    system: buildSystemPrompt(promptAgents),
+    agents: [...projectAgents, ...builtinAgents],
+    system: BASE_SYSTEM_PROMPT,
+    hooks: primaryHook,
   });
 
   let session;
@@ -86,7 +118,20 @@ async function run(): Promise<void> {
     session = harness.sessions.create();
   }
 
-  await runApp({ harness, session, providerConfig, state });
+  await runApp({
+    harness,
+    session,
+    providerConfig,
+    state,
+    agent: {
+      ref: () => currentAgent().name,
+      color: () => currentAgent().color,
+      cycle: () => {
+        agentIndex = (agentIndex + 1) % cycle.length;
+        return cycle[agentIndex].name;
+      },
+    },
+  });
 }
 
 run().catch((err) => {

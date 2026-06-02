@@ -4,5 +4,6 @@ export interface Agent {
   prompt: string;
   tools?: string[];
   model?: string;
+  color?: string;
   extends?: string;
 }

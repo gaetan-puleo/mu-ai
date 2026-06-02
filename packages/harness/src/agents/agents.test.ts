@@ -13,8 +13,13 @@ Deno.test('parseAgent reads the frontmatter and keeps the body as prompt', () =>
     prompt: 'You are a reviewer.',
     tools: ['read', 'grep'],
     model: 'local/small',
+    color: undefined,
     extends: undefined,
   });
+});
+
+Deno.test('parseAgent reads the color from the frontmatter', () => {
+  assertEquals(parseAgent(`---\nname: a\ncolor: '#10B981'\n---\nP`, 'a').color, '#10B981');
 });
 
 Deno.test('parseAgent: list the tools without "allow" (array or commas)', () => {

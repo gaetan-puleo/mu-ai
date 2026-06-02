@@ -4,15 +4,22 @@ import { listLocalModels } from 'mu-local-provider';
 import { type CodingAgentState, saveState } from './config';
 import { ChatApp, type ChatHost } from './ui/ChatApp';
 
+export interface AgentControl {
+  ref(): string;
+  color(): string | undefined;
+  cycle(): string;
+}
+
 export interface RunAppOptions {
   harness: Harness;
   session: AgentSession;
   providerConfig: { kind?: string; baseUrl?: string; apiKey?: string };
   state: CodingAgentState;
+  agent: AgentControl;
 }
 
 export async function runApp(opts: RunAppOptions): Promise<void> {
-  const { harness, providerConfig, state } = opts;
+  const { harness, providerConfig, state, agent } = opts;
 
   const host: ChatHost = {
     session: opts.session,
@@ -26,7 +33,10 @@ export async function runApp(opts: RunAppOptions): Promise<void> {
     },
     modelRef: () => harness.models.selected,
     listModels: () => listLocalModels(providerConfig),
-    agentNames: () => harness.agents.list().map((agent) => agent.name).filter((name) => name !== 'title'),
+    agentRef: () => agent.ref(),
+    agentColor: () => agent.color(),
+    cycleAgent: () => agent.cycle(),
+    agentNames: () => harness.agents.list().map((a) => a.name).filter((name) => name !== 'title'),
     subAgents: harness.subAgents,
     dispatchSubAgent: (agent, task, parentId) => harness.dispatchSubAgent(agent, task, parentId),
     initialTheme: state.theme ?? 'dark',

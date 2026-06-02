@@ -11,6 +11,7 @@ const merge = (base: Agent, child: Agent): Agent => ({
   prompt: child.prompt || base.prompt,
   tools: child.tools ?? base.tools,
   model: child.model ?? base.model,
+  color: child.color ?? base.color,
 });
 
 export const createAgentRegistry = (agents: Agent[] = []): AgentRegistry => {

@@ -22,7 +22,6 @@ export type {
 export { LocalProviderError } from './types';
 
 const DEFAULT_BASE_URL = 'http://localhost:8080';
-const DEFAULT_STREAM_TIMEOUT_MS = 30000;
 
 export async function detectLocalBackend(config: {
   kind?: LocalProviderConfig['kind'];
@@ -138,7 +137,6 @@ async function* streamChunks(
   client: OpenAI,
   requestOptions: ChatCompletionCreateParamsStreaming,
   hostSignal: AbortSignal | undefined,
-  streamTimeoutMs: number,
   contextWindow: number | undefined,
 ): AsyncIterable<StreamEvent> {
   const buffers = new Map<string, { key: string; id: string; name: string; args: string; emitted: boolean }>();
@@ -147,23 +145,6 @@ async function* streamChunks(
   let usage: Usage | undefined;
 
   const controller = new AbortController();
-  let idleTimer: ReturnType<typeof setTimeout> | undefined;
-  let timedOut = false;
-
-  const clearIdleTimer = () => {
-    if (idleTimer !== undefined) {
-      clearTimeout(idleTimer);
-      idleTimer = undefined;
-    }
-  };
-  const armIdleTimer = () => {
-    if (streamTimeoutMs <= 0) return;
-    clearIdleTimer();
-    idleTimer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, streamTimeoutMs);
-  };
 
   const onHostAbort = () => controller.abort();
   if (hostSignal) {
@@ -179,14 +160,12 @@ async function* streamChunks(
     }
   }
 
-  armIdleTimer();
   const stream: Stream<ChatCompletionChunk> = await client.chat.completions.create(requestOptions, {
     signal: controller.signal,
   });
 
   try {
     for await (const chunk of stream) {
-      armIdleTimer();
       const choice = chunk.choices?.[0];
 
       const delta = choice?.delta?.content;
@@ -223,13 +202,10 @@ async function* streamChunks(
       if (choice?.finish_reason === 'tool_calls') yield* flush();
     }
   } catch (err) {
-    clearIdleTimer();
     hostSignal?.removeEventListener('abort', onHostAbort);
-    if (timedOut) throw new Error(`Local provider stream timed out after ${streamTimeoutMs}ms of inactivity`);
     if (hostSignal?.aborted) throw new Error('Local provider stream aborted by host');
     throw err;
   }
-  clearIdleTimer();
   hostSignal?.removeEventListener('abort', onHostAbort);
 
   if (finishReason === undefined || finishReason === 'tool_calls') yield* flush();
@@ -294,7 +270,6 @@ export const createLocalProvider = (config: LocalProviderConfig = {}): Provider 
         client,
         requestOptions,
         req.signal,
-        config.streamTimeoutMs ?? DEFAULT_STREAM_TIMEOUT_MS,
         ctxByModel.get(model),
       );
     },

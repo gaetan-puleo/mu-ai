@@ -65,7 +65,8 @@ export const createAgentSession = (config: AgentSessionConfig): AgentSession => 
       const toolBlock = callTools.map((tool) => tool.prompt?.trim()).filter(Boolean).join('\n');
       const effectiveSystem = [baseSystem, toolBlock].filter(Boolean).join('\n\n');
       const body = hasSystem ? messages.slice(1) : messages;
-      const callMessages = effectiveSystem ? [systemMessage(effectiveSystem), ...body] : body;
+      const withSystem = effectiveSystem ? [systemMessage(effectiveSystem), ...body] : body;
+      const callMessages = prepared?.messages?.length ? [...withSystem, ...prepared.messages] : withSystem;
 
       const events = run({
         provider,

@@ -1,3 +1,4 @@
+import type { Message } from 'mu-core';
 import type { AgentSessionHooks } from './types';
 
 export const mergeHooks = (list: (AgentSessionHooks | undefined)[]): AgentSessionHooks => {
@@ -13,11 +14,15 @@ export const mergeHooks = (list: (AgentSessionHooks | undefined)[]): AgentSessio
   if (hooks.some((h) => h.prepareRequest)) {
     merged.prepareRequest = async (req) => {
       let current = req;
+      let extra: Message[] | undefined;
       for (const h of hooks) {
         const next = await h.prepareRequest?.(current);
-        if (next) current = { system: next.system ?? current.system, tools: next.tools ?? current.tools };
+        if (next) {
+          current = { system: next.system ?? current.system, tools: next.tools ?? current.tools };
+          if (next.messages?.length) extra = [...(extra ?? []), ...next.messages];
+        }
       }
-      return current;
+      return extra ? { ...current, messages: extra } : current;
     };
   }
 
