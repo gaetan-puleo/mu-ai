@@ -2,6 +2,22 @@
 
 Minimal terminal AI assistant for local models.
 
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gaetan-puleo/mu-ai/main/install.sh | sh
+```
+
+Auto-detects your OS/arch and installs the standalone `mu` binary (no Deno or
+Node required) to `~/.local/bin`. Override with `MU_INSTALL_DIR` or pin a
+release with `MU_VERSION`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gaetan-puleo/mu-ai/main/install.sh | MU_VERSION=v0.16.3 sh
+```
+
+On Windows, download `mu-windows-x64.exe` from the [releases page](https://github.com/gaetan-puleo/mu-ai/releases/latest).
+
 ## Monorepo Structure
 
 ```
