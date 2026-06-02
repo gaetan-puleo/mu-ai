@@ -264,12 +264,34 @@ export class ChatApp {
     if (!match) return false;
     const [, agent, task] = match;
     if (!this.host.agentNames().includes(agent)) return false;
-    this.transcript.appendUser(text);
-    this.tui.requestRender();
-    this.host.dispatchSubAgent(agent, task, this.session.id).catch((err) => {
-      this.showError(err instanceof Error ? err.message : String(err));
-    });
+    if (this.running) {
+      this.queue.push(text);
+      this.tui.requestRender();
+      return true;
+    }
+    this.dispatchMention(agent, task, text);
     return true;
+  }
+
+  private dispatchMention(agent: string, task: string, displayText: string): void {
+    this.transcript.appendUser(displayText);
+    this.running = true;
+    this.status.busy = true;
+    this.setStatus('thinking…');
+    this.startSpinner();
+    this.tui.requestRender();
+    this.host.dispatchSubAgent(agent, task, this.session.id)
+      .then((result) => {
+        const content =
+          `The "${agent}" sub-agent was asked:\n${task}\n\nIts result:\n${result.text}\n\nUse this to respond to the user.`;
+        return this.session.send(content);
+      })
+      .catch((err) => {
+        this.running = false;
+        this.status.busy = false;
+        this.stopSpinner();
+        this.showError(err instanceof Error ? err.message : String(err));
+      });
   }
 
   private swapSession(next: AgentSession): void {
@@ -330,7 +352,7 @@ export class ChatApp {
     this.running = false;
     if (this.queue.length > 0) {
       const next = this.queue.shift()!;
-      this.send(next);
+      if (!this.tryDispatch(next)) this.send(next);
       return;
     }
     this.status.busy = false;

@@ -317,10 +317,10 @@ const shellEntry = (cmd: string, output: string, error: boolean, expanded: boole
 const SUBAGENT_ICON: Record<SubAgentStatus, string> = { running: '◐', done: '✓', error: '✗' };
 
 const subAgentEntry = (entry: SubAgentEntry, theme: Theme): Component => {
-  const iconColor = entry.status === 'done'
+  const statusColor = entry.status === 'done'
     ? theme.colors.success
     : entry.status === 'error'
-    ? theme.styles.errorPrefix.fg ?? theme.colors.warning
+    ? theme.styles.errorPrefix.fg ?? theme.colors.danger
     : theme.colors.accent;
   return {
     handleInput: (event) => {
@@ -328,37 +328,38 @@ const subAgentEntry = (entry: SubAgentEntry, theme: Theme): Component => {
     },
     render: (s) => {
       if (s.width <= 0) return;
-      const innerW = Math.max(1, s.width - PAD * 2);
-      const icon = styleToAnsi({ fg: iconColor, bold: true });
-      const name = styleToAnsi({ fg: theme.colors.accent, bold: true });
+      const RAIL_W = 2;
+      const innerW = Math.max(1, s.width - PAD - RAIL_W);
+      const accent = styleToAnsi({ fg: statusColor, bold: true });
+      const nameStyle = styleToAnsi({ fg: statusColor, bold: true });
       const muted = styleToAnsi(theme.styles.muted);
-      const meta = entry.tools > 0 ? ` · ${entry.tools} tool${entry.tools === 1 ? '' : 's'}` : '';
-      const header = `${icon}${
-        SUBAGENT_ICON[entry.status]
-      }${RESET} ${name}@${entry.agent}${RESET}${muted} ${entry.status}${meta}${RESET}`;
-      s.text(PAD, 0, fit(header, innerW));
-      let row = 1;
-      if (entry.open && entry.log.length > 0) {
-        for (const label of entry.log) {
-          s.text(PAD + 2, row, `${muted}→ ${fit(label, Math.max(1, innerW - 2))}${RESET}`);
-          row += 1;
-        }
-      } else if (entry.status === 'running' && entry.activity) {
-        s.text(PAD + 2, row, `${muted}→ ${fit(entry.activity, Math.max(1, innerW - 2))}${RESET}`);
-        row += 1;
+      const rail = `${accent}▌${RESET}`;
+
+      const lines: string[] = [];
+      const tools = entry.tools > 0 ? `${muted} · ${entry.tools} tool${entry.tools === 1 ? '' : 's'}${RESET}` : '';
+      const collapsible = entry.status !== 'running' && (entry.result !== '' || entry.log.length > 0);
+      const chevron = collapsible ? `${muted}  ${entry.open ? '▾' : '▸'}${RESET}` : '';
+      lines.push(
+        `${nameStyle}${SUBAGENT_ICON[entry.status]} ${entry.agent}${RESET}${muted} ${entry.status}${RESET}${tools}${chevron}`,
+      );
+
+      if (entry.open) {
+        for (const label of entry.log) lines.push(`${muted}→ ${fit(label, Math.max(1, innerW - 2))}${RESET}`);
+      } else if (entry.status === 'running') {
+        lines.push(`${muted}→ ${fit(entry.activity || 'working…', Math.max(1, innerW - 2))}${RESET}`);
       }
+
       if (entry.result) {
-        const lines = renderMarkdown(entry.result.trim(), innerW, theme);
-        const shown = entry.open ? lines : lines.slice(0, COLLAPSE_LIMIT);
-        for (const line of shown) {
-          s.text(PAD, row, fit(line, innerW));
-          row += 1;
-        }
-        const hidden = lines.length - shown.length;
-        if (hidden > 0) {
-          s.text(PAD, row, `${muted}… ${hidden} more lines (click)${RESET}`);
-          row += 1;
-        }
+        const md = renderMarkdown(entry.result.trim(), innerW, theme);
+        const shown = entry.open ? md : md.slice(0, COLLAPSE_LIMIT);
+        for (const line of shown) lines.push(fit(line, innerW));
+        const hidden = md.length - shown.length;
+        if (hidden > 0) lines.push(`${muted}… ${hidden} more lines (click)${RESET}`);
+      }
+
+      for (let i = 0; i < lines.length; i++) {
+        s.text(PAD, i, rail);
+        s.text(PAD + RAIL_W, i, lines[i]);
       }
     },
   };

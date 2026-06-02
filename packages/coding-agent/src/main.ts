@@ -8,6 +8,7 @@ export interface AgentControl {
   ref(): string;
   color(): string | undefined;
   cycle(): string;
+  primaryNames(): string[];
 }
 
 export interface RunAppOptions {
@@ -36,7 +37,10 @@ export async function runApp(opts: RunAppOptions): Promise<void> {
     agentRef: () => agent.ref(),
     agentColor: () => agent.color(),
     cycleAgent: () => agent.cycle(),
-    agentNames: () => harness.agents.list().map((a) => a.name).filter((name) => name !== 'title'),
+    agentNames: () => {
+      const primary = new Set(agent.primaryNames());
+      return harness.agents.list().map((a) => a.name).filter((name) => name !== 'title' && !primary.has(name));
+    },
     subAgents: harness.subAgents,
     dispatchSubAgent: (agent, task, parentId) => harness.dispatchSubAgent(agent, task, parentId),
     initialTheme: state.theme ?? 'dark',

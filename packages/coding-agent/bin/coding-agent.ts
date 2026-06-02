@@ -130,6 +130,7 @@ async function run(): Promise<void> {
         agentIndex = (agentIndex + 1) % cycle.length;
         return cycle[agentIndex].name;
       },
+      primaryNames: () => cycle.map((a) => a.name),
     },
   });
 }
