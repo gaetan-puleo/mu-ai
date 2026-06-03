@@ -20,6 +20,11 @@ export interface ThemeColors {
   success: Color;
   warning: Color;
   danger: Color;
+  syntaxKeyword: Color;
+  syntaxString: Color;
+  syntaxFunction: Color;
+  syntaxNumber: Color;
+  syntaxComment: Color;
 }
 
 export interface ThemeStyles {
@@ -78,6 +83,11 @@ export const darkTheme: Theme = {
     success: palette.green[400],
     warning: palette.yellow[400],
     danger: palette.red[400],
+    syntaxKeyword: '#cba6f7' as Color,
+    syntaxString: '#a6e3a1' as Color,
+    syntaxFunction: '#89b4fa' as Color,
+    syntaxNumber: '#fab387' as Color,
+    syntaxComment: '#6c7086' as Color,
   },
   styles: {
     body: { fg: palette.neutral[100] },
@@ -108,6 +118,11 @@ export const lightTheme: Theme = {
     success: palette.green[600],
     warning: palette.yellow[500],
     danger: palette.red[600],
+    syntaxKeyword: '#8839ef' as Color,
+    syntaxString: '#40a02b' as Color,
+    syntaxFunction: '#1e66f5' as Color,
+    syntaxNumber: '#fe640b' as Color,
+    syntaxComment: '#9ca0b0' as Color,
   },
   styles: {
     body: { fg: palette.neutral[900] },

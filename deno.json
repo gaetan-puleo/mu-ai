@@ -21,6 +21,7 @@
     "@std/testing": "jsr:@std/testing@^1.0.0",
     "@std/yaml": "jsr:@std/yaml@^1.0.0",
     "@swc/wasm-typescript": "npm:@swc/wasm-typescript@^1.15.0",
+    "cli-highlight": "npm:cli-highlight@^2.1.11",
     "croner": "npm:croner@^9.0.0",
     "ws": "npm:ws@^8.18.0"
   },

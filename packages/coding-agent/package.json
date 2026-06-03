@@ -13,6 +13,7 @@
     "start": "deno run -A --sloppy-imports bin/coding-agent.ts"
   },
   "dependencies": {
+    "cli-highlight": "^2.1.11",
     "mu-core": "workspace:*",
     "mu-harness": "workspace:*",
     "mu-ai-tools": "workspace:*",

@@ -1,5 +1,6 @@
-import { type Component, truncateToWidth, visibleWidth, wrapText } from 'mu-tui';
-import { styleToAnsi, type Theme } from './theme';
+import { type Color, type Component, truncateToWidth, visibleWidth, wrapText } from 'mu-tui';
+import { highlight, supportsLanguage, type Theme as HighlightTheme } from 'cli-highlight';
+import { fgToAnsi, styleToAnsi, type Theme } from './theme';
 
 const RESET = '\x1b[0m';
 const HEADING_RE = /^(#{1,6})\s+(.+)$/;
@@ -261,12 +262,21 @@ function renderTableBlock(
   };
 }
 
+function highlightCodeLines(raw: string[], lang: string, syntax: HighlightTheme): string[] {
+  if (!lang || !supportsLanguage(lang)) return raw;
+  try {
+    return highlight(raw.join('\n'), { language: lang, ignoreIllegals: true, theme: syntax }).split('\n');
+  } catch {
+    return raw;
+  }
+}
+
 function renderCodeBlock(
   lines: string[],
   start: number,
   width: number,
   codeBlockPrefix: string,
-  labelPrefix: string,
+  syntax: HighlightTheme,
 ): { lines: string[]; nextIndex: number } {
   const rendered: string[] = [];
   const fenceLine = lines[start] ?? '';
@@ -275,22 +285,20 @@ function renderCodeBlock(
   const blank = styleSegment(' '.repeat(width), codeBlockPrefix);
   const PAD = 2;
 
-  if (lang) {
-    const label = `${' '.repeat(PAD)}${lang}`;
-    const padded = visibleWidth(label) > width
-      ? truncateToWidth(label, width)
-      : label + ' '.repeat(Math.max(0, width - visibleWidth(label)));
-    rendered.push(styleSegment(padded, labelPrefix));
-  }
+  rendered.push(blank);
 
   const innerWidth = Math.max(1, width - PAD);
+  const raw: string[] = [];
   let index = start + 1;
   while (index < lines.length && !FENCE_RE.test(lines[index] ?? '')) {
-    const line = lines[index] ?? '';
+    raw.push(lines[index] ?? '');
+    index += 1;
+  }
+
+  for (const line of highlightCodeLines(raw, lang, syntax)) {
     const content = visibleWidth(line) > innerWidth ? truncateToWidth(line, innerWidth) : line;
     const padded = `${' '.repeat(PAD)}${content}${' '.repeat(Math.max(0, innerWidth - visibleWidth(content)))}`;
     rendered.push(styleSegment(padded, codeBlockPrefix));
-    index += 1;
   }
 
   rendered.push(blank);
@@ -307,7 +315,7 @@ interface Prefixes {
   bold: string;
   code: string;
   codeBlock: string;
-  codeBlockLabel: string;
+  syntax: HighlightTheme;
 }
 
 export interface MarkdownLine {
@@ -320,7 +328,7 @@ function renderBlocks(content: string, width: number, p: Prefixes, bleed: number
   const rendered: MarkdownLine[] = [];
   for (let i = 0; i < lines.length;) {
     if (FENCE_RE.test(lines[i] ?? '')) {
-      const block = renderCodeBlock(lines, i, width + 2 * bleed, p.codeBlock, p.codeBlockLabel);
+      const block = renderCodeBlock(lines, i, width + 2 * bleed, p.codeBlock, p.syntax);
       for (const text of block.lines) rendered.push({ text, bleed: bleed > 0 });
       i = block.nextIndex;
       continue;
@@ -349,9 +357,41 @@ export function renderMarkdown(content: string, width: number, theme: Theme, ble
     bold: styleToAnsi({ ...theme.styles.assistantMessage, bold: true }),
     code: styleToAnsi({ ...theme.styles.assistantMessage, fg: theme.colors.success }),
     codeBlock: styleToAnsi({ ...theme.styles.assistantMessage, bg: theme.colors.surface }),
-    codeBlockLabel: styleToAnsi({ fg: theme.colors.textMuted, bg: theme.colors.surface, dim: true }),
+    syntax: syntaxTheme(theme),
   };
   return renderBlocks(content, Math.max(1, width), p, bleed);
+}
+
+function syntaxTheme(theme: Theme): HighlightTheme {
+  const c = theme.colors;
+  const reset = fgToAnsi(c.text);
+  const tok = (color: Color) => (s: string): string => `${fgToAnsi(color)}${s}${reset}`;
+  const keyword = tok(c.syntaxKeyword);
+  const string = tok(c.syntaxString);
+  const fn = tok(c.syntaxFunction);
+  const number = tok(c.syntaxNumber);
+  const comment = tok(c.syntaxComment);
+  return {
+    keyword,
+    built_in: keyword,
+    type: keyword,
+    literal: keyword,
+    name: keyword,
+    'selector-tag': keyword,
+    number,
+    string,
+    regexp: string,
+    symbol: string,
+    'meta-string': string,
+    comment,
+    quote: comment,
+    doctag: comment,
+    title: fn,
+    'title.function_': fn,
+    function: fn,
+    attr: fn,
+    attribute: fn,
+  } as unknown as HighlightTheme;
 }
 
 export function markdown(content: string, theme: Theme): Component {
