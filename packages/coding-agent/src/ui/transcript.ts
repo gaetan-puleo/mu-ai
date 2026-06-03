@@ -23,18 +23,20 @@ export type Entry =
     result: string;
     log: string[];
     open: boolean;
+    messages?: readonly Message[];
   }
   | { kind: 'note'; text: string; error: boolean };
 
 type ReasoningEntry = Extract<Entry, { kind: 'reasoning' }>;
-type SubAgentEntry = Extract<Entry, { kind: 'subagent' }>;
+export type SubAgentEntry = Extract<Entry, { kind: 'subagent' }>;
 
-export type SubAgentStatus = 'running' | 'done' | 'error';
+export type SubAgentStatus = 'running' | 'done' | 'error' | 'canceled';
 
 export interface SubAgentHandle {
   addTool(label: string): void;
   finish(result: string): void;
   fail(message: string): void;
+  cancel(): void;
 }
 
 const partsToText = (parts: readonly ContentPart[]): string =>
@@ -84,7 +86,7 @@ export class Transcript {
     this.entries.push({ kind: 'note', text: content, error });
   }
 
-  appendSubAgent(agent: string): SubAgentHandle {
+  appendSubAgent(agent: string, messages?: readonly Message[]): SubAgentHandle {
     const entry: SubAgentEntry = {
       kind: 'subagent',
       agent,
@@ -94,6 +96,7 @@ export class Transcript {
       result: '',
       log: [],
       open: false,
+      messages,
     };
     this.entries.push(entry);
     return {
@@ -111,6 +114,10 @@ export class Transcript {
         entry.status = 'error';
         entry.activity = '';
         entry.result = message;
+      },
+      cancel: () => {
+        entry.status = 'canceled';
+        entry.activity = '';
       },
     };
   }
@@ -314,13 +321,15 @@ const shellEntry = (cmd: string, output: string, error: boolean, expanded: boole
   };
 };
 
-const SUBAGENT_ICON: Record<SubAgentStatus, string> = { running: '◐', done: '✓', error: '✗' };
+const SUBAGENT_ICON: Record<SubAgentStatus, string> = { running: '◐', done: '✓', error: '✗', canceled: '⊘' };
 
 const subAgentEntry = (entry: SubAgentEntry, theme: Theme): Component => {
   const statusColor = entry.status === 'done'
     ? theme.colors.success
     : entry.status === 'error'
     ? theme.styles.errorPrefix.fg ?? theme.colors.danger
+    : entry.status === 'canceled'
+    ? theme.colors.textMuted
     : theme.colors.accent;
   return {
     handleInput: (event) => {
@@ -337,24 +346,19 @@ const subAgentEntry = (entry: SubAgentEntry, theme: Theme): Component => {
 
       const lines: string[] = [];
       const tools = entry.tools > 0 ? `${muted} · ${entry.tools} tool${entry.tools === 1 ? '' : 's'}${RESET}` : '';
-      const collapsible = entry.status !== 'running' && (entry.result !== '' || entry.log.length > 0);
-      const chevron = collapsible ? `${muted}  ${entry.open ? '▾' : '▸'}${RESET}` : '';
+      const hint = entry.status === 'running' ? '' : `${muted}  · click to open${RESET}`;
       lines.push(
-        `${nameStyle}${SUBAGENT_ICON[entry.status]} ${entry.agent}${RESET}${muted} ${entry.status}${RESET}${tools}${chevron}`,
+        `${nameStyle}${SUBAGENT_ICON[entry.status]} ${entry.agent}${RESET}${muted} ${entry.status}${RESET}${tools}${hint}`,
       );
 
-      if (entry.open) {
-        for (const label of entry.log) lines.push(`${muted}→ ${fit(label, Math.max(1, innerW - 2))}${RESET}`);
-      } else if (entry.status === 'running') {
+      if (entry.status === 'running') {
         lines.push(`${muted}→ ${fit(entry.activity || 'working…', Math.max(1, innerW - 2))}${RESET}`);
-      }
-
-      if (entry.result) {
+      } else if (entry.result) {
         const md = renderMarkdown(entry.result.trim(), innerW, theme);
-        const shown = entry.open ? md : md.slice(0, COLLAPSE_LIMIT);
-        for (const line of shown) lines.push(fit(line, innerW));
-        const hidden = md.length - shown.length;
-        if (hidden > 0) lines.push(`${muted}… ${hidden} more lines (click)${RESET}`);
+        for (const line of md.slice(0, COLLAPSE_LIMIT)) lines.push(fit(line, innerW));
+        if (md.length > COLLAPSE_LIMIT) {
+          lines.push(`${muted}… ${md.length - COLLAPSE_LIMIT} more lines (click to open)${RESET}`);
+        }
       }
 
       for (let i = 0; i < lines.length; i++) {

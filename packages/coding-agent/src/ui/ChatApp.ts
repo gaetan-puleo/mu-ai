@@ -22,7 +22,7 @@ import { buildCommands, type ChatCommand, type CommandHost, filterCommands } fro
 import { activeMention, type Candidate, collectCandidates, rank } from './picker';
 import { formatTokens, statusComponent, statusFromEvent, type StatusState } from './status';
 import { asHexColor, styleToAnsi, type Theme, ThemeProvider, themesByName } from './theme';
-import { formatToolArgs, Transcript, transcriptComponent } from './transcript';
+import { formatToolArgs, type SubAgentEntry, type SubAgentHandle, Transcript, transcriptComponent } from './transcript';
 
 const RESET = '\x1b[0m';
 const PROMPT_WIDTH = 2;
@@ -110,6 +110,8 @@ export class ChatApp {
   private readonly editor: MultilineEditor;
   private readonly scroll: ScrollView;
   private readonly transcript = new Transcript();
+  private readonly subScroll: ScrollView;
+  private readonly subTranscript = new Transcript();
   private readonly themeProvider: ThemeProvider;
   private readonly commands: ChatCommand[];
 
@@ -118,6 +120,8 @@ export class ChatApp {
   private unsubscribeTheme: (() => void) | undefined;
   private unsubscribeSubAgents: (() => void) | undefined;
   private readonly runUnsubs = new Set<() => void>();
+  private readonly activeRuns = new Set<{ session: AgentSession; handle: SubAgentHandle; cancelled: boolean }>();
+  private mentionAc: AbortController | undefined;
 
   private readonly status: StatusState = { label: 'ready', busy: false, spinnerTick: 0, context: '' };
   private running = false;
@@ -167,6 +171,7 @@ export class ChatApp {
     });
 
     this.scroll = scrollView({ render: (s) => transcriptComponent(this.transcript, this.theme()).render(s) });
+    this.subScroll = scrollView({ render: (s) => transcriptComponent(this.subTranscript, this.theme()).render(s) });
 
     this.commands = buildCommands(this.commandHost());
 
@@ -226,13 +231,27 @@ export class ChatApp {
   }
 
   private clearRuns(): void {
+    this.mentionAc?.abort();
+    this.mentionAc = undefined;
     for (const unsub of this.runUnsubs) unsub();
     this.runUnsubs.clear();
+    this.abortRuns();
+  }
+
+  private abortRuns(): void {
+    for (const run of this.activeRuns) {
+      run.cancelled = true;
+      run.handle.cancel();
+      run.session.abort();
+    }
+    this.activeRuns.clear();
   }
 
   private onSubAgentRun(run: SubAgentRun): void {
     if (run.parentId !== this.session.id) return;
-    const handle = this.transcript.appendSubAgent(run.agent);
+    const handle = this.transcript.appendSubAgent(run.agent, run.session.messages);
+    const record = { session: run.session, handle, cancelled: false };
+    this.activeRuns.add(record);
     const toolNames = new Map<string, string>();
     const unsub = run.session.subscribe((event) => {
       switch (event.type) {
@@ -243,12 +262,14 @@ export class ChatApp {
           break;
         }
         case 'turn_end':
-          handle.finish(lastAssistantText(run.session.messages));
+          if (!record.cancelled) handle.finish(lastAssistantText(run.session.messages));
+          this.activeRuns.delete(record);
           unsub();
           this.runUnsubs.delete(unsub);
           break;
         case 'error':
-          handle.fail(event.error instanceof Error ? event.error.message : String(event.error));
+          if (!record.cancelled) handle.fail(event.error instanceof Error ? event.error.message : String(event.error));
+          this.activeRuns.delete(record);
           unsub();
           this.runUnsubs.delete(unsub);
           break;
@@ -275,6 +296,8 @@ export class ChatApp {
 
   private dispatchMention(agent: string, task: string, displayText: string): void {
     this.transcript.appendUser(displayText);
+    const ac = new AbortController();
+    this.mentionAc = ac;
     this.running = true;
     this.status.busy = true;
     this.setStatus('thinking…');
@@ -282,11 +305,14 @@ export class ChatApp {
     this.tui.requestRender();
     this.host.dispatchSubAgent(agent, task, this.session.id)
       .then((result) => {
+        if (ac.signal.aborted) return;
+        this.mentionAc = undefined;
         const content =
           `The "${agent}" sub-agent was asked:\n${task}\n\nIts result:\n${result.text}\n\nUse this to respond to the user.`;
         return this.session.send(content);
       })
       .catch((err) => {
+        if (ac.signal.aborted) return;
         this.running = false;
         this.status.busy = false;
         this.stopSpinner();
@@ -498,6 +524,12 @@ export class ChatApp {
   }
 
   private onEscape(): boolean {
+    const focused = this.focusedSub();
+    if (focused) {
+      focused.open = false;
+      this.tui.requestRender();
+      return true;
+    }
     if (this.paletteItems().length > 0) {
       this.paletteDismissedFor = this.editor.getValue();
       this.tui.requestRender();
@@ -532,8 +564,11 @@ export class ChatApp {
 
   private cancelGeneration(): void {
     this.queue.length = 0;
+    this.mentionAc?.abort();
+    this.mentionAc = undefined;
+    this.abortRuns();
     this.session.abort();
-    this.setStatus('cancelling…');
+    this.onTurnComplete();
     this.tui.requestRender();
   }
 
@@ -982,8 +1017,42 @@ export class ChatApp {
     return column(children);
   }
 
+  private focusedSub(): SubAgentEntry | undefined {
+    for (const entry of this.transcript.entries) {
+      if (entry.kind === 'subagent' && entry.open) return entry;
+    }
+    return undefined;
+  }
+
+  private subAgentHeader(entry: SubAgentEntry): Component {
+    const theme = this.theme();
+    const color = entry.status === 'done'
+      ? theme.colors.success
+      : entry.status === 'error'
+      ? theme.styles.errorPrefix.fg ?? theme.colors.danger
+      : entry.status === 'canceled'
+      ? theme.colors.textMuted
+      : theme.colors.accent;
+    const accent = styleToAnsi({ fg: color, bold: true });
+    const muted = styleToAnsi(theme.styles.muted);
+    const line = `${accent}▌ ${entry.agent}${RESET}${muted} sub-agent · ${entry.status}  ·  esc to close${RESET}`;
+    return {
+      render: (s) => {
+        if (s.width <= 0) return;
+        s.text(0, 0, visibleWidth(line) > s.width ? truncateToWidth(line, s.width) : line);
+        s.text(0, 1, '');
+      },
+    };
+  }
+
+  private subAgentView(entry: SubAgentEntry): Component {
+    this.subTranscript.seed(entry.messages ?? []);
+    return column([this.subAgentHeader(entry), flex(this.subScroll)]);
+  }
+
   private root(): Component {
-    const inner = column([flex(this.scroll), this.dock()]);
+    const focused = this.focusedSub();
+    const inner = focused ? this.subAgentView(focused) : column([flex(this.scroll), this.dock()]);
     return {
       render: (s) => {
         s.fill({ x: 0, y: 0, width: s.width, height: s.height }, this.theme().colors.background);
