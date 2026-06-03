@@ -113,6 +113,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
       run: async (task) => {
         try {
           if (!task.agent) throw new Error('scheduled task is missing an agent');
+          if (!task.skill) throw new Error('scheduled task is missing a skill');
           const output = await runSkill({ skills, agents, spawn, runs, parentId: task.id }, {
             skill: task.skill,
             task: task.prompt,

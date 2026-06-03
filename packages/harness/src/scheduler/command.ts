@@ -14,7 +14,7 @@ export const createTasksCommand = (tasks: TaskStore): Command => ({
         ? `every ${t.schedule.ms}ms`
         : 'once';
       const state = t.enabled ? when : `${when} (disabled)`;
-      return `- ${t.id} — ${t.skill} [${state}]`;
+      return `- ${t.id} — ${t.skill ?? t.agent ?? 'task'} [${state}]`;
     };
     return { ok: true, output: list.map(describe).join('\n') };
   },

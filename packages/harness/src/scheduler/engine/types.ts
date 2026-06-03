@@ -1,5 +1,5 @@
 export type Schedule =
-  | { kind: 'cron'; expr: string }
+  | { kind: 'cron'; expr: string; timezone?: string }
   | { kind: 'interval'; ms: number }
   | { kind: 'once'; at?: number };
 
@@ -11,7 +11,7 @@ export interface TaskResult {
 
 export interface Task {
   id: string;
-  skill: string;
+  skill?: string;
   prompt: string;
   agent?: string;
   schedule: Schedule;
@@ -20,6 +20,11 @@ export interface Task {
   lastRun?: number;
   lastResult?: TaskResult;
 }
+
+export type SchedulerEvent =
+  | { type: 'task_started'; task: Task; at: number }
+  | { type: 'task_completed'; task: Task; at: number; durationMs: number; result: TaskResult }
+  | { type: 'task_failed'; task: Task; at: number; durationMs: number; error: string };
 
 export type TaskInput =
   & Omit<Task, 'id' | 'enabled' | 'createdAt' | 'lastRun' | 'lastResult'>

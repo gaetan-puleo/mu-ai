@@ -1,4 +1,3 @@
-import { transformSync } from '@swc/wasm-typescript';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -70,6 +69,7 @@ const rewriteSpecifiers = (code: string): string =>
   );
 
 const transpileTree = async (entry: string): Promise<string> => {
+  const { transformSync } = await import('@swc/wasm-typescript');
   const sources = await collect(entry);
   if (sources.size === 1) {
     const { code } = transformSync(sources.get(entry) as string, { mode: 'transform', module: true });

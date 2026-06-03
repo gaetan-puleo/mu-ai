@@ -1,5 +1,5 @@
 import { Cron } from 'croner';
-import type { Task, TaskRunner, TaskStore } from './types';
+import type { SchedulerEvent, Task, TaskRunner, TaskStore } from './types';
 
 export interface Scheduler {
   start(): Promise<void>;
@@ -11,6 +11,7 @@ export interface Scheduler {
 export const createScheduler = (deps: {
   store: TaskStore;
   run: TaskRunner;
+  onEvent?: (event: SchedulerEvent) => void;
   onError?: (error: unknown, task: Task) => void;
 }): Scheduler => {
   const { store, run } = deps;
@@ -21,13 +22,19 @@ export const createScheduler = (deps: {
   const fire = async (id: string): Promise<void> => {
     const task = await store.get(id);
     if (!task || !task.enabled) return;
+    const at = Date.now();
+    deps.onEvent?.({ type: 'task_started', task, at });
     try {
       const result = await run(task);
       await store.update(id, { lastRun: Date.now(), lastResult: result });
+      const durationMs = Date.now() - at;
+      if (result.ok) deps.onEvent?.({ type: 'task_completed', task, at: Date.now(), durationMs, result });
+      else deps.onEvent?.({ type: 'task_failed', task, at: Date.now(), durationMs, error: result.error ?? 'task failed' });
     } catch (error) {
       deps.onError?.(error, task);
       const message = error instanceof Error ? error.message : String(error);
       await store.update(id, { lastRun: Date.now(), lastResult: { ok: false, error: message } });
+      deps.onEvent?.({ type: 'task_failed', task, at: Date.now(), durationMs: Date.now() - at, error: message });
     }
     if (task.schedule.kind === 'once') await store.update(id, { enabled: false });
   };
@@ -43,7 +50,7 @@ export const createScheduler = (deps: {
     if (!task.enabled) return;
     const s = task.schedule;
     if (s.kind === 'cron') {
-      crons.set(task.id, new Cron(s.expr, () => void fire(task.id)));
+      crons.set(task.id, new Cron(s.expr, s.timezone ? { timezone: s.timezone } : {}, () => void fire(task.id)));
     } else if (s.kind === 'interval') {
       timers.set(task.id, setInterval(() => void fire(task.id), s.ms));
     } else {
