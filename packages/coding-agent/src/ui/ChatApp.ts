@@ -1008,10 +1008,10 @@ export class ChatApp {
       children.push(listView(rows, this.pickerCursor, this.theme()));
     }
 
-    children.push(this.inputPanel());
-
     const waiting = this.waitingView();
     if (waiting) children.push(waiting);
+
+    children.push(this.inputPanel());
 
     children.push(statusComponent(this.status, this.theme()));
     return column(children);

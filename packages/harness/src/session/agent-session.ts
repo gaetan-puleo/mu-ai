@@ -48,6 +48,7 @@ export const createAgentSession = (config: AgentSessionConfig): AgentSession => 
     running = true;
     const ac = new AbortController();
     controller = ac;
+    let terminal: AgentSessionEvent = { type: 'turn_end' };
     try {
       if (!started) {
         started = true;
@@ -79,14 +80,13 @@ export const createAgentSession = (config: AgentSessionConfig): AgentSession => 
         if (event.type === 'message') messages.push(event.message);
         emitter.emit(event);
       }
-      emitter.emit({ type: 'turn_end' });
     } catch (error) {
-      if (ac.signal.aborted) emitter.emit({ type: 'turn_end' });
-      else emitter.emit({ type: 'error', error });
+      if (!ac.signal.aborted) terminal = { type: 'error', error };
     } finally {
       running = false;
       controller = undefined;
     }
+    emitter.emit(terminal);
   };
 
   return {

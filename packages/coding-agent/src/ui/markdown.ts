@@ -272,15 +272,17 @@ function renderCodeBlock(
   const fenceLine = lines[start] ?? '';
   const lang = fenceLine.replace(/^\s*```/, '').trim();
 
+  const blank = styleSegment(' '.repeat(width), codeBlockPrefix);
+  const PAD = 2;
+
   if (lang) {
-    const label = ` ${lang}`;
+    const label = `${' '.repeat(PAD)}${lang}`;
     const padded = visibleWidth(label) > width
       ? truncateToWidth(label, width)
       : label + ' '.repeat(Math.max(0, width - visibleWidth(label)));
     rendered.push(styleSegment(padded, labelPrefix));
   }
 
-  const PAD = 2;
   const innerWidth = Math.max(1, width - PAD);
   let index = start + 1;
   while (index < lines.length && !FENCE_RE.test(lines[index] ?? '')) {
@@ -291,9 +293,7 @@ function renderCodeBlock(
     index += 1;
   }
 
-  if (rendered.length === 0 || (lang && rendered.length === 1)) {
-    rendered.push(styleSegment(' '.repeat(width), codeBlockPrefix));
-  }
+  rendered.push(blank);
 
   return { lines: rendered, nextIndex: index < lines.length ? index + 1 : index };
 }
@@ -310,29 +310,36 @@ interface Prefixes {
   codeBlockLabel: string;
 }
 
-function renderBlocks(content: string, width: number, p: Prefixes): string[] {
+export interface MarkdownLine {
+  text: string;
+  bleed: boolean;
+}
+
+function renderBlocks(content: string, width: number, p: Prefixes, bleed: number): MarkdownLine[] {
   const lines = content.split('\n');
-  const rendered: string[] = [];
+  const rendered: MarkdownLine[] = [];
   for (let i = 0; i < lines.length;) {
     if (FENCE_RE.test(lines[i] ?? '')) {
-      const block = renderCodeBlock(lines, i, width, p.codeBlock, p.codeBlockLabel);
-      rendered.push(...block.lines);
+      const block = renderCodeBlock(lines, i, width + 2 * bleed, p.codeBlock, p.codeBlockLabel);
+      for (const text of block.lines) rendered.push({ text, bleed: bleed > 0 });
       i = block.nextIndex;
       continue;
     }
     if (isTableStart(lines, i)) {
       const table = renderTableBlock(lines, i, width, p.text, p.heading, p.border, p.bold, p.code);
-      rendered.push(...table.lines);
+      for (const text of table.lines) rendered.push({ text, bleed: false });
       i = table.nextIndex;
       continue;
     }
-    rendered.push(...wrapMarkdownLine(lines[i] ?? '', p.text, p.heading, p.quote, p.marker, p.bold, p.code, width));
+    for (const text of wrapMarkdownLine(lines[i] ?? '', p.text, p.heading, p.quote, p.marker, p.bold, p.code, width)) {
+      rendered.push({ text, bleed: false });
+    }
     i += 1;
   }
   return rendered;
 }
 
-export function renderMarkdown(content: string, width: number, theme: Theme): string[] {
+export function renderMarkdown(content: string, width: number, theme: Theme, bleed = 0): MarkdownLine[] {
   const p: Prefixes = {
     text: styleToAnsi(theme.styles.assistantMessage),
     heading: styleToAnsi({ ...theme.styles.assistantMessage, fg: theme.colors.warning, bold: true }),
@@ -341,10 +348,10 @@ export function renderMarkdown(content: string, width: number, theme: Theme): st
     marker: styleToAnsi(theme.styles.muted),
     bold: styleToAnsi({ ...theme.styles.assistantMessage, bold: true }),
     code: styleToAnsi({ ...theme.styles.assistantMessage, fg: theme.colors.success }),
-    codeBlock: styleToAnsi({ ...theme.styles.assistantMessage, bg: theme.colors.surfaceMuted }),
-    codeBlockLabel: styleToAnsi({ fg: theme.colors.textMuted, bg: theme.colors.surfaceMuted, dim: true }),
+    codeBlock: styleToAnsi({ ...theme.styles.assistantMessage, bg: theme.colors.surface }),
+    codeBlockLabel: styleToAnsi({ fg: theme.colors.textMuted, bg: theme.colors.surface, dim: true }),
   };
-  return renderBlocks(content, Math.max(1, width), p);
+  return renderBlocks(content, Math.max(1, width), p, bleed);
 }
 
 export function markdown(content: string, theme: Theme): Component {
@@ -353,7 +360,7 @@ export function markdown(content: string, theme: Theme): Component {
       if (s.width <= 0) return;
       const lines = renderMarkdown(content, s.width, theme);
       for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
+        const line = lines[i].text;
         s.text(0, i, visibleWidth(line) > s.width ? truncateToWidth(line, s.width) : line);
       }
     },

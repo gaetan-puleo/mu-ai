@@ -240,8 +240,12 @@ const assistantEntry = (value: string, theme: Theme): Component => ({
   render: (s) => {
     if (s.width <= 0) return;
     const innerW = Math.max(1, s.width - PAD * 2);
-    const lines = renderMarkdown(value.trim() || '…', innerW, theme);
-    for (let i = 0; i < lines.length; i++) s.text(PAD, i, fit(lines[i], innerW));
+    const lines = renderMarkdown(value.trim() || '…', innerW, theme, PAD);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.bleed) s.text(0, i, fit(line.text, s.width));
+      else s.text(PAD, i, fit(line.text, innerW));
+    }
   },
 });
 
@@ -355,7 +359,7 @@ const subAgentEntry = (entry: SubAgentEntry, theme: Theme): Component => {
         lines.push(`${muted}→ ${fit(entry.activity || 'working…', Math.max(1, innerW - 2))}${RESET}`);
       } else if (entry.result) {
         const md = renderMarkdown(entry.result.trim(), innerW, theme);
-        for (const line of md.slice(0, COLLAPSE_LIMIT)) lines.push(fit(line, innerW));
+        for (const line of md.slice(0, COLLAPSE_LIMIT)) lines.push(fit(line.text, innerW));
         if (md.length > COLLAPSE_LIMIT) {
           lines.push(`${muted}… ${md.length - COLLAPSE_LIMIT} more lines (click to open)${RESET}`);
         }
