@@ -1,9 +1,28 @@
-import type { Agent } from './types';
+import type { Agent, ToolDecision, ToolGrants } from './types';
 
 export interface AgentRegistry {
   list(): Agent[];
   get(name: string): Agent | undefined;
 }
+
+const asMap = (tools: ToolGrants | undefined): Record<string, ToolDecision> | undefined => {
+  if (!tools) return undefined;
+  if (Array.isArray(tools)) return Object.fromEntries(tools.map((tool) => [tool, 'allow' as ToolDecision]));
+  return tools;
+};
+
+export const toolDecision = (agent: Agent, tool: string): ToolDecision => {
+  const map = asMap(agent.tools);
+  if (!map) return 'allow';
+  return map[tool] ?? map['*'] ?? 'deny';
+};
+
+export const toolNames = (agent: Agent): string[] | undefined => {
+  const map = asMap(agent.tools);
+  if (!map) return undefined;
+  if (map['*'] && map['*'] !== 'deny') return ['*'];
+  return Object.entries(map).filter(([, decision]) => decision !== 'deny').map(([tool]) => tool);
+};
 
 const merge = (base: Agent, child: Agent): Agent => ({
   name: child.name,

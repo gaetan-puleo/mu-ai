@@ -1,5 +1,5 @@
 import process from 'node:process';
-import type { AgentSession, Harness } from 'mu-harness';
+import type { AgentSession, ApprovalManager, Harness } from 'mu-harness';
 import { listLocalModels } from 'mu-local-provider';
 import { type CodingAgentState, saveState } from './config';
 import { ChatApp, type ChatHost } from './ui/ChatApp';
@@ -14,6 +14,7 @@ export interface AgentControl {
 export interface RunAppOptions {
   harness: Harness;
   session: AgentSession;
+  approvals: ApprovalManager;
   providerConfig: { kind?: string; baseUrl?: string; apiKey?: string };
   state: CodingAgentState;
   agent: AgentControl;
@@ -24,6 +25,7 @@ export async function runApp(opts: RunAppOptions): Promise<void> {
 
   const host: ChatHost = {
     session: opts.session,
+    approvals: opts.approvals,
     cwd: harness.cwd,
     createSession: () => harness.sessions.create(),
     forkSession: (id, upToIndex) => harness.sessions.fork(id, upToIndex),

@@ -74,6 +74,18 @@ Deno.test('the tool delegates to the named persona from the registry', async () 
   assertEquals(await tool.run({ agent: 'reviewer', task: 'audit' }, {}), [{ type: 'text', text: 'done' }]);
 });
 
+Deno.test('the tool prompt lists the available sub-agents (excluding title)', () => {
+  const explorer: Agent = { name: 'explorer', description: 'read-only search', prompt: 'x' };
+  const title: Agent = { name: 'title', description: 'internal', prompt: 't' };
+  const tool = createSubAgentTool({
+    registry: createAgentRegistry([reviewer, explorer, title]),
+    spawn: spawnReturning('x'),
+  });
+  assertEquals(tool.prompt?.includes('- reviewer: reviews'), true);
+  assertEquals(tool.prompt?.includes('- explorer: read-only search'), true);
+  assertEquals(tool.prompt?.includes('title'), false);
+});
+
 Deno.test('the tool handles unknown agent and missing arguments', async () => {
   const tool = createSubAgentTool({ registry: createAgentRegistry([reviewer]), spawn: spawnReturning('x') });
   assertEquals(await tool.run({ agent: 'nope', task: 't' }, {}), [{

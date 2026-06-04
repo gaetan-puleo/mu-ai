@@ -1,7 +1,16 @@
 import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import type { AgentSession, AgentSessionEvent, SubAgentRegistry, SubAgentResult, SubAgentRun } from 'mu-harness';
+import type {
+  AgentSession,
+  AgentSessionEvent,
+  ApprovalAction,
+  ApprovalManager,
+  PendingApproval,
+  SubAgentRegistry,
+  SubAgentResult,
+  SubAgentRun,
+} from 'mu-harness';
 import type { Message } from 'mu-core';
 import {
   box,
@@ -29,6 +38,12 @@ const PROMPT_WIDTH = 2;
 const SPINNER_INTERVAL_MS = 100;
 const MAX_LIST_ROWS = 8;
 
+const APPROVAL_OPTIONS: { label: string; value: ApprovalAction }[] = [
+  { label: 'Approve once', value: 'approve' },
+  { label: 'Approve for this session', value: 'approve_always' },
+  { label: 'Deny', value: 'deny' },
+];
+
 export interface ModelInfo {
   id: string;
   ownedBy?: string;
@@ -36,6 +51,7 @@ export interface ModelInfo {
 
 export interface ChatHost {
   session: AgentSession;
+  approvals: ApprovalManager;
   cwd: string;
   createSession(): AgentSession;
   forkSession(id: string, upToIndex: number): Promise<AgentSession>;
@@ -143,6 +159,9 @@ export class ChatApp {
   private lastEsc = 0;
   private modelPickerOpen = false;
   private modelHandle: { close(): void } | undefined;
+  private approvalQueue: PendingApproval[] = [];
+  private approvalCursor = 0;
+  private unsubscribeApproval: (() => void) | undefined;
   private errorText: string | undefined;
   private errorTimer: ReturnType<typeof setTimeout> | undefined;
   private stopped = false;
@@ -190,6 +209,10 @@ export class ChatApp {
 
     this.bindSession();
     this.unsubscribeSubAgents = this.host.subAgents.subscribe((run) => this.onSubAgentRun(run));
+    this.unsubscribeApproval = this.host.approvals.subscribe((req) => {
+      this.approvalQueue.push(req);
+      this.tui.requestRender();
+    });
     this.transcript.seed(this.session.messages);
   }
 
@@ -204,6 +227,7 @@ export class ChatApp {
     this.unsubscribe?.();
     this.unsubscribeTheme?.();
     this.unsubscribeSubAgents?.();
+    this.unsubscribeApproval?.();
     this.clearRuns();
     this.stopSpinner();
     this.clearError();
@@ -478,6 +502,15 @@ export class ChatApp {
     if (this.modelPickerOpen) return false;
     if (event.type !== 'key' || event.kind === 'release') return false;
     const key = event.key;
+
+    if (this.approvalQueue.length > 0) {
+      const count = APPROVAL_OPTIONS.length;
+      if (key === 'left' || (key === 'tab' && event.shift)) return this.moveApproval(-1);
+      if (key === 'right' || (key === 'tab' && !event.shift)) return this.moveApproval(1);
+      if (key === 'enter') return this.resolveApproval(APPROVAL_OPTIONS[this.approvalCursor % count].value);
+      if (key === 'escape' || key === 'esc') return this.resolveApproval('deny');
+      return true;
+    }
 
     if (key === 'escape' || key === 'esc') return this.onEscape();
 
@@ -766,6 +799,52 @@ export class ChatApp {
     };
   }
 
+  private moveApproval(delta: number): boolean {
+    const count = APPROVAL_OPTIONS.length;
+    this.approvalCursor = (this.approvalCursor + delta + count) % count;
+    this.tui.requestRender();
+    return true;
+  }
+
+  private resolveApproval(action: ApprovalAction): boolean {
+    const req = this.approvalQueue.shift();
+    if (!req) return true;
+    this.approvalCursor = 0;
+    this.host.approvals.resolve(req.id, action);
+    this.tui.requestRender();
+    return true;
+  }
+
+  private approvalView(): Component | undefined {
+    const req = this.approvalQueue[0];
+    if (!req) return undefined;
+    const cursor = this.approvalCursor;
+    const args = formatToolArgs(req.name, req.input);
+    return {
+      render: (s) => {
+        if (s.width <= 0) return;
+        const theme = this.theme();
+        const itemSgr = styleToAnsi(theme.styles.commandPaletteItem);
+        const selSgr = styleToAnsi({ ...theme.styles.commandPaletteSelected, fg: '#000000' });
+        const muted = styleToAnsi(theme.styles.muted);
+        const innerW = Math.max(1, s.width);
+
+        const queued = this.approvalQueue.length > 1 ? ` (+${this.approvalQueue.length - 1} more)` : '';
+        const title = (req.agent ? `Tool approval · ${req.agent}` : 'Tool approval') + queued;
+        s.text(0, 0, `${styleToAnsi(theme.styles.title)}${title}${RESET}`);
+        const head = args ? `${req.name} ${args}` : req.name;
+        s.text(0, 1, `${muted}${truncateToWidth(head, innerW)}${RESET}`);
+
+        const choices = APPROVAL_OPTIONS
+          .map((opt, r) => `${r === cursor ? selSgr : itemSgr} ${opt.label} ${RESET}`)
+          .join(`${muted}  ${RESET}`);
+        s.text(0, 3, choices);
+
+        s.text(0, 4, `${muted}←/→ or tab move · Enter select · Esc deny${RESET}`);
+      },
+    };
+  }
+
   private async switchModel(ref: string): Promise<void> {
     this.host.selectModel(ref);
     const carry = this.session.messages.some((m) => m.role !== 'system');
@@ -943,11 +1022,16 @@ export class ChatApp {
   }
 
   private inputPanel(): Component {
+    const inner = this.approvalView() ?? this.editorInner();
+    return box(inner, { background: this.theme().colors.surface, padding: 1 });
+  }
+
+  private editorInner(): Component {
     const prompt = this.promptGlyph();
     const editor = this.editor;
     const label = this.modelLabel();
     const editorRows = editor.rows();
-    const inner: Component = {
+    return {
       render: (s) => {
         if (s.width <= 0 || s.height <= 0) return;
         s.text(0, 0, prompt);
@@ -957,7 +1041,6 @@ export class ChatApp {
         s.text(0, labelRow, visibleWidth(label) > s.width ? truncateToWidth(label, s.width) : label);
       },
     };
-    return box(inner, { background: this.theme().colors.surface, padding: 1 });
   }
 
   private errorView(): Component | undefined {

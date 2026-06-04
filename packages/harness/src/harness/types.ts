@@ -1,7 +1,8 @@
 import type { Provider } from 'mu-core';
-import type { Agent, AgentRegistry } from '../agents';
+import type { Agent, AgentRegistry, ToolDecision } from '../agents';
 import type { CommandRegistry } from '../commands';
 import type { HarnessConfig, HarnessConfigOptions } from '../config';
+import type { ApprovalManager } from '../permissions';
 import type { PluginStore } from '../plugin';
 import type { Scheduler, TaskStore } from '../scheduler';
 import type { AgentSessionConfig, SessionManager } from '../session';
@@ -21,6 +22,11 @@ export type HarnessOptions =
     titleModel?: string;
     cwd?: string;
     scheduler?: boolean;
+    approvals?: {
+      manager: ApprovalManager;
+      activeAgent: () => Agent | undefined;
+      decide?: (agent: Agent, call: { name: string; input: unknown }) => ToolDecision;
+    };
   };
 
 export interface Harness {

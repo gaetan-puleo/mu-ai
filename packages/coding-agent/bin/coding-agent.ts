@@ -1,7 +1,18 @@
 #!/usr/bin/env -S deno run -A
 import process from 'node:process';
 import { join } from 'node:path';
-import { type Agent, type AgentSessionHooks, createHarness, filterTools, loadAgents, type PreparedRequest } from 'mu-harness';
+import {
+  type Agent,
+  type AgentSessionHooks,
+  createApprovalManager,
+  createHarness,
+  filterTools,
+  loadAgents,
+  type PreparedRequest,
+  toolDecision,
+  toolNames,
+} from 'mu-harness';
+import { EXPLORER_BASH, isReadOnlyBash } from '../src/bash-safety';
 import { createLocalProvider, listLocalModels } from 'mu-local-provider';
 import { createMuTools } from 'mu-ai-tools';
 import { getConfigPath, loadConfig, loadState, xdgDirs } from '../src/config';
@@ -80,7 +91,7 @@ async function run(): Promise<void> {
       lastAgentName = agent.name;
       const prepared: PreparedRequest = {
         system: `${system}\n\n${agent.prompt}`,
-        tools: agent.tools ? filterTools(tools, agent.tools) : tools,
+        tools: filterTools(tools, toolNames(agent)),
       };
       if (switched) {
         prepared.messages = [{
@@ -91,6 +102,8 @@ async function run(): Promise<void> {
       return prepared;
     },
   };
+
+  const approvals = createApprovalManager();
 
   const harness = await createHarness({
     hostName: 'mu',
@@ -103,6 +116,18 @@ async function run(): Promise<void> {
     agents: [...projectAgents, ...builtinAgents],
     system: BASE_SYSTEM_PROMPT,
     hooks: primaryHook,
+    approvals: {
+      manager: approvals,
+      activeAgent: () => currentAgent(),
+      decide: (agent, call) => {
+        const decision = toolDecision(agent, call.name);
+        if (call.name === 'bash' && decision === 'ask') {
+          const extra = agent.name === 'explorer' ? EXPLORER_BASH : undefined;
+          if (isReadOnlyBash(call.input, extra)) return 'allow';
+        }
+        return decision;
+      },
+    },
   });
 
   let session;
@@ -121,6 +146,7 @@ async function run(): Promise<void> {
   await runApp({
     harness,
     session,
+    approvals,
     providerConfig,
     state,
     agent: {

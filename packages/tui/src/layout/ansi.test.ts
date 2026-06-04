@@ -102,4 +102,14 @@ describe('cellsToAnsi', () => {
     const out = cellsToAnsi(cells);
     expect(out.includes('日')).toBe(true);
   });
+
+  it('resets intensity when moving from a dim run into a bold run', () => {
+    const cells = [...parseLine('\x1b[2mA'), ...parseLine('\x1b[1mB')];
+    expect(cellsToAnsi(cells)).toBe('\x1b[2mA\x1b[22;1mB\x1b[0m');
+  });
+
+  it('resets intensity when moving from a bold run into a dim run', () => {
+    const cells = [...parseLine('\x1b[1mA'), ...parseLine('\x1b[2mB')];
+    expect(cellsToAnsi(cells)).toBe('\x1b[1mA\x1b[22;2mB\x1b[0m');
+  });
 });

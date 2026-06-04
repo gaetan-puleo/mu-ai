@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import process from 'node:process';
 import type { Tool } from 'mu-core';
 import type { Agent } from '../agents';
-import { createAgentRegistry, loadAgents } from '../agents';
+import { createAgentRegistry, loadAgents, toolDecision, toolNames } from '../agents';
 import {
   createAgentsCommand,
   createCommandRegistry,
@@ -55,6 +55,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     title,
     titleModel,
     scheduler: enableScheduler = false,
+    approvals,
     ...sessionDefaults
   } = options;
   const cwd = options.cwd ?? process.cwd();
@@ -88,12 +89,24 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     extra: Tool[] = [],
   ): Tool[] => [...(sessionDefaults.tools ?? []), ...extra, ...skillTools, ...schedulerTools];
 
+  const approvalHook = (getAgent: () => Agent | undefined): AgentSessionHooks | undefined =>
+    approvals
+      ? approvals.manager.hooksFor({
+        decide: (call) => {
+          const agent = getAgent();
+          if (!agent) return 'allow';
+          return approvals.decide ? approvals.decide(agent, call) : toolDecision(agent, call.name);
+        },
+        agent: () => getAgent()?.name,
+      })
+      : undefined;
+
   const persona = (agent: Agent, opts: { tools?: Tool[]; hooks?: AgentSessionHooks; model?: string }): AgentSession =>
     createAgentSession({
       tools: opts.tools,
       plugins: sessionDefaults.plugins,
       system: agent.prompt,
-      hooks: opts.hooks ?? allowList(agent.tools),
+      hooks: opts.hooks ?? allowList(toolNames(agent)),
       ...models.resolve(opts.model ?? agent.model),
       id: newId(),
     });
@@ -103,7 +116,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
       store,
       persona(agent, {
         tools: sessionTools(),
-        hooks: mergeHooks([sessionDefaults.hooks, allowList(agent.tools)]),
+        hooks: mergeHooks([sessionDefaults.hooks, allowList(toolNames(agent)), approvalHook(() => agent)]),
       }),
     );
 
@@ -153,6 +166,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     revive: ({ id, model: ref, messages }) =>
       createAgentSession({
         ...sessionDefaults,
+        hooks: mergeHooks([sessionDefaults.hooks, approvalHook(() => approvals?.activeAgent())]),
         tools: sessionTools([createSubAgentTool({ registry: agents, spawn, runs, parentId: id })]),
         ...models.resolve(ref),
         id,

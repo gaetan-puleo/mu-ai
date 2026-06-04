@@ -300,9 +300,14 @@ function sgrDelta(prev: CellStyle | null, next: CellStyle): string {
   }
 
   if (prev.bold !== next.bold || prev.dim !== next.dim) {
-    if (!next.bold && !next.dim && (prev.bold || prev.dim)) params.push('22');
-    if (next.bold && !prev.bold) params.push('1');
-    if (next.dim && !prev.dim) params.push('2');
+    if ((prev.bold && !next.bold) || (prev.dim && !next.dim)) {
+      params.push('22');
+      if (next.bold) params.push('1');
+      if (next.dim) params.push('2');
+    } else {
+      if (next.bold && !prev.bold) params.push('1');
+      if (next.dim && !prev.dim) params.push('2');
+    }
   }
   if (prev.italic !== next.italic) params.push(next.italic ? '3' : '23');
   if (prev.underline !== next.underline) params.push(next.underline ? '4' : '24');

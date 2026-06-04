@@ -49,3 +49,47 @@ Deno.test('approval manager: subscribe is notified on each request', async () =>
   assertEquals(seen.length, 1);
   unsub();
 });
+
+Deno.test('hooksFor: an "allow" decision passes without prompting', async () => {
+  const mgr = createApprovalManager();
+  const hooks = mgr.hooksFor({ decide: () => 'allow', agent: () => 'build' });
+  assertEquals(await hooks.beforeToolCall?.(call), undefined);
+  assertEquals(mgr.pending(), []);
+});
+
+Deno.test('hooksFor: a "deny" decision blocks without prompting', async () => {
+  const mgr = createApprovalManager();
+  const hooks = mgr.hooksFor({ decide: () => 'deny', agent: () => 'build' });
+  assertEquals(await hooks.beforeToolCall?.(call), [{ type: 'text', text: 'Denied: bash' }]);
+  assertEquals(mgr.pending(), []);
+});
+
+Deno.test('hooksFor: an "ask" decision prompts, stamps the agent, and runs on approve', async () => {
+  const mgr = createApprovalManager();
+  const hooks = mgr.hooksFor({ decide: () => 'ask', agent: () => 'build' });
+  const pending = hooks.beforeToolCall?.(call);
+  await Promise.resolve();
+  assertEquals(mgr.pending()[0].agent, 'build');
+  mgr.resolve(mgr.pending()[0].id, 'approve');
+  assertEquals(await pending, undefined);
+});
+
+Deno.test('hooksFor: approve_always is scoped per agent', async () => {
+  const mgr = createApprovalManager();
+  const build = mgr.hooksFor({ decide: () => 'ask', agent: () => 'build' });
+  const plan = mgr.hooksFor({ decide: () => 'ask', agent: () => 'plan' });
+
+  const first = build.beforeToolCall?.(call);
+  await Promise.resolve();
+  mgr.resolve(mgr.pending()[0].id, 'approve_always');
+  await first;
+
+  assertEquals(await build.beforeToolCall?.(call), undefined);
+  assertEquals(mgr.pending(), []);
+
+  const other = plan.beforeToolCall?.(call);
+  await Promise.resolve();
+  assertEquals(mgr.pending()[0].agent, 'plan');
+  mgr.resolve(mgr.pending()[0].id, 'deny');
+  assertEquals(await other, [{ type: 'text', text: 'Denied: bash' }]);
+});

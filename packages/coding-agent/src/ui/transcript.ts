@@ -405,7 +405,8 @@ export function transcriptComponent(model: Transcript, theme: Theme): Component 
     render: (s) => {
       const children: Component[] = [];
       for (const entry of model.entries) {
-        children.push(withMarginBottom(entryComponent(entry, theme, model.expanded), 1));
+        const margin = entry.kind === 'tool_call' ? 0 : 1;
+        children.push(withMarginBottom(entryComponent(entry, theme, model.expanded), margin));
       }
       column(children).render(s);
     },

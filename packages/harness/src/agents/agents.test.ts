@@ -1,6 +1,9 @@
 import { assertEquals, assertThrows } from '@std/assert';
+import type { Agent } from './types';
 import { parseAgent } from './parser';
-import { createAgentRegistry } from './registry';
+import { createAgentRegistry, toolDecision, toolNames } from './registry';
+
+const agentWith = (tools: Agent['tools']): Agent => ({ name: 'a', description: '', prompt: '', tools });
 
 Deno.test('parseAgent reads the frontmatter and keeps the body as prompt', () => {
   const agent = parseAgent(
@@ -52,6 +55,41 @@ Deno.test('parseAgent: non-object YAML root => fields ignored', () => {
   const agent = parseAgent(`---\njust a string\n---\nBody`, 'fallback');
   assertEquals(agent.name, 'fallback');
   assertEquals(agent.prompt, 'Body');
+});
+
+Deno.test('toolNames: no grants => undefined (deny-by-default at the allow-list)', () => {
+  assertEquals(toolNames(agentWith(undefined)), undefined);
+});
+
+Deno.test('toolNames: array and object allow-lists => the listed names', () => {
+  assertEquals(toolNames(agentWith(['read', 'bash'])), ['read', 'bash']);
+  assertEquals(toolNames(agentWith({ read: 'allow', bash: 'ask' })), ['read', 'bash']);
+});
+
+Deno.test('toolNames: a non-deny wildcard => ["*"], not undefined (regression: was stripping all tools)', () => {
+  assertEquals(toolNames(agentWith({ '*': 'ask', read: 'allow' })), ['*']);
+  assertEquals(toolNames(agentWith({ '*': 'allow' })), ['*']);
+});
+
+Deno.test('toolNames: explicit denies are dropped from the list', () => {
+  assertEquals(toolNames(agentWith({ read: 'allow', bash: 'deny' })), ['read']);
+  assertEquals(toolNames(agentWith({ '*': 'deny', read: 'allow' })), ['read']);
+});
+
+Deno.test('toolDecision: array => allow listed, deny the rest', () => {
+  assertEquals(toolDecision(agentWith(['read']), 'read'), 'allow');
+  assertEquals(toolDecision(agentWith(['read']), 'bash'), 'deny');
+});
+
+Deno.test('toolDecision: wildcard is the fallback; explicit entries win', () => {
+  const agent = agentWith({ '*': 'ask', read: 'allow', bash: 'deny' });
+  assertEquals(toolDecision(agent, 'read'), 'allow');
+  assertEquals(toolDecision(agent, 'bash'), 'deny');
+  assertEquals(toolDecision(agent, 'edit'), 'ask');
+});
+
+Deno.test('toolDecision: no grants => allow', () => {
+  assertEquals(toolDecision(agentWith(undefined), 'anything'), 'allow');
 });
 
 Deno.test('registry: first wins (host > plugins > disk)', () => {
