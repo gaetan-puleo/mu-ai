@@ -257,9 +257,9 @@ describe('mu-webfetch — turndown failure (#217)', () => {
 });
 
 describe('mu-webfetch — tool surface', () => {
-  it('declares its tool system prompt', () => {
+  it('declares its usage guidance in the description', () => {
     const tool = getTool();
-    expect(tool.prompt).toContain('## webfetch');
+    expect(tool.description).toContain('large images bloat context');
   });
 });
 

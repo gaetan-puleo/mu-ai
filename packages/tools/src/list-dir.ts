@@ -53,9 +53,8 @@ export function createListDirTool(opts: ListDirToolOptions): Tool {
   const getCwd = validatedCwd(opts.getCwd);
   return {
     name: 'list_dir',
-    description: 'List the contents of a directory. Optionally recurse with a depth limit.',
-    prompt:
-      'Explore directories with `list_dir`. Reuse a listing already shown in the conversation instead of listing the same path again.',
+    description:
+      'List the contents of a directory, optionally recursing with a depth limit. Reuse a listing already shown in the conversation instead of listing the same path again.',
     parameters: {
       type: 'object',
       properties: {

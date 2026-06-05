@@ -3,14 +3,14 @@ import type { SkillRegistry } from './registry';
 
 export const createSkillTool = (registry: SkillRegistry): Tool => ({
   name: 'skill',
-  description: "Load a named skill's instructions into the conversation, then follow them.",
-  get prompt() {
+  get description() {
+    const base = "Load a named skill's instructions into the conversation, then follow them.";
     const list = registry.list();
-    if (!list.length) return undefined;
+    if (!list.length) return base;
     const catalog = list.map((skill) => `- ${skill.name}${skill.description ? `: ${skill.description}` : ''}`).join(
       '\n',
     );
-    return `When a request matches one of these skills, call \`skill\` with its name BEFORE acting, then follow the returned instructions:\n${catalog}`;
+    return `${base} When a request matches one of these skills, call \`skill\` with its name BEFORE acting:\n${catalog}`;
   },
   parameters: {
     type: 'object',

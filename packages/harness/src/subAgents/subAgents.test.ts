@@ -81,9 +81,9 @@ Deno.test('the tool prompt lists the available sub-agents (excluding title)', ()
     registry: createAgentRegistry([reviewer, explorer, title]),
     spawn: spawnReturning('x'),
   });
-  assertEquals(tool.prompt?.includes('- reviewer: reviews'), true);
-  assertEquals(tool.prompt?.includes('- explorer: read-only search'), true);
-  assertEquals(tool.prompt?.includes('title'), false);
+  assertEquals(tool.description.includes('- reviewer: reviews'), true);
+  assertEquals(tool.description.includes('- explorer: read-only search'), true);
+  assertEquals(tool.description.includes('title'), false);
 });
 
 Deno.test('the tool handles unknown agent and missing arguments', async () => {

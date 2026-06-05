@@ -41,10 +41,10 @@ Deno.test('registry: first wins, add replaces', () => {
 Deno.test('skill tool: dynamic catalog and body loading', async () => {
   const reg = createSkillRegistry();
   const tool = createSkillTool(reg);
-  assertEquals(tool.prompt, undefined);
+  assertEquals(tool.description.includes('matches one of these skills'), false);
 
   reg.add({ name: 'commit', description: 'write a commit message', prompt: 'BODY', dir: '/s/commit' });
-  assertEquals(tool.prompt?.includes('commit: write a commit message'), true);
+  assertEquals(tool.description.includes('commit: write a commit message'), true);
 
   const ok = await tool.run({ name: 'commit' }, {});
   assertEquals(ok[0], { type: 'text', text: 'Skill "commit" (bundled files live under /s/commit):\n\nBODY' });

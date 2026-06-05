@@ -17,8 +17,7 @@ export function createEditFileTool(opts: EditFileToolOptions): Tool {
   return {
     name: 'edit',
     description:
-      'Replace an exact substring in an existing file. `from` must occur exactly once — include surrounding context to disambiguate. Whitespace must match exactly.',
-    prompt: 'Prefer `edit` over `write` for changes to existing files; `from` must match exactly and occur once.',
+      'Replace an exact substring in an existing file; prefer this over `write` for changes to existing files. `from` must occur exactly once — include surrounding context to disambiguate, and match whitespace exactly.',
     parameters: {
       type: 'object',
       properties: {

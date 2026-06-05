@@ -157,9 +157,8 @@ export function createBashTool(opts: BashToolOptions): Tool {
   const fallbackAbortSignal = opts.getAbortSignal;
   return {
     name: 'bash',
-    description: 'Run a shell command via bash in the project cwd. Returns stdout+stderr; non-zero exit is an error.',
-    prompt:
-      'Use `bash` only for actions no file tool covers. Treat command output already shown in the conversation as current and authoritative — do not re-run a command just to verify it.',
+    description:
+      'Run a shell command via bash in the project cwd; returns stdout+stderr, non-zero exit is an error. Use only for actions no file tool covers, and treat command output already shown in the conversation as authoritative — do not re-run a command just to verify it.',
     parameters: {
       type: 'object',
       properties: {

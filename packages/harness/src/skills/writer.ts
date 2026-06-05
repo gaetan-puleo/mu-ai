@@ -12,9 +12,8 @@ export const createSkillWriterTool = (
   deps: { dirs: Record<SkillScope, string>; registry: SkillRegistry },
 ): Tool => ({
   name: 'create_skill',
-  description: 'Create a reusable skill: a named set of instructions the agent can load on demand later.',
-  prompt:
-    'When you discover a reusable workflow worth keeping, capture it with `create_skill` (name, description, instructions). Use `scope: "local"` for a skill specific to this project, or `scope: "config"` to make it available across all projects. It can then be loaded via `skill`.',
+  description:
+    'Create a reusable skill (name, description, instructions) the agent can load on demand later — capture a reusable workflow worth keeping. `scope: "local"` saves it to this project, `scope: "config"` makes it available across all projects; load it later via `skill`.',
   parameters: {
     type: 'object',
     properties: {

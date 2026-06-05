@@ -15,8 +15,8 @@ export function createWriteFileTool(opts: WriteFileToolOptions): Tool {
   const getCwd = validatedCwd(opts.getCwd);
   return {
     name: 'write',
-    description: 'Create or overwrite a file. Use `edit` for partial changes to existing files.',
-    prompt: 'Use `write` only to create a new file or fully replace one; for changes to an existing file use `edit`.',
+    description:
+      'Create or overwrite a file: use it only to create a new file or fully replace one. For partial changes to an existing file use `edit`.',
     parameters: {
       type: 'object',
       properties: {

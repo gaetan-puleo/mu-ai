@@ -98,14 +98,6 @@ const UA_BROWSER =
 const UA_RETRY = 'mu';
 const ACCEPT_HEADER = 'text/markdown;q=1.0, text/x-markdown;q=0.9, text/plain;q=0.8, text/html;q=0.7, */*;q=0.1';
 
-const WEBFETCH_SYSTEM_PROMPT = [
-  '## webfetch',
-  'Fetch a URL and return it as markdown.',
-  '',
-  '- Responses >5MB or slower than `timeout` (default 30s, max 120s) fail.',
-  '- Image URLs return `data:<mime>;base64,…` — fetch sparingly; large images bloat context.',
-].join('\n');
-
 function parseCharsetFromContentType(contentType: string): string | undefined {
   const m = /charset\s*=\s*("([^"]+)"|'([^']+)'|([^;\s]+))/i.exec(contentType);
   if (!m) return undefined;
@@ -328,8 +320,8 @@ export { convertHtmlToMarkdown };
 export function createWebFetchTool(): Tool {
   return {
     name: 'webfetch',
-    description: 'Fetch a URL and return it as markdown.',
-    prompt: WEBFETCH_SYSTEM_PROMPT,
+    description:
+      'Fetch a URL and return it as markdown. Responses larger than 5MB or slower than `timeout` (default 30s, max 120s) fail. Image URLs return `data:<mime>;base64,…` — fetch sparingly; large images bloat context.',
     parameters: {
       type: 'object',
       properties: {

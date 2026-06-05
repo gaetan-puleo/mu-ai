@@ -62,9 +62,8 @@ export function createReadFileTool(opts: ReadFileToolOptions): Tool {
   const getCwd = validatedCwd(opts.getCwd);
   return {
     name: 'read',
-    description: 'Read text file(s) with line numbers. `path` may be a single path or array.',
-    prompt:
-      'Read files with `read` before editing or quoting them; reuse a file already shown in the conversation instead of re-reading it.',
+    description:
+      'Read text file(s) with line numbers; `path` may be a single path or array. Read before editing or quoting, and reuse a file already shown in the conversation instead of re-reading it.',
     parameters: {
       type: 'object',
       properties: {

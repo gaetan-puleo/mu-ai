@@ -30,9 +30,8 @@ export const runSkill = async (
 
 export const createRunSkillTool = (deps: RunSkillDeps): Tool => ({
   name: 'run_skill',
-  description: 'Invoke a sub-agent equipped with a named skill to carry out a specific task. Returns its final answer.',
-  prompt:
-    'To carry out a self-contained task under a skill, call `run_skill` with the skill name, the task, and the agent persona to run it as.',
+  description:
+    'Invoke a sub-agent equipped with a named skill to carry out a self-contained task — pass the skill name, the task, and the agent persona to run it as. Returns its final answer.',
   parameters: {
     type: 'object',
     properties: {

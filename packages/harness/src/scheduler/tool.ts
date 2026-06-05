@@ -15,9 +15,7 @@ export const createScheduleTaskTool = (
 ): Tool => ({
   name: 'schedule_task',
   description:
-    'Persist a recurring (cron / heartbeat) or one-shot task that runs a sub-agent under a skill on a given prompt.',
-  prompt:
-    'Use `schedule_task` to register work that should run later or on a schedule: a `cron` expression, an `everyMs` heartbeat, or a one-shot `at` timestamp. It invokes a skill on a prompt, like `run_skill`.',
+    'Persist work to run later or on a schedule: a `cron` expression, an `everyMs` heartbeat, or a one-shot `at` timestamp. It invokes a skill on a prompt (like `run_skill`) via a sub-agent.',
   parameters: {
     type: 'object',
     properties: {
