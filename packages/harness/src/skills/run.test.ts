@@ -15,6 +15,7 @@ Deno.test('runSkill composes the agent + skill prompt as system and returns the 
     const messages: Message[] = [];
     return {
       id: 'x',
+      tools: [],
       get messages() {
         return messages;
       },

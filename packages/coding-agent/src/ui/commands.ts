@@ -21,7 +21,7 @@ export function buildCommands(host: CommandHost): ChatCommand[] {
     { name: 'expand', description: 'toggle output block expansion', run: () => host.toggleExpand() },
     {
       name: 'context-export',
-      description: 'export the conversation to a JSON file',
+      description: 'export the full context (system, tools, messages) to a JSON file',
       run: (args) => host.exportContext(args),
     },
     { name: 'quit', description: 'exit mu', run: () => host.quit() },

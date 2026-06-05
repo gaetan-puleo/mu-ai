@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type {
   AgentSession,
   AgentSessionEvent,
@@ -35,6 +35,12 @@ import { formatToolArgs, type SubAgentEntry, type SubAgentHandle, Transcript, tr
 
 const RESET = '\x1b[0m';
 const PROMPT_WIDTH = 2;
+
+const encodeBinary = (_key: string, value: unknown) =>
+  value instanceof Uint8Array ? { __binary: 'base64', data: Buffer.from(value).toString('base64') } : value;
+
+const textOf = (message: Message): string =>
+  message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 const SPINNER_INTERVAL_MS = 100;
 const MAX_LIST_ROWS = 8;
 
@@ -862,18 +868,42 @@ export class ChatApp {
   }
 
   private async exportContext(args: string): Promise<void> {
-    const messages = this.session.messages.filter((m) => m.role !== 'system');
-    if (messages.length === 0) {
+    const all = this.session.messages;
+    if (all.length === 0) {
       this.showError('Nothing to export yet.');
       return;
     }
     const outputPath = args.trim() || '.mu/context.json';
     const resolved = resolve(this.host.cwd, outputPath);
-    const payload = { exportedAt: new Date().toISOString(), model: this.host.modelRef(), messages };
+    const rel = relative(this.host.cwd, resolved);
+    if (rel.startsWith('..') || isAbsolute(rel)) {
+      this.showError('Export path must stay inside the project directory.');
+      return;
+    }
+    const system = all.filter((message) => message.role === 'system').map(textOf).join('\n\n');
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      session: {
+        id: this.session.id,
+        cwd: this.host.cwd,
+        agent: this.host.agentRef(),
+        model: this.host.modelRef(),
+      },
+      request: {
+        system,
+        tools: this.session.tools.map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+          ...(tool.prompt ? { prompt: tool.prompt } : {}),
+        })),
+        messages: all.filter((message) => message.role !== 'system'),
+      },
+    };
     try {
       await mkdir(dirname(resolved), { recursive: true });
-      await writeFile(resolved, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
-      this.transcript.note(`saved conversation to ${outputPath}`);
+      await writeFile(resolved, `${JSON.stringify(payload, encodeBinary, 2)}\n`, 'utf-8');
+      this.transcript.note(`saved full context to ${outputPath}`);
     } catch (error) {
       this.showError(`Failed to export: ${error instanceof Error ? error.message : String(error)}`);
     }

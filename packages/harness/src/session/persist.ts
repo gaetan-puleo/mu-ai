@@ -10,6 +10,9 @@ export const persistTo = (store: SessionStore, session: AgentSession, persisted 
     get messages() {
       return session.messages;
     },
+    get tools() {
+      return session.tools;
+    },
     send: async (input) => {
       await session.send(input);
       const all = session.messages;

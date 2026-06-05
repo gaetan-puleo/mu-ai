@@ -43,6 +43,9 @@ const onFirstMessage = (session: AgentSession, fire: (input: { id: string; text:
     get messages() {
       return session.messages;
     },
+    get tools() {
+      return session.tools;
+    },
     send: async (input) => {
       if (pending) {
         pending = false;
