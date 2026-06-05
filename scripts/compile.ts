@@ -34,7 +34,7 @@ await sh('deno', ['bundle', '--platform', 'deno', '--output', BUNDLE, ENTRY]);
 try {
   for (const { target, out } of selected) {
     console.log(`\n=== ${out}  (${target}) ===`);
-    await sh('deno', ['compile', '-A', '--no-config', '--target', target, '--output', resolve(DIST, out), BUNDLE]);
+    await sh('deno', ['compile', '-A', '--no-config', '--no-check', '--target', target, '--output', resolve(DIST, out), BUNDLE]);
   }
 } finally {
   rmSync(BUNDLE, { force: true });
