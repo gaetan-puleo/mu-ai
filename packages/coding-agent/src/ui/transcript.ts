@@ -236,6 +236,31 @@ const userEntry = (value: string, theme: Theme): Component => ({
   },
 });
 
+const STICKY_MAX_LINES = 2;
+
+export const stickyHeader = (value: string, theme: Theme): Component => ({
+  render: (s) => {
+    if (s.width <= 0) return;
+    const muted = styleToAnsi({ ...theme.styles.muted, bg: theme.colors.surface });
+    const body = styleToAnsi({ fg: theme.styles.userMessage.fg, bg: theme.colors.surface });
+    const bgSgr = styleToAnsi({ bg: theme.colors.surface });
+    const innerW = Math.max(1, s.width - PAD - 2 - PAD);
+    const wrapped = value.trim().split('\n').flatMap((line) => wrapText(line, innerW));
+    const lines = wrapped.slice(0, STICKY_MAX_LINES);
+    const truncated = wrapped.length > lines.length;
+    const h = lines.length + 1;
+    const blank = `${bgSgr}${' '.repeat(s.width)}${RESET}`;
+    for (let i = 0; i < h; i++) s.text(0, i, blank);
+    for (let i = 0; i < lines.length; i++) {
+      if (i === 0) s.text(PAD, 0, `${muted}❯${RESET}`);
+      const last = i === lines.length - 1;
+      const text = last && truncated ? `${truncateToWidth(lines[i], Math.max(1, innerW - 1))}…` : lines[i];
+      s.text(PAD + 2, i, `${body}${text}${RESET}`);
+    }
+    s.text(0, lines.length, `${muted}${'─'.repeat(s.width)}${RESET}`);
+  },
+});
+
 const assistantEntry = (value: string, theme: Theme): Component => ({
   render: (s) => {
     if (s.width <= 0) return;
@@ -257,7 +282,9 @@ const reasoningComponent = (entry: ReasoningEntry, theme: Theme): Component => {
   if (entry.closed) {
     return {
       handleInput: (event) => {
-        if (leftClick(event)) entry.closed = false;
+        if (!leftClick(event)) return false;
+        entry.closed = false;
+        return true;
       },
       render: (s) => {
         if (s.width <= 0) return;
@@ -337,7 +364,9 @@ const subAgentEntry = (entry: SubAgentEntry, theme: Theme): Component => {
     : theme.colors.accent;
   return {
     handleInput: (event) => {
-      if (leftClick(event)) entry.open = !entry.open;
+      if (!leftClick(event)) return false;
+      entry.open = !entry.open;
+      return true;
     },
     render: (s) => {
       if (s.width <= 0) return;
@@ -358,11 +387,8 @@ const subAgentEntry = (entry: SubAgentEntry, theme: Theme): Component => {
       if (entry.status === 'running') {
         lines.push(`${muted}→ ${fit(entry.activity || 'working…', Math.max(1, innerW - 2))}${RESET}`);
       } else if (entry.result) {
-        const md = renderMarkdown(entry.result.trim(), innerW, theme);
-        for (const line of md.slice(0, COLLAPSE_LIMIT)) lines.push(fit(line.text, innerW));
-        if (md.length > COLLAPSE_LIMIT) {
-          lines.push(`${muted}… ${md.length - COLLAPSE_LIMIT} more lines (click to open)${RESET}`);
-        }
+        const preview = entry.result.trim().split('\n').find((line) => line.trim() !== '') ?? '';
+        lines.push(`${muted}→ ${fit(preview, Math.max(1, innerW - 2))}${RESET}`);
       }
 
       for (let i = 0; i < lines.length; i++) {

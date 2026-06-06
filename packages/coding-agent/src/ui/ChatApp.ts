@@ -18,6 +18,7 @@ import {
   type Component,
   flex,
   type InputEvent,
+  measure,
   ProcessTerminal,
   type ScrollView,
   scrollView,
@@ -31,7 +32,15 @@ import { buildCommands, type ChatCommand, type CommandHost, filterCommands } fro
 import { activeMention, type Candidate, collectCandidates, rank } from './picker';
 import { formatTokens, statusComponent, statusFromEvent, type StatusState } from './status';
 import { asHexColor, styleToAnsi, type Theme, ThemeProvider, themesByName } from './theme';
-import { formatToolArgs, type SubAgentEntry, type SubAgentHandle, Transcript, transcriptComponent } from './transcript';
+import {
+  entryComponent,
+  formatToolArgs,
+  stickyHeader,
+  type SubAgentEntry,
+  type SubAgentHandle,
+  Transcript,
+  transcriptComponent,
+} from './transcript';
 
 const RESET = '\x1b[0m';
 const PROMPT_WIDTH = 2;
@@ -195,7 +204,10 @@ export class ChatApp {
       onChange: (value) => this.onInputChange(value),
     });
 
-    this.scroll = scrollView({ render: (s) => transcriptComponent(this.transcript, this.theme()).render(s) });
+    this.scroll = scrollView(
+      { render: (s) => transcriptComponent(this.transcript, this.theme()).render(s) },
+      { stickyHeader: (info) => this.stickyHeaderView(info), footer: () => this.jumpToBottomHint() },
+    );
     this.subScroll = scrollView({ render: (s) => transcriptComponent(this.subTranscript, this.theme()).render(s) });
 
     this.commands = buildCommands(this.commandHost());
@@ -207,6 +219,7 @@ export class ChatApp {
     this.tui.addGlobalKeybinding({ chord: { key: 'c', ctrl: true }, handler: () => this.onCtrlC() });
     this.tui.addGlobalKeybinding({ chord: { key: 't', ctrl: true }, handler: () => this.toggleTheme() });
     this.tui.addGlobalKeybinding({ chord: { key: 'o', ctrl: true }, handler: () => this.toggleExpand() });
+    this.tui.addGlobalKeybinding({ chord: { key: 'end', ctrl: true }, handler: () => this.jumpToBottom() });
 
     this.unsubscribeTheme = this.themeProvider.subscribe(() => {
       this.tui.setBackgroundColor(this.theme().colors.background);
@@ -1128,6 +1141,59 @@ export class ChatApp {
 
     children.push(statusComponent(this.status, this.theme()));
     return column(children);
+  }
+
+  private jumpToBottom(): void {
+    this.scroll.scrollToBottom();
+    this.tui.requestRender();
+  }
+
+  private jumpToBottomHint(): Component {
+    const theme = this.theme();
+    const label = ' ↓ Jump to bottom (ctrl+End) ';
+    const pill = styleToAnsi({ fg: theme.colors.text, bg: theme.colors.surfaceMuted });
+    let pillStart = 0;
+    let pillEnd = 0;
+    return {
+      handleInput: (event) => {
+        if (event.type !== 'mouse' || event.kind !== 'press' || event.button !== 'left') return false;
+        if (event.localY !== 0) return false;
+        if (event.localX === undefined || event.localX < pillStart || event.localX >= pillEnd) return false;
+        this.jumpToBottom();
+        return true;
+      },
+      render: (s) => {
+        if (s.width <= 0) return;
+        const text = visibleWidth(label) > s.width ? truncateToWidth(label, s.width) : label;
+        const width = visibleWidth(text);
+        pillStart = Math.max(0, Math.floor((s.width - width) / 2));
+        pillEnd = pillStart + width;
+        s.text(pillStart, 0, `${pill}${text}${RESET}`);
+        s.text(0, 1, '');
+      },
+    };
+  }
+
+  private stickyHeaderView(info: { scrollY: number; width: number }): Component | undefined {
+    const gov = this.governingUser(info.scrollY, info.width);
+    if (!gov || info.scrollY < gov.endRow) return undefined;
+    return stickyHeader(gov.text, this.theme());
+  }
+
+  private governingUser(scrollY: number, width: number): { text: string; endRow: number } | undefined {
+    if (width <= 0) return undefined;
+    const theme = this.theme();
+    const expanded = this.transcript.expanded;
+    let y = 0;
+    let current: { text: string; endRow: number } | undefined;
+    for (const entry of this.transcript.entries) {
+      if (y > scrollY) break;
+      const margin = entry.kind === 'tool_call' ? 0 : 1;
+      const height = measure(entryComponent(entry, theme, expanded), width) + margin;
+      if (entry.kind === 'user') current = { text: entry.text, endRow: y + height };
+      y += height;
+    }
+    return current;
   }
 
   private focusedSub(): SubAgentEntry | undefined {

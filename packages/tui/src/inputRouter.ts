@@ -113,7 +113,12 @@ export class InputRouter {
       const entry = entries[i];
       if (!entry.component.handleInput) continue;
       if (!containsPoint(entry.rect, event.x, event.y)) continue;
-      entry.component.handleInput({ ...event, localX: event.x - entry.rect.x, localY: event.y - entry.rect.y });
+      const handled = entry.component.handleInput({
+        ...event,
+        localX: event.x - entry.rect.x,
+        localY: event.y - entry.rect.y,
+      });
+      if (handled === false) continue;
       this.host.requestRender();
       return;
     }

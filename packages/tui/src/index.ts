@@ -18,7 +18,7 @@ export {
   type ToastOptions,
 } from './views';
 export { Editor, editor, type EditorOptions } from './components/editor';
-export { ScrollView, scrollView } from './components/scroll-view';
+export { ScrollView, type ScrollViewOptions, scrollView } from './components/scroll-view';
 export { type SelectItem, SelectList, selectList } from './components/select-list';
 export { type Command, CommandPalette, commandPalette, type CommandPaletteOptions } from './components/command-palette';
 

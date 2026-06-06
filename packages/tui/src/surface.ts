@@ -8,7 +8,7 @@ import { visibleWidth } from './utils';
 
 export interface Component {
   render(surface: Surface): void;
-  handleInput?(event: InputEvent): void;
+  handleInput?(event: InputEvent): boolean | void;
   wantsKeyRelease?: boolean;
 }
 

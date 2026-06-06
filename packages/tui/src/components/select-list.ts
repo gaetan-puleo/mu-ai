@@ -56,14 +56,15 @@ export class SelectList<T> implements Component {
     }
   }
 
-  handleInput(event: InputEvent): void {
-    if (event.type === 'mouse' && event.kind === 'press' && event.button === 'left') {
+  handleInput(event: InputEvent): boolean | void {
+    if (event.type === 'mouse') {
+      if (event.kind !== 'press' || event.button !== 'left') return false;
       const index = this.top + (event.localY ?? 0);
       if (index >= 0 && index < this.items.length) {
         this.selected = index;
         this.onSelect?.(this.items[index]);
       }
-      return;
+      return true;
     }
     if (event.type !== 'key' || event.kind === 'release') return;
     if (event.key === 'up') this.move(-1);
