@@ -7,6 +7,7 @@ import type {
   ApprovalAction,
   ApprovalManager,
   PendingApproval,
+  SessionRecord,
   SubAgentRegistry,
   SubAgentResult,
   SubAgentRun,
@@ -70,6 +71,8 @@ export interface ChatHost {
   cwd: string;
   createSession(): AgentSession;
   forkSession(id: string, upToIndex: number): Promise<AgentSession>;
+  listSessions(): Promise<SessionRecord[]>;
+  openSession(id: string): Promise<AgentSession>;
   selectModel(ref: string): void;
   modelRef(): string;
   listModels(): Promise<ModelInfo[]>;
@@ -174,6 +177,8 @@ export class ChatApp {
   private lastEsc = 0;
   private modelPickerOpen = false;
   private modelHandle: { close(): void } | undefined;
+  private sessionPickerOpen = false;
+  private sessionHandle: { close(): void } | undefined;
   private approvalQueue: PendingApproval[] = [];
   private approvalCursor = 0;
   private unsubscribeApproval: (() => void) | undefined;
@@ -265,7 +270,76 @@ export class ChatApp {
       toggleExpand: () => this.toggleExpand(),
       toggleThinking: () => this.toggleThinking(),
       exportContext: (args) => void this.exportContext(args),
+      listSessions: () => void this.openSessionPicker(),
       quit: () => void this.stop().then(() => this.host.onExit(0)),
+    };
+  }
+
+  private async openSessionPicker(): Promise<void> {
+    if (this.running) {
+      this.showError('Cannot switch sessions while a response is running.');
+      return;
+    }
+    const sessions = await this.host.listSessions();
+    if (sessions.length === 0) {
+      this.transcript.note('No sessions yet.');
+      this.tui.requestRender();
+      return;
+    }
+    const content = this.buildSessionPicker(sessions, (id) => {
+      this.sessionHandle?.close();
+      if (id !== this.session.id) void this.host.openSession(id).then((next) => this.swapSession(next));
+    });
+    this.sessionPickerOpen = true;
+    this.sessionHandle = this.tui.showModal(content, {
+      width: 72,
+      border: false,
+      background: this.theme().colors.surface,
+      onClose: () => {
+        this.sessionPickerOpen = false;
+        this.tui.setFocus(this.editor);
+      },
+    });
+  }
+
+  private buildSessionPicker(sessions: SessionRecord[], onPick: (id: string) => void): Component {
+    const currentId = this.session.id;
+    let cursor = Math.max(0, sessions.findIndex((s) => s.id === currentId));
+    return {
+      handleInput: (event) => {
+        if (event.type !== 'key' || event.kind === 'release' || sessions.length === 0) return;
+        if (event.key === 'up') cursor = (cursor - 1 + sessions.length) % sessions.length;
+        else if (event.key === 'down') cursor = (cursor + 1) % sessions.length;
+        else if (event.key === 'enter') onPick(sessions[cursor].id);
+      },
+      render: (s) => {
+        if (s.width <= 0) return;
+        const theme = this.theme();
+        const itemSgr = styleToAnsi(theme.styles.commandPaletteItem);
+        const selSgr = styleToAnsi(theme.styles.commandPaletteSelected);
+        const muted = styleToAnsi(theme.styles.muted);
+        const ITEM_INDENT = 2;
+        const textX = ITEM_INDENT;
+        const innerW = Math.max(1, s.width);
+
+        s.text(textX, 1, `${styleToAnsi(theme.styles.title)}Sessions${RESET}`);
+
+        const maxRows = Math.min(sessions.length, 10, Math.max(1, s.height - 6));
+        const top = cursor >= maxRows ? cursor - maxRows + 1 : 0;
+        for (let r = 0; r < maxRows; r++) {
+          const session = sessions[top + r];
+          if (!session) break;
+          const isSel = top + r === cursor;
+          const marker = session.id === currentId ? '● ' : '  ';
+          const label = session.title || session.id;
+          const body = `${marker}${label}`;
+          s.text(0, 3 + r, `${isSel ? selSgr : itemSgr}${padTo(body, innerW)}${RESET}`);
+        }
+
+        const footerRow = 3 + maxRows + 1;
+        s.text(textX, footerRow, `${muted}↑/↓ move · Enter open · Esc close${RESET}`);
+        s.text(0, footerRow + 1, '');
+      },
     };
   }
 
@@ -457,7 +531,7 @@ export class ChatApp {
   private submit(value: string): void {
     const trimmed = value.trim();
     if (!trimmed) return;
-    if (this.modelPickerOpen) return;
+    if (this.modelPickerOpen || this.sessionPickerOpen) return;
 
     this.clearError();
     this.pushHistory(trimmed);
@@ -518,7 +592,7 @@ export class ChatApp {
   }
 
   private intercept(event: InputEvent): boolean {
-    if (this.modelPickerOpen) return false;
+    if (this.modelPickerOpen || this.sessionPickerOpen) return false;
     if (event.type !== 'key' || event.kind === 'release') return false;
     const key = event.key;
 

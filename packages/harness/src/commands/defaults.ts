@@ -25,11 +25,11 @@ export const createSkillsCommand = (skills: SkillRegistry): Command => ({
   },
 });
 
-export const createSessionsCommand = (sessions: SessionManager): Command => ({
+export const createSessionsCommand = (sessions: SessionManager, options?: { cwd?: string }): Command => ({
   name: 'sessions',
   description: 'List saved sessions',
   run: async () => {
-    const list = await sessions.list();
+    const list = await sessions.list(options?.cwd ? { cwd: options.cwd } : undefined);
     if (list.length === 0) return { ok: true, output: 'No sessions yet.' };
     const lines = list.map((s) => `- ${s.title || s.id}`);
     return { ok: true, output: lines.join('\n') };

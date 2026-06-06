@@ -10,12 +10,14 @@ export interface CommandHost {
   toggleExpand(): void;
   toggleThinking(): void;
   exportContext(args: string): void | Promise<void>;
+  listSessions(): void;
   quit(): void;
 }
 
 export function buildCommands(host: CommandHost): ChatCommand[] {
   return [
     { name: 'new', description: 'start a new session', run: () => host.newSession() },
+    { name: 'sessions', description: 'open a session from this directory', run: () => host.listSessions() },
     { name: 'model', description: 'switch the active model', run: () => host.openModelPicker() },
     { name: 'thinking', description: 'expand/collapse reasoning blocks', run: () => host.toggleThinking() },
     { name: 'expand', description: 'toggle output block expansion', run: () => host.toggleExpand() },

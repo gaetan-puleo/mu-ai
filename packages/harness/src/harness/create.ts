@@ -191,7 +191,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
   const commands = createCommandRegistry([
     createAgentsCommand(agents),
     createSkillsCommand(skills),
-    createSessionsCommand(sessions),
+    createSessionsCommand(sessions, { cwd }),
     ...(tasks ? [createTasksCommand(tasks)] : []),
   ]);
   commands.register(createHelpCommand(() => commands.list()));

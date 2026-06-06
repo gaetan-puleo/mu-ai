@@ -29,6 +29,8 @@ export async function runApp(opts: RunAppOptions): Promise<void> {
     cwd: harness.cwd,
     createSession: () => harness.sessions.create(),
     forkSession: (id, upToIndex) => harness.sessions.fork(id, upToIndex),
+    listSessions: () => harness.sessions.list({ cwd: harness.cwd }),
+    openSession: (id) => harness.sessions.open(id),
     selectModel: (ref) => {
       harness.models.select(ref);
       state.model = ref;

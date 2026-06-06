@@ -320,9 +320,15 @@ const noteEntry = (value: string, error: boolean, theme: Theme): Component => ({
     if (error) {
       const head = styleToAnsi(theme.styles.errorPrefix);
       const tail = styleToAnsi(theme.styles.errorLine);
-      s.text(PAD, 0, `${head}! ${RESET}${tail}${fit(trimmed, Math.max(1, innerW - 2))}${RESET}`);
+      const wrapped = trimmed.split('\n').flatMap((line) => wrapText(line, Math.max(1, innerW - 2)));
+      for (let i = 0; i < wrapped.length; i++) {
+        const prefix = i === 0 ? `${head}! ${RESET}` : '  ';
+        s.text(PAD, i, `${prefix}${tail}${wrapped[i]}${RESET}`);
+      }
     } else {
-      s.text(PAD, 0, `${styleToAnsi(theme.styles.muted)}${fit(trimmed, innerW)}${RESET}`);
+      const muted = styleToAnsi(theme.styles.muted);
+      const wrapped = trimmed.split('\n').flatMap((line) => wrapText(line, innerW));
+      for (let i = 0; i < wrapped.length; i++) s.text(PAD, i, `${muted}${fit(wrapped[i], innerW)}${RESET}`);
     }
   },
 });
@@ -381,7 +387,9 @@ const subAgentEntry = (entry: SubAgentEntry, theme: Theme): Component => {
       const tools = entry.tools > 0 ? `${muted} · ${entry.tools} tool${entry.tools === 1 ? '' : 's'}${RESET}` : '';
       const hint = entry.status === 'running' ? '' : `${muted}  · click to open${RESET}`;
       lines.push(
-        `${nameStyle}${SUBAGENT_ICON[entry.status]} ${entry.agent}${RESET}${muted} ${entry.status}${RESET}${tools}${hint}`,
+        `${nameStyle}${
+          SUBAGENT_ICON[entry.status]
+        } ${entry.agent}${RESET}${muted} ${entry.status}${RESET}${tools}${hint}`,
       );
 
       if (entry.status === 'running') {

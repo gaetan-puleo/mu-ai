@@ -52,6 +52,40 @@ describe('coding-agent harness wiring', () => {
     }
   });
 
+  it('the session picker only lists sessions from the current folder', async () => {
+    const { dir, xdg } = tempXdg();
+    const folderA = join(dir, 'projA');
+    const folderB = join(dir, 'projB');
+    const harnessFor = (cwd: string) =>
+      createHarness({
+        hostName: 'mu-test',
+        xdg,
+        cwd,
+        providers: { local: stubProvider([{ type: 'text', text: 'ok' }]) },
+        model: 'local/test-model',
+        system: 'You are a test.',
+        title: false,
+      });
+
+    const a = await harnessFor(folderA);
+    const b = await harnessFor(folderB);
+    try {
+      a.sessions.create({ id: 'a1' });
+      a.sessions.create({ id: 'a2' });
+      b.sessions.create({ id: 'b1' });
+
+      const listFor = (h: typeof a) => h.sessions.list({ cwd: h.cwd }).then((rows) => rows.map((r) => r.id).sort());
+
+      expect(await listFor(a)).toEqual(['a1', 'a2']);
+      expect(await listFor(b)).toEqual(['b1']);
+      expect((await a.sessions.list()).length).toBe(3);
+    } finally {
+      a.close();
+      b.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('exposes the provider usage events via the session', async () => {
     const { dir, xdg } = tempXdg();
     const harness = await createHarness({
