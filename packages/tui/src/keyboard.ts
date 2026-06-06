@@ -287,6 +287,20 @@ function codepointToKey(code: number): string {
     13: 'enter',
     27: 'escape',
     127: 'backspace',
+    57344: 'escape',
+    57345: 'enter',
+    57346: 'tab',
+    57347: 'backspace',
+    57348: 'insert',
+    57349: 'delete',
+    57350: 'left',
+    57351: 'right',
+    57352: 'up',
+    57353: 'down',
+    57354: 'pageUp',
+    57355: 'pageDown',
+    57356: 'home',
+    57357: 'end',
   };
   return named[code] ?? codepointToText(code) ?? `unknown:${code}`;
 }
