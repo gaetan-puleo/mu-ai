@@ -565,7 +565,6 @@ export class ChatApp {
   }
 
   private onInputChange(value: string): void {
-    this.editor.hiddenPrefix = value.startsWith('/') || value.startsWith('!') || value.startsWith('$') ? value[0] : '';
     if (value !== this.paletteDismissedFor) this.paletteDismissedFor = '__none__';
     const items = this.paletteItems();
     this.paletteCursor = Math.max(0, Math.min(this.paletteCursor, Math.max(0, items.length - 1)));
@@ -588,6 +587,11 @@ export class ChatApp {
       this.pickerMention = undefined;
       this.pickerRanked = [];
     }
+    this.editor.hiddenPrefix = value.startsWith('/') || value.startsWith('!') || value.startsWith('$')
+      ? value[0]
+      : this.pickerVisible() && value.startsWith('@')
+      ? '@'
+      : '';
     this.tui.requestRender();
   }
 
