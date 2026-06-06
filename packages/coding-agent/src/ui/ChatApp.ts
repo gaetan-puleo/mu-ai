@@ -503,9 +503,14 @@ export class ChatApp {
     this.setStatus('ready');
   }
 
+  private stripFileMentions(text: string): string {
+    const agents = new Set(this.host.agentNames());
+    return text.replace(/(^|\s)@(\S+)/g, (match, pre, token) => (agents.has(token) ? match : `${pre}${token}`));
+  }
+
   private send(value: string): void {
     this.transcript.appendUser(value);
-    const content = this.flushShellContext(value);
+    const content = this.flushShellContext(this.stripFileMentions(value));
     this.running = true;
     this.status.busy = true;
     this.setStatus('thinking…');
