@@ -48,7 +48,7 @@ coding-agent/    # the `mu` CLI
 ## Develop
 
 ```bash
-npm install        # workspace deps (Deno uses node_modules; manual mode)
+deno install       # workspace deps into node_modules (manual mode)
 deno task dev      # run from source
 deno task test
 deno task check
