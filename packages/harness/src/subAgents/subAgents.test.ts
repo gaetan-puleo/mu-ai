@@ -71,7 +71,53 @@ Deno.test('the spawn receives the persona (system = prompt)', async () => {
 
 Deno.test('the tool delegates to the named persona from the registry', async () => {
   const tool = createSubAgentTool({ registry: createAgentRegistry([reviewer]), spawn: spawnReturning('done') });
-  assertEquals(await tool.run({ agent: 'reviewer', task: 'audit' }, {}), [{ type: 'text', text: 'done' }]);
+  assertEquals(await tool.run({ tasks: [{ agent: 'reviewer', task: 'audit' }] }, {}), [{ type: 'text', text: 'done' }]);
+});
+
+Deno.test('the tool runs multiple tasks concurrently and labels each result', async () => {
+  let active = 0;
+  let peak = 0;
+  const explorer: Agent = { name: 'explorer', description: 'read-only search', prompt: 'x' };
+  const spawnTracking = (text: string) => () => {
+    const provider: Provider = {
+      async *stream() {
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active--;
+        yield { type: 'text', text };
+      },
+    };
+    return createAgentSession({ provider, model: 'mock' });
+  };
+  const registry = createAgentRegistry([reviewer, explorer]);
+  const tool = createSubAgentTool({ registry, spawn: spawnTracking('a') });
+  const tasks = [{ agent: 'reviewer', task: '1' }, { agent: 'explorer', task: '2' }];
+  const result = await tool.run({ tasks }, {});
+  assertEquals(peak, 2);
+  assertEquals(result, [{ type: 'text', text: '[reviewer]\na' }, { type: 'text', text: '[explorer]\na' }]);
+});
+
+Deno.test('one failing task does not lose the others', async () => {
+  const failing: Provider = {
+    // deno-lint-ignore require-yield
+    async *stream() {
+      throw new Error('boom');
+    },
+  };
+  const explorer: Agent = { name: 'explorer', description: 'read-only search', prompt: 'x' };
+  const registry = createAgentRegistry([reviewer, explorer]);
+  const tool = createSubAgentTool({
+    registry,
+    spawn: (agent) =>
+      agent.name === 'explorer'
+        ? createAgentSession({ provider: failing, model: 'mock' })
+        : createAgentSession({ provider: scripted([[{ type: 'text', text: 'ok' }]]), model: 'mock' }),
+  });
+  assertEquals(await tool.run({ tasks: [{ agent: 'reviewer', task: '1' }, { agent: 'explorer', task: '2' }] }, {}), [
+    { type: 'text', text: '[reviewer]\nok' },
+    { type: 'text', text: '[explorer]\nError: boom' },
+  ]);
 });
 
 Deno.test('the tool prompt lists the available sub-agents (excluding title)', () => {
@@ -88,12 +134,16 @@ Deno.test('the tool prompt lists the available sub-agents (excluding title)', ()
 
 Deno.test('the tool handles unknown agent and missing arguments', async () => {
   const tool = createSubAgentTool({ registry: createAgentRegistry([reviewer]), spawn: spawnReturning('x') });
-  assertEquals(await tool.run({ agent: 'nope', task: 't' }, {}), [{
+  assertEquals(await tool.run({ tasks: [{ agent: 'nope', task: 't' }] }, {}), [{
     type: 'text',
     text: 'Error: unknown sub-agent "nope".',
   }]);
-  assertEquals(await tool.run({ agent: 'reviewer' }, {}), [{
+  assertEquals(await tool.run({ tasks: [{ agent: 'reviewer' }] }, {}), [{
     type: 'text',
-    text: 'Error: subagent requires `agent` and `task`.',
+    text: 'Error: each task requires `agent` and `task`.',
+  }]);
+  assertEquals(await tool.run({ tasks: [] }, {}), [{
+    type: 'text',
+    text: 'Error: subagent requires a non-empty `tasks` array.',
   }]);
 });

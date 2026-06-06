@@ -195,7 +195,7 @@ Deno.test('subagent: end-to-end delegation via the tool injected into the parent
   const { dir, harness, cleanup } = await makeHarness({
     providers: {
       local: scripted([
-        [{ type: 'tool_call', id: '1', name: 'subagent', input: { agent: 'reviewer', task: 'audit' } }],
+        [{ type: 'tool_call', id: '1', name: 'subagent', input: { tasks: [{ agent: 'reviewer', task: 'audit' }] } }],
         [{ type: 'text', text: 'reviewed' }],
         [{ type: 'text', text: 'done' }],
       ]),
