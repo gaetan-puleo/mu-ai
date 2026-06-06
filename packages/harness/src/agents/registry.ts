@@ -1,28 +1,60 @@
-import type { Agent, ToolDecision, ToolGrants } from './types';
+import { matchesGlob } from 'node:path';
+import type { Agent, GrantValue, ToolDecision, ToolGrants } from './types';
 
 export interface AgentRegistry {
   list(): Agent[];
   get(name: string): Agent | undefined;
 }
 
-const asMap = (tools: ToolGrants | undefined): Record<string, ToolDecision> | undefined => {
-  if (!tools) return undefined;
-  if (Array.isArray(tools)) return Object.fromEntries(tools.map((tool) => [tool, 'allow' as ToolDecision]));
-  return tools;
+const asMap = (grants: ToolGrants | undefined): Record<string, GrantValue> | undefined => {
+  if (!grants) return undefined;
+  if (Array.isArray(grants)) return Object.fromEntries(grants.map((name) => [name, 'allow' as GrantValue]));
+  return grants;
 };
 
-export const toolDecision = (agent: Agent, tool: string): ToolDecision => {
-  const map = asMap(agent.tools);
+const matchKey = (keys: string[], name: string): string | undefined => {
+  if (keys.includes(name)) return name;
+  let glob: string | undefined;
+  for (const key of keys) {
+    if (key === '*' || key === name) continue;
+    if (matchesGlob(name, key) && (glob === undefined || key.length > glob.length)) glob = key;
+  }
+  if (glob !== undefined) return glob;
+  return keys.includes('*') ? '*' : undefined;
+};
+
+const resolveGrant = (grants: ToolGrants | undefined, tool: string, arg?: string): ToolDecision => {
+  const map = asMap(grants);
   if (!map) return 'allow';
-  return map[tool] ?? map['*'] ?? 'deny';
+  const key = matchKey(Object.keys(map), tool);
+  if (key === undefined) return 'deny';
+  const value = map[key];
+  if (typeof value === 'string') return value;
+  if (arg === undefined) return 'allow';
+  const inner = matchKey(Object.keys(value), arg);
+  return inner === undefined ? 'deny' : value[inner];
 };
 
-export const toolNames = (agent: Agent): string[] | undefined => {
-  const map = asMap(agent.tools);
+const grantNames = (grants: ToolGrants | undefined): string[] | undefined => {
+  const map = asMap(grants);
   if (!map) return undefined;
-  if (map['*'] && map['*'] !== 'deny') return ['*'];
-  return Object.entries(map).filter(([, decision]) => decision !== 'deny').map(([tool]) => tool);
+  const wildcard = map['*'];
+  if (wildcard !== undefined && wildcard !== 'deny') return ['*'];
+  return Object.entries(map).filter(([, value]) => value !== 'deny').map(([name]) => name);
 };
+
+const GRANT_ARG: Record<string, string> = { skill: 'name', bash: 'command' };
+
+export const grantArg = (tool: string, input: unknown): string | undefined => {
+  const field = GRANT_ARG[tool];
+  if (!field || typeof input !== 'object' || input === null) return undefined;
+  const value = (input as Record<string, unknown>)[field];
+  return typeof value === 'string' ? value : undefined;
+};
+
+export const toolDecision = (agent: Agent, tool: string, arg?: string): ToolDecision =>
+  resolveGrant(agent.tools, tool, arg);
+export const toolNames = (agent: Agent): string[] | undefined => grantNames(agent.tools);
 
 const merge = (base: Agent, child: Agent): Agent => ({
   name: child.name,

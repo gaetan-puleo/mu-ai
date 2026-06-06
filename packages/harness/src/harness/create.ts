@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import process from 'node:process';
 import type { Tool } from 'mu-core';
 import type { Agent } from '../agents';
-import { createAgentRegistry, loadAgents, toolDecision, toolNames } from '../agents';
+import { createAgentRegistry, grantArg, loadAgents, toolDecision, toolNames } from '../agents';
 import {
   createAgentsCommand,
   createCommandRegistry,
@@ -74,10 +74,16 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
   const cwdSkills = await loadSkills(cwdSkillsDir);
   const diskSkills = await loadSkills(skillsDir);
   const skills = createSkillRegistry([...hostSkills, ...pluginSkills, ...cwdSkills, ...diskSkills]);
-  const skillTools = [
-    createSkillTool(skills),
-    createSkillWriterTool({ dirs: { local: cwdSkillsDir, config: skillsDir }, registry: skills }),
-  ];
+  const skillWriterTool = createSkillWriterTool({
+    dirs: { local: cwdSkillsDir, config: skillsDir },
+    registry: skills,
+  });
+  const scopeSkills = (agent?: Agent) => {
+    if (!agent) return skills;
+    return skills.select(
+      skills.list().map((s) => s.name).filter((name) => toolDecision(agent, 'skill', name) !== 'deny'),
+    );
+  };
 
   const tasks = enableScheduler ? createTaskStore({ dir: join(config.configDir, 'tasks') }) : undefined;
   let schedulerTools: Tool[] = [];
@@ -86,8 +92,15 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
   const store = createSessionStore({ dir: join(config.dataDir, 'sessions') });
 
   const sessionTools = (
+    agent?: Agent,
     extra: Tool[] = [],
-  ): Tool[] => [...(sessionDefaults.tools ?? []), ...extra, ...skillTools, ...schedulerTools];
+  ): Tool[] => [
+    ...(sessionDefaults.tools ?? []),
+    ...extra,
+    createSkillTool(scopeSkills(agent)),
+    skillWriterTool,
+    ...schedulerTools,
+  ];
 
   const approvalHook = (getAgent: () => Agent | undefined): AgentSessionHooks | undefined =>
     approvals
@@ -95,7 +108,8 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
         decide: (call) => {
           const agent = getAgent();
           if (!agent) return 'allow';
-          return approvals.decide ? approvals.decide(agent, call) : toolDecision(agent, call.name);
+          if (approvals.decide) return approvals.decide(agent, call);
+          return toolDecision(agent, call.name, grantArg(call.name, call.input));
         },
         agent: () => getAgent()?.name,
       })
@@ -115,7 +129,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     persistTo(
       store,
       persona(agent, {
-        tools: sessionTools(),
+        tools: sessionTools(agent),
         hooks: mergeHooks([sessionDefaults.hooks, allowList(toolNames(agent)), approvalHook(() => agent)]),
       }),
     );
@@ -167,7 +181,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
       createAgentSession({
         ...sessionDefaults,
         hooks: mergeHooks([sessionDefaults.hooks, approvalHook(() => approvals?.activeAgent())]),
-        tools: sessionTools([createSubAgentTool({ registry: agents, spawn, runs, parentId: id })]),
+        tools: sessionTools(undefined, [createSubAgentTool({ registry: agents, spawn, runs, parentId: id })]),
         ...models.resolve(ref),
         id,
         messages,

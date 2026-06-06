@@ -7,6 +7,7 @@ import {
   createApprovalManager,
   createHarness,
   filterTools,
+  grantArg,
   loadAgents,
   type PreparedRequest,
   toolDecision,
@@ -120,7 +121,7 @@ async function run(): Promise<void> {
       manager: approvals,
       activeAgent: () => currentAgent(),
       decide: (agent, call) => {
-        const decision = toolDecision(agent, call.name);
+        const decision = toolDecision(agent, call.name, grantArg(call.name, call.input));
         if (call.name === 'bash' && decision === 'ask') {
           const extra = agent.name === 'explorer' ? EXPLORER_BASH : undefined;
           if (isReadOnlyBash(call.input, extra)) return 'allow';

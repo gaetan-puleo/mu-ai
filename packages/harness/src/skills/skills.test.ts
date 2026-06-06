@@ -53,6 +53,24 @@ Deno.test('skill tool: dynamic catalog and body loading', async () => {
   assertEquals(missing[0], { type: 'text', text: 'Error: unknown skill "nope".' });
 });
 
+Deno.test('skill tool over a select() view: catalog and loading are scoped', async () => {
+  const reg = createSkillRegistry([
+    { name: 'research', description: 'deep research', prompt: 'R' },
+    { name: 'commit', description: 'write a commit message', prompt: 'C' },
+  ]);
+  const scoped = reg.select(['research']);
+  const tool = createSkillTool(scoped);
+
+  assertEquals(tool.description.includes('research: deep research'), true);
+  assertEquals(tool.description.includes('commit: write a commit message'), false);
+
+  const ok = await tool.run({ name: 'research' }, {});
+  assertEquals(ok[0], { type: 'text', text: 'Skill "research":\n\nR' });
+
+  const denied = await tool.run({ name: 'commit' }, {});
+  assertEquals(denied[0], { type: 'text', text: 'Error: unknown skill "commit".' });
+});
+
 Deno.test('create_skill writes locally by default and to config on demand, and registers', async () => {
   const root = await Deno.makeTempDir();
   const local = join(root, 'local');

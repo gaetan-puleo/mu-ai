@@ -1,6 +1,8 @@
 export type ToolDecision = 'allow' | 'ask' | 'deny';
 
-export type ToolGrants = string[] | Record<string, ToolDecision>;
+export type GrantValue = ToolDecision | Record<string, ToolDecision>;
+
+export type ToolGrants = string[] | Record<string, GrantValue>;
 
 export interface Agent {
   name: string;

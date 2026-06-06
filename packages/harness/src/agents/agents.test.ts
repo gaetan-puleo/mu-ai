@@ -30,6 +30,22 @@ Deno.test('parseAgent: list the tools without "allow" (array or commas)', () => 
   assertEquals(parseAgent(`---\nname: b\ntools: read, grep\n---\nP`, 'b').tools, ['read', 'grep']);
 });
 
+Deno.test('parseAgent: nested argument-level grants (tools.skill / tools.bash) parse into sub-maps', () => {
+  const agent = parseAgent(
+    `---\nname: a\ntools:\n  "*": allow\n  skill:\n    research: allow\n    secret: deny\n  bash:\n    "git *": allow\n    "rm *": deny\n---\nP`,
+    'a',
+  );
+  assertEquals(agent.tools, {
+    '*': 'allow',
+    skill: { research: 'allow', secret: 'deny' },
+    bash: { 'git *': 'allow', 'rm *': 'deny' },
+  });
+});
+
+Deno.test('parseAgent: invalid nested decisions are dropped, empty maps omitted', () => {
+  assertEquals(parseAgent(`---\nname: a\ntools:\n  skill:\n    x: bogus\n---\nP`, 'a').tools, undefined);
+});
+
 Deno.test('parseAgent: tolerates CRLF line endings (Windows)', () => {
   const agent = parseAgent('---\r\nname: reviewer\r\ntools: read, grep\r\n---\r\n\r\nYou review.', 'fallback');
   assertEquals(agent.name, 'reviewer');
@@ -90,6 +106,35 @@ Deno.test('toolDecision: wildcard is the fallback; explicit entries win', () => 
 
 Deno.test('toolDecision: no grants => allow', () => {
   assertEquals(toolDecision(agentWith(undefined), 'anything'), 'allow');
+});
+
+Deno.test('grant decision matches glob patterns: exact > glob > wildcard', () => {
+  const agent = agentWith({ '*': 'allow', 'internal-*': 'deny', 'experimental-*': 'ask', 'internal-public': 'allow' });
+  assertEquals(toolDecision(agent, 'read'), 'allow');
+  assertEquals(toolDecision(agent, 'internal-fs'), 'deny');
+  assertEquals(toolDecision(agent, 'internal-public'), 'allow');
+  assertEquals(toolDecision(agent, 'experimental-x'), 'ask');
+});
+
+Deno.test('nested argument-level grants resolve via the second arg', () => {
+  const agent = agentWith({
+    '*': 'allow',
+    skill: { '*': 'allow', 'internal-*': 'deny', 'experimental-*': 'ask' },
+    bash: { 'git *': 'allow', 'rm *': 'deny' },
+  });
+  assertEquals(toolDecision(agent, 'read'), 'allow');
+  assertEquals(toolDecision(agent, 'skill', 'pr-review'), 'allow');
+  assertEquals(toolDecision(agent, 'skill', 'internal-deploy'), 'deny');
+  assertEquals(toolDecision(agent, 'skill', 'experimental-x'), 'ask');
+  assertEquals(toolDecision(agent, 'bash', 'git push'), 'allow');
+  assertEquals(toolDecision(agent, 'bash', 'rm -rf /'), 'deny');
+  assertEquals(toolDecision(agent, 'bash', 'ls'), 'deny');
+});
+
+Deno.test('a nested grant means the tool is present at tool-level (no arg)', () => {
+  const agent = agentWith({ bash: { 'git *': 'allow' } });
+  assertEquals(toolDecision(agent, 'bash'), 'allow');
+  assertEquals(toolNames(agent), ['bash']);
 });
 
 Deno.test('registry: first wins (host > plugins > disk)', () => {
