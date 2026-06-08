@@ -17,6 +17,8 @@ export interface StatusState {
   busy: boolean;
   spinnerTick: number;
   context: string;
+  /** Active model id (+ provider), shown persistently on the left. */
+  model: string;
 }
 
 export function statusFromEvent(event: AgentSessionEvent): string | undefined {
@@ -47,7 +49,9 @@ export function statusComponent(state: StatusState, theme: Theme): Component {
       if (s.width <= 0) return;
       const muted = styleToAnsi(theme.styles.muted);
       const spinner = `${muted}${spinnerFrame(state.spinnerTick)}${RESET}`;
-      const left = state.busy ? (state.label ? `${spinner} ${muted}${state.label}${RESET}` : spinner) : '';
+      const activity = state.busy ? (state.label ? `${spinner} ${muted}${state.label}${RESET}` : spinner) : '';
+      const model = state.model ? `${muted}${state.model}${RESET}` : '';
+      const left = [model, activity].filter(Boolean).join(`${muted}  ·  ${RESET}`);
       const right = state.context ? `${muted}${state.context}${RESET}` : '';
       if (!left && !right) {
         s.text(0, 0, '');

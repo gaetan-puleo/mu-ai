@@ -1,5 +1,5 @@
 import type { ContentPart, Message } from 'mu-core';
-import { column, type Component, truncateToWidth, visibleWidth, wrapText } from 'mu-tui';
+import { type Color, column, type Component, truncateToWidth, visibleWidth, wrapText } from 'mu-tui';
 import type { AgentSessionEvent } from 'mu-harness';
 import { renderMarkdown } from './markdown';
 import { styleToAnsi, type Theme } from './theme';
@@ -11,7 +11,7 @@ const COLLAPSE_LIMIT = 8;
 export type Entry =
   | { kind: 'user'; text: string }
   | { kind: 'reasoning'; text: string; closed: boolean }
-  | { kind: 'assistant'; text: string }
+  | { kind: 'assistant'; text: string; agent?: string; agentColor?: Color }
   | { kind: 'tool_call'; name: string; input: unknown }
   | { kind: 'shell'; cmd: string; output: string; error: boolean }
   | {
@@ -50,13 +50,19 @@ export class Transcript {
   entries: Entry[] = [];
   expanded = false;
   thinkingVisible = false;
-  private pending: { kind: 'assistant'; text: string } | undefined;
+  /** Current speaker, stamped onto assistant entries so each shows who replied. */
+  speaker: { name: string; color?: Color } | undefined;
+  private pending: Extract<Entry, { kind: 'assistant' }> | undefined;
   private pendingReasoning: ReasoningEntry | undefined;
 
   reset(): void {
     this.entries = [];
     this.pending = undefined;
     this.pendingReasoning = undefined;
+  }
+
+  private speakerTag(): { agent?: string; agentColor?: Color } {
+    return this.speaker ? { agent: this.speaker.name, agentColor: this.speaker.color } : {};
   }
 
   private closeReasoning(): void {
@@ -139,7 +145,7 @@ export class Transcript {
       if (message.role === 'system') continue;
       if (message.role === 'assistant') {
         const txt = partsToText(message.content);
-        if (txt) this.entries.push({ kind: 'assistant', text: txt });
+        if (txt) this.entries.push({ kind: 'assistant', text: txt, ...this.speakerTag() });
         for (const part of message.content) {
           if (part.type === 'tool_call') this.entries.push({ kind: 'tool_call', name: part.name, input: part.input });
         }
@@ -166,7 +172,7 @@ export class Transcript {
       case 'text': {
         this.closeReasoning();
         if (!this.pending) {
-          this.pending = { kind: 'assistant', text: '' };
+          this.pending = { kind: 'assistant', text: '', ...this.speakerTag() };
           this.entries.push(this.pending);
         }
         this.pending.text += event.text;
@@ -182,7 +188,7 @@ export class Transcript {
         if (message.role === 'assistant') {
           const txt = partsToText(message.content);
           if (this.pending) this.pending.text = txt;
-          else if (txt) this.entries.push({ kind: 'assistant', text: txt });
+          else if (txt) this.entries.push({ kind: 'assistant', text: txt, ...this.speakerTag() });
           this.pending = undefined;
           this.closeReasoning();
         }
@@ -261,15 +267,21 @@ export const stickyHeader = (value: string, theme: Theme): Component => ({
   },
 });
 
-const assistantEntry = (value: string, theme: Theme): Component => ({
+const assistantEntry = (entry: Extract<Entry, { kind: 'assistant' }>, theme: Theme): Component => ({
   render: (s) => {
     if (s.width <= 0) return;
     const innerW = Math.max(1, s.width - PAD * 2);
-    const lines = renderMarkdown(value.trim() || '…', innerW, theme, PAD);
+    let y = 0;
+    if (entry.agent) {
+      const sgr = styleToAnsi(entry.agentColor ? { fg: entry.agentColor, bold: true } : { ...theme.styles.muted, bold: true });
+      s.text(PAD, 0, `${sgr}${fit(entry.agent, innerW)}${RESET}`);
+      y = 1;
+    }
+    const lines = renderMarkdown(entry.text.trim() || '…', innerW, theme, PAD);
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (line.bleed) s.text(0, i, fit(line.text, s.width));
-      else s.text(PAD, i, fit(line.text, innerW));
+      if (line.bleed) s.text(0, y + i, fit(line.text, s.width));
+      else s.text(PAD, y + i, fit(line.text, innerW));
     }
   },
 });
@@ -414,7 +426,7 @@ export function entryComponent(entry: Entry, theme: Theme, expanded: boolean): C
     case 'reasoning':
       return reasoningComponent(entry, theme);
     case 'assistant':
-      return assistantEntry(entry.text, theme);
+      return assistantEntry(entry, theme);
     case 'tool_call':
       return toolEntry(entry.name, entry.input, theme);
     case 'shell':

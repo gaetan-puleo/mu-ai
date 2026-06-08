@@ -1,14 +1,14 @@
-import type { Channel } from '../channels';
-import { createChatApp } from './channel';
-import type { ChatApp, ChatAppOptions } from './types';
+import { ChatApp, type ChatHost } from './chat';
 
-export * from './types';
-export * from './kit';
-export * from './components';
-export { createChatApp } from './channel';
+export * from './chat';
 
-export const runChat = (channel: Channel, opts?: ChatAppOptions): ChatApp => {
-  const app = createChatApp(channel, opts);
-  app.start();
+/**
+ * Builds and starts the unified chat TUI from a {@link ChatHost} config and
+ * returns the running app. This is the single TUI base shared by all hosts
+ * (config-on-runChat): supply the harness handles + feature toggles you want.
+ */
+export const runChat = (host: ChatHost): ChatApp => {
+  const app = new ChatApp(host);
+  void app.start();
   return app;
 };

@@ -1,8 +1,7 @@
 import process from 'node:process';
-import type { AgentSession, ApprovalManager, Harness } from 'mu-harness';
+import { type AgentSession, type ApprovalManager, ChatApp, type ChatHost, type Harness } from 'mu-harness';
 import { listLocalModels } from 'mu-local-provider';
-import { type CodingAgentState, saveState } from './config';
-import { ChatApp, type ChatHost } from './ui/ChatApp';
+import { appendHistory, type CodingAgentState, loadHistory, saveState } from './config';
 
 export interface AgentControl {
   ref(): string;
@@ -57,6 +56,7 @@ export async function runApp(opts: RunAppOptions): Promise<void> {
       state.thinkingVisible = visible;
       saveState(state);
     },
+    history: { load: loadHistory, append: appendHistory },
     onExit: (code) => {
       harness.close();
       process.exit(code);

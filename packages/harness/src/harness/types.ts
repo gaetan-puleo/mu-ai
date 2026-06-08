@@ -6,7 +6,7 @@ import type { ApprovalManager } from '../permissions';
 import type { PluginStore } from '../plugin';
 import type { Scheduler, TaskStore } from '../scheduler';
 import type { AgentSessionConfig, SessionManager } from '../session';
-import type { Skill, SkillRegistry } from '../skills';
+import type { Skill, SkillRegistry, SkillScope } from '../skills';
 import type { SubAgentRegistry, SubAgentResult } from '../subAgents';
 import type { ModelRegistry } from './models';
 
@@ -18,6 +18,12 @@ export type HarnessOptions =
     model: string;
     agents?: Agent[];
     skills?: Skill[];
+    /**
+     * Forces the save location of `create_skill`. When set, the model's `scope`
+     * argument is overridden (and dropped from the tool schema). Unset → the
+     * model chooses, defaulting to 'local'.
+     */
+    skillScope?: SkillScope;
     title?: boolean;
     titleModel?: string;
     cwd?: string;

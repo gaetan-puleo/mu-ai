@@ -1,17 +1,9 @@
 import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
-import type {
-  AgentSession,
-  AgentSessionEvent,
-  ApprovalAction,
-  ApprovalManager,
-  PendingApproval,
-  SessionRecord,
-  SubAgentRegistry,
-  SubAgentResult,
-  SubAgentRun,
-} from 'mu-harness';
+import type { AgentSession, AgentSessionEvent, SessionRecord } from '../../session';
+import type { ApprovalAction, ApprovalManager, PendingApproval } from '../../permissions';
+import type { SubAgentRegistry, SubAgentResult, SubAgentRun } from '../../subAgents';
 import type { Message } from 'mu-core';
 import {
   box,
@@ -27,9 +19,8 @@ import {
   TUI,
   visibleWidth,
 } from 'mu-tui';
-import { appendHistory, loadHistory } from '../config';
-import { MultilineEditor } from './editor';
 import { buildCommands, type ChatCommand, type CommandHost, filterCommands } from './commands';
+import { MultilineEditor } from './editor';
 import { activeMention, type Candidate, collectCandidates, rank } from './picker';
 import { formatTokens, statusComponent, statusFromEvent, type StatusState } from './status';
 import { asHexColor, styleToAnsi, type Theme, ThemeProvider, themesByName } from './theme';
@@ -53,6 +44,7 @@ const textOf = (message: Message): string =>
   message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 const SPINNER_INTERVAL_MS = 100;
 const MAX_LIST_ROWS = 8;
+const SPLASH_INPUT_WIDTH = 72;
 
 const APPROVAL_OPTIONS: { label: string; value: ApprovalAction }[] = [
   { label: 'Approve once', value: 'approve' },
@@ -65,8 +57,25 @@ export interface ModelInfo {
   ownedBy?: string;
 }
 
+/** Toggles for optional chat affordances. Each defaults to enabled (true). */
+export interface ChatFeatures {
+  /** Tool-approval modal driven by the approval manager. */
+  approvals?: boolean;
+  /** Sub-agent panel, @mention dispatch, and the agent picker. */
+  subAgents?: boolean;
+  /** `/sessions` + `/new` session switching. */
+  sessionPicker?: boolean;
+  /** `/model` model switching. */
+  modelPicker?: boolean;
+}
+
 export interface ChatHost {
-  session: AgentSession;
+  /**
+   * The initial session. Optional: when omitted, the session is created lazily
+   * via {@link ChatHost.createSession} on the first user message — nothing is
+   * persisted until the user actually sends something.
+   */
+  session?: AgentSession;
   approvals: ApprovalManager;
   cwd: string;
   createSession(): AgentSession;
@@ -86,6 +95,14 @@ export interface ChatHost {
   saveTheme(name: string): void;
   initialThinking: boolean;
   saveThinking(visible: boolean): void;
+  /** Input-line history persistence. Optional; in-memory only when omitted. */
+  history?: { load(): string[]; append(text: string): void };
+  features?: ChatFeatures;
+  /**
+   * ASCII art shown centered in the empty transcript, before the first message
+   * (a splash). Cleared once the conversation starts.
+   */
+  banner?: string;
   onExit(code: number): void;
 }
 
@@ -149,7 +166,9 @@ export class ChatApp {
   private readonly themeProvider: ThemeProvider;
   private readonly commands: ChatCommand[];
 
-  private session: AgentSession;
+  private session: AgentSession | undefined;
+  private readonly features: ChatFeatures;
+  private readonly banner: string | undefined;
   private unsubscribe: (() => void) | undefined;
   private unsubscribeTheme: (() => void) | undefined;
   private unsubscribeSubAgents: (() => void) | undefined;
@@ -157,7 +176,7 @@ export class ChatApp {
   private readonly activeRuns = new Set<{ session: AgentSession; handle: SubAgentHandle; cancelled: boolean }>();
   private mentionAc: AbortController | undefined;
 
-  private readonly status: StatusState = { label: 'ready', busy: false, spinnerTick: 0, context: '' };
+  private readonly status: StatusState = { label: 'ready', busy: false, spinnerTick: 0, context: '', model: '' };
   private running = false;
   private readonly queue: string[] = [];
   private readonly pendingShell: { cmd: string; output: string }[] = [];
@@ -188,8 +207,10 @@ export class ChatApp {
 
   constructor(private readonly host: ChatHost) {
     this.session = host.session;
+    this.features = host.features ?? {};
+    this.banner = host.banner;
     this.transcript.thinkingVisible = host.initialThinking;
-    this.history = loadHistory();
+    this.history = host.history?.load() ?? [];
     this.historyIndex = this.history.length;
 
     this.themeProvider = new ThemeProvider(themesByName[host.initialTheme] ?? themesByName.dark);
@@ -215,7 +236,11 @@ export class ChatApp {
     );
     this.subScroll = scrollView({ render: (s) => transcriptComponent(this.subTranscript, this.theme()).render(s) });
 
-    this.commands = buildCommands(this.commandHost());
+    this.commands = buildCommands(this.commandHost()).filter((c) => {
+      if ((c.name === 'sessions' || c.name === 'new') && !this.feature('sessionPicker')) return false;
+      if (c.name === 'model' && !this.feature('modelPicker')) return false;
+      return true;
+    });
 
     this.tui.setRoot({ render: (s) => this.root().render(s) });
     this.tui.setBackgroundColor(this.theme().colors.background);
@@ -232,12 +257,17 @@ export class ChatApp {
     });
 
     this.bindSession();
-    this.unsubscribeSubAgents = this.host.subAgents.subscribe((run) => this.onSubAgentRun(run));
-    this.unsubscribeApproval = this.host.approvals.subscribe((req) => {
-      this.approvalQueue.push(req);
-      this.tui.requestRender();
-    });
-    this.transcript.seed(this.session.messages);
+    if (this.feature('subAgents')) {
+      this.unsubscribeSubAgents = this.host.subAgents.subscribe((run) => this.onSubAgentRun(run));
+    }
+    if (this.feature('approvals')) {
+      this.unsubscribeApproval = this.host.approvals.subscribe((req) => {
+        this.approvalQueue.push(req);
+        this.tui.requestRender();
+      });
+    }
+    this.updateSpeaker();
+    this.transcript.seed(this.session?.messages ?? []);
   }
 
   async start(): Promise<void> {
@@ -255,7 +285,7 @@ export class ChatApp {
     this.clearRuns();
     this.stopSpinner();
     this.clearError();
-    this.session.abort();
+    this.session?.abort();
     this.tui.stop();
   }
 
@@ -288,7 +318,7 @@ export class ChatApp {
     }
     const content = this.buildSessionPicker(sessions, (id) => {
       this.sessionHandle?.close();
-      if (id !== this.session.id) void this.host.openSession(id).then((next) => this.swapSession(next));
+      if (id !== this.session?.id) void this.host.openSession(id).then((next) => this.swapSession(next));
     });
     this.sessionPickerOpen = true;
     this.sessionHandle = this.tui.showModal(content, {
@@ -303,7 +333,7 @@ export class ChatApp {
   }
 
   private buildSessionPicker(sessions: SessionRecord[], onPick: (id: string) => void): Component {
-    const currentId = this.session.id;
+    const currentId = this.session?.id;
     let cursor = Math.max(0, sessions.findIndex((s) => s.id === currentId));
     return {
       handleInput: (event) => {
@@ -344,7 +374,20 @@ export class ChatApp {
   }
 
   private bindSession(): void {
-    this.unsubscribe = this.session.subscribe((event) => this.handleEvent(event));
+    this.unsubscribe = this.session?.subscribe((event) => this.handleEvent(event));
+  }
+
+  private feature(name: keyof ChatFeatures): boolean {
+    return this.features[name] !== false;
+  }
+
+  /** Returns the active session, creating it lazily on first use. */
+  private ensureSession(): AgentSession {
+    if (!this.session) {
+      this.session = this.host.createSession();
+      this.bindSession();
+    }
+    return this.session;
   }
 
   private clearRuns(): void {
@@ -365,7 +408,7 @@ export class ChatApp {
   }
 
   private onSubAgentRun(run: SubAgentRun): void {
-    if (run.parentId !== this.session.id) return;
+    if (run.parentId !== this.session?.id) return;
     const handle = this.transcript.appendSubAgent(run.agent, run.session.messages);
     const record = { session: run.session, handle, cancelled: false };
     this.activeRuns.add(record);
@@ -412,6 +455,7 @@ export class ChatApp {
   }
 
   private dispatchMention(agent: string, task: string, displayText: string): void {
+    const session = this.ensureSession();
     this.transcript.appendUser(displayText);
     const ac = new AbortController();
     this.mentionAc = ac;
@@ -420,13 +464,13 @@ export class ChatApp {
     this.setStatus('thinking…');
     this.startSpinner();
     this.tui.requestRender();
-    this.host.dispatchSubAgent(agent, task, this.session.id)
+    this.host.dispatchSubAgent(agent, task, session.id)
       .then((result) => {
         if (ac.signal.aborted) return;
         this.mentionAc = undefined;
         const content =
           `The "${agent}" sub-agent was asked:\n${task}\n\nIts result:\n${result.text}\n\nUse this to respond to the user.`;
-        return this.session.send(content);
+        return session.send(content);
       })
       .catch((err) => {
         if (ac.signal.aborted) return;
@@ -442,6 +486,7 @@ export class ChatApp {
     this.clearRuns();
     this.session = next;
     this.bindSession();
+    this.updateSpeaker();
     this.transcript.seed(next.messages);
     this.queue.length = 0;
     this.pendingShell.length = 0;
@@ -454,6 +499,7 @@ export class ChatApp {
   }
 
   private handleEvent(event: AgentSessionEvent): void {
+    this.updateSpeaker();
     this.transcript.applyEvent(event);
     const label = statusFromEvent(event);
     if (label !== undefined) this.status.label = label;
@@ -509,6 +555,7 @@ export class ChatApp {
   }
 
   private send(value: string): void {
+    const session = this.ensureSession();
     this.transcript.appendUser(value);
     const content = this.flushShellContext(this.stripFileMentions(value));
     this.running = true;
@@ -516,7 +563,7 @@ export class ChatApp {
     this.setStatus('thinking…');
     this.startSpinner();
     this.tui.requestRender();
-    this.session.send(content).catch((err) => {
+    session.send(content).catch((err) => {
       this.running = false;
       this.status.busy = false;
       this.stopSpinner();
@@ -702,7 +749,7 @@ export class ChatApp {
     this.mentionAc?.abort();
     this.mentionAc = undefined;
     this.abortRuns();
-    this.session.abort();
+    this.session?.abort();
     this.onTurnComplete();
     this.tui.requestRender();
   }
@@ -798,7 +845,7 @@ export class ChatApp {
   }
 
   private pushHistory(text: string): void {
-    appendHistory(text);
+    this.host.history?.append(text);
     if (this.history[this.history.length - 1] !== text) this.history.push(text);
     this.historyIndex = this.history.length;
     this.historyDraft = '';
@@ -949,11 +996,12 @@ export class ChatApp {
 
   private async switchModel(ref: string): Promise<void> {
     this.host.selectModel(ref);
-    const carry = this.session.messages.some((m) => m.role !== 'system');
+    const current = this.session;
+    const carry = current ? current.messages.some((m) => m.role !== 'system') : false;
     let next: AgentSession;
     try {
-      next = carry
-        ? await this.host.forkSession(this.session.id, this.session.messages.length - 1)
+      next = carry && current
+        ? await this.host.forkSession(current.id, current.messages.length - 1)
         : this.host.createSession();
     } catch {
       next = this.host.createSession();
@@ -964,7 +1012,7 @@ export class ChatApp {
   }
 
   private async exportContext(args: string): Promise<void> {
-    const all = this.session.messages;
+    const all = this.session?.messages ?? [];
     if (all.length === 0) {
       this.showError('Nothing to export yet.');
       return;
@@ -980,14 +1028,14 @@ export class ChatApp {
     const payload = {
       exportedAt: new Date().toISOString(),
       session: {
-        id: this.session.id,
+        id: this.session?.id ?? '',
         cwd: this.host.cwd,
         agent: this.host.agentRef(),
         model: this.host.modelRef(),
       },
       request: {
         system,
-        tools: this.session.tools.map((tool) => ({
+        tools: (this.session?.tools ?? []).map((tool) => ({
           name: tool.name,
           description: tool.description,
           parameters: tool.parameters,
@@ -1119,22 +1167,19 @@ export class ChatApp {
     }
   }
 
-  private modelLabel(): string {
+  /** Plain model id (+ provider) shown in the status bar. */
+  private modelText(): string {
     const ref = this.host.modelRef();
     const slash = ref.indexOf('/');
     const id = slash >= 0 ? ref.slice(slash + 1) : ref;
     const providerName = slash >= 0 ? ref.slice(0, slash) : '';
     const model = this.models.find((m) => m.id === id);
     const provider = model?.ownedBy ?? providerName;
-    const theme = this.theme();
-    const bold = styleToAnsi({ fg: theme.colors.text, bold: true });
-    const dim = styleToAnsi({ fg: theme.colors.textMuted });
-    const head = provider ? `${bold}${id}${RESET}  ${dim}${provider}${RESET}` : `${bold}${id}${RESET}`;
-    const agent = this.host.agentRef();
-    if (!agent) return head;
-    const hex = asHexColor(this.host.agentColor());
-    const agentSgr = hex ? styleToAnsi({ fg: hex, bold: true }) : dim;
-    return `${head}  ${dim}·${RESET}  ${agentSgr}@${agent}${RESET}`;
+    return provider ? `${id}  ${provider}` : id;
+  }
+
+  private updateSpeaker(): void {
+    this.transcript.speaker = { name: this.host.agentRef(), color: asHexColor(this.host.agentColor()) };
   }
 
   private promptGlyph(): string {
@@ -1155,16 +1200,13 @@ export class ChatApp {
   private editorInner(): Component {
     const prompt = this.promptGlyph();
     const editor = this.editor;
-    const label = this.modelLabel();
     const editorRows = editor.rows();
     return {
       render: (s) => {
         if (s.width <= 0 || s.height <= 0) return;
         s.text(0, 0, prompt);
-        const rows = Math.min(editorRows, Math.max(1, s.height - 2));
+        const rows = Math.min(editorRows, Math.max(1, s.height - 1));
         s.child(editor, { x: PROMPT_WIDTH, y: 0, width: Math.max(1, s.width - PROMPT_WIDTH), height: rows });
-        const labelRow = rows + 1;
-        s.text(0, labelRow, visibleWidth(label) > s.width ? truncateToWidth(label, s.width) : label);
       },
     };
   }
@@ -1202,7 +1244,8 @@ export class ChatApp {
     };
   }
 
-  private dock(): Component {
+  /** The input area: error/palette/picker/waiting affordances + the input panel (no status bar). */
+  private inputGroup(): Component[] {
     const children: Component[] = [];
 
     const error = this.errorView();
@@ -1221,9 +1264,16 @@ export class ChatApp {
     if (waiting) children.push(waiting);
 
     children.push(this.inputPanel());
+    return children;
+  }
 
-    children.push(statusComponent(this.status, this.theme()));
-    return column(children);
+  private statusBar(): Component {
+    this.status.model = this.modelText();
+    return statusComponent(this.status, this.theme());
+  }
+
+  private dock(): Component {
+    return column([...this.inputGroup(), this.statusBar()]);
   }
 
   private jumpToBottom(): void {
@@ -1312,9 +1362,52 @@ export class ChatApp {
     return column([this.subAgentHeader(entry), flex(this.subScroll)]);
   }
 
+  /** Wraps a child to a max width, horizontally centered (keeps its natural height). */
+  private centered(child: Component, maxW: number): Component {
+    return {
+      render: (s) => {
+        const w = Math.max(0, Math.min(maxW, s.width));
+        if (w === 0) return;
+        const h = s.measure(child, w);
+        const x = Math.max(0, Math.floor((s.width - w) / 2));
+        s.child(child, { x, y: 0, width: w, height: h });
+      },
+    };
+  }
+
+  /** The ASCII banner rendered at its natural height, centered as a block. */
+  private bannerBlock(): Component {
+    const theme = this.theme();
+    const sgr = styleToAnsi({ fg: theme.colors.accent, bold: true });
+    const lines = (this.banner ?? '').split('\n');
+    const blockW = lines.reduce((max, line) => Math.max(max, visibleWidth(line)), 0);
+    return {
+      render: (s) => {
+        if (s.width <= 0) return;
+        const x = Math.max(0, Math.floor((s.width - blockW) / 2));
+        for (let i = 0; i < lines.length; i++) s.text(x, i, `${sgr}${lines[i]}${RESET}`);
+        s.text(0, lines.length, '');
+      },
+    };
+  }
+
   private root(): Component {
     const focused = this.focusedSub();
-    const inner = focused ? this.subAgentView(focused) : column([flex(this.scroll), this.dock()]);
+    const showBanner = this.banner !== undefined && this.transcript.entries.length === 0 && !focused;
+    const spacer: Component = { render: () => {} };
+    const inner = focused
+      ? this.subAgentView(focused)
+      : showBanner
+      // Splash: banner + a centered, width-limited minimal input; status pinned at the bottom.
+      ? column([
+        flex(spacer),
+        this.bannerBlock(),
+        this.centered(column(this.inputGroup()), SPLASH_INPUT_WIDTH),
+        flex(spacer),
+        this.statusBar(),
+      ])
+      // Conversation: transcript fills, input docked at the bottom.
+      : column([flex(this.scroll), this.dock()]);
     return {
       render: (s) => {
         s.fill({ x: 0, y: 0, width: s.width, height: s.height }, this.theme().colors.background);

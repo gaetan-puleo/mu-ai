@@ -1,13 +1,17 @@
-import { parseFrontmatter, str } from '../common';
+import { parseFrontmatter, str, strList } from '../common';
 import type { Skill } from './types';
 
 export const parseSkill = (source: string, fallbackName: string, dir?: string): Skill => {
   const { fields, body } = parseFrontmatter(source);
 
-  return {
+  const platforms = strList(fields.platforms);
+  const skill: Skill = {
     name: str(fields.name) ?? fallbackName,
     description: str(fields.description) ?? '',
     prompt: body,
-    dir,
   };
+  // Emit optional keys only when present — strict-equality tests rely on no `undefined`-valued keys.
+  if (dir !== undefined) skill.dir = dir;
+  if (platforms.length) skill.platforms = platforms;
+  return skill;
 };

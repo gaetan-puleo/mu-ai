@@ -14,6 +14,7 @@
   ],
   "dependencies": {
     "@swc/wasm-typescript": "^1.15.0",
+    "cli-highlight": "^2.1.11",
     "croner": "^9.0.0",
     "mu-core": "workspace:*",
     "mu-tui": "workspace:*"

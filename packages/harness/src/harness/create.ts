@@ -52,6 +52,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     model,
     agents: hostAgents = [],
     skills: hostSkills = [],
+    skillScope,
     title,
     titleModel,
     scheduler: enableScheduler = false,
@@ -77,6 +78,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
   const skillWriterTool = createSkillWriterTool({
     dirs: { local: cwdSkillsDir, config: skillsDir },
     registry: skills,
+    forceScope: skillScope,
   });
   const scopeSkills = (agent?: Agent) => {
     if (!agent) return skills;
