@@ -1,6 +1,6 @@
 {
   "name": "mu-coding",
-  "version": "0.16.15",
+  "version": "0.16.16",
   "private": true,
   "description": "Minimal terminal AI assistant for local models",
   "type": "module",
