@@ -103,6 +103,15 @@ export interface ChatHost {
    * (a splash). Cleared once the conversation starts.
    */
   banner?: string;
+  /**
+   * Lean input presentation: drop the surface-background input frame, the
+   * model/provider/agent footer inside the input, and the context readout on
+   * the status bar — leaving a bare prompt + editor. The {@link ChatHost.banner}
+   * splash is independent and still shown if set. Hosts that want the full
+   * information-rich input (surface frame, model · provider · @agent footer,
+   * token/context usage in the status line) leave this unset (the default).
+   */
+  minimal?: boolean;
   onExit(code: number): void;
 }
 
@@ -169,6 +178,7 @@ export class ChatApp {
   private session: AgentSession | undefined;
   private readonly features: ChatFeatures;
   private readonly banner: string | undefined;
+  private readonly minimal: boolean;
   private unsubscribe: (() => void) | undefined;
   private unsubscribeTheme: (() => void) | undefined;
   private unsubscribeSubAgents: (() => void) | undefined;
@@ -176,7 +186,7 @@ export class ChatApp {
   private readonly activeRuns = new Set<{ session: AgentSession; handle: SubAgentHandle; cancelled: boolean }>();
   private mentionAc: AbortController | undefined;
 
-  private readonly status: StatusState = { label: 'ready', busy: false, spinnerTick: 0, context: '', model: '' };
+  private readonly status: StatusState = { label: 'ready', busy: false, spinnerTick: 0, context: '' };
   private running = false;
   private readonly queue: string[] = [];
   private readonly pendingShell: { cmd: string; output: string }[] = [];
@@ -209,6 +219,7 @@ export class ChatApp {
     this.session = host.session;
     this.features = host.features ?? {};
     this.banner = host.banner;
+    this.minimal = host.minimal ?? false;
     this.transcript.thinkingVisible = host.initialThinking;
     this.history = host.history?.load() ?? [];
     this.historyIndex = this.history.length;
@@ -1167,15 +1178,23 @@ export class ChatApp {
     }
   }
 
-  /** Plain model id (+ provider) shown in the status bar. */
-  private modelText(): string {
+  /** Styled model id + provider + active agent, shown in the input container footer. */
+  private modelLabel(): string {
     const ref = this.host.modelRef();
     const slash = ref.indexOf('/');
     const id = slash >= 0 ? ref.slice(slash + 1) : ref;
     const providerName = slash >= 0 ? ref.slice(0, slash) : '';
     const model = this.models.find((m) => m.id === id);
     const provider = model?.ownedBy ?? providerName;
-    return provider ? `${id}  ${provider}` : id;
+    const theme = this.theme();
+    const bold = styleToAnsi({ fg: theme.colors.text, bold: true });
+    const dim = styleToAnsi({ fg: theme.colors.textMuted });
+    const head = provider ? `${bold}${id}${RESET}  ${dim}${provider}${RESET}` : `${bold}${id}${RESET}`;
+    const agent = this.host.agentRef();
+    if (!agent) return head;
+    const hex = asHexColor(this.host.agentColor());
+    const agentSgr = hex ? styleToAnsi({ fg: hex, bold: true }) : dim;
+    return `${head}  ${dim}·${RESET}  ${agentSgr}@${agent}${RESET}`;
   }
 
   private updateSpeaker(): void {
@@ -1194,6 +1213,7 @@ export class ChatApp {
 
   private inputPanel(): Component {
     const inner = this.approvalView() ?? this.editorInner();
+    if (this.minimal) return box(inner, { padding: 0 });
     return box(inner, { background: this.theme().colors.surface, padding: 1 });
   }
 
@@ -1201,12 +1221,18 @@ export class ChatApp {
     const prompt = this.promptGlyph();
     const editor = this.editor;
     const editorRows = editor.rows();
+    const label = this.minimal ? '' : this.modelLabel();
     return {
       render: (s) => {
         if (s.width <= 0 || s.height <= 0) return;
         s.text(0, 0, prompt);
-        const rows = Math.min(editorRows, Math.max(1, s.height - 1));
+        const reserve = label ? 2 : 1;
+        const rows = Math.min(editorRows, Math.max(1, s.height - reserve));
         s.child(editor, { x: PROMPT_WIDTH, y: 0, width: Math.max(1, s.width - PROMPT_WIDTH), height: rows });
+        if (label) {
+          const labelRow = rows + 1;
+          s.text(0, labelRow, visibleWidth(label) > s.width ? truncateToWidth(label, s.width) : label);
+        }
       },
     };
   }
@@ -1268,7 +1294,7 @@ export class ChatApp {
   }
 
   private statusBar(): Component {
-    this.status.model = this.modelText();
+    this.status.minimal = this.minimal;
     return statusComponent(this.status, this.theme());
   }
 
@@ -1395,9 +1421,7 @@ export class ChatApp {
     const focused = this.focusedSub();
     const showBanner = this.banner !== undefined && this.transcript.entries.length === 0 && !focused;
     const spacer: Component = { render: () => {} };
-    const inner = focused
-      ? this.subAgentView(focused)
-      : showBanner
+    const inner = focused ? this.subAgentView(focused) : showBanner
       // Splash: banner + a centered, width-limited minimal input; status pinned at the bottom.
       ? column([
         flex(spacer),
