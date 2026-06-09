@@ -5,7 +5,7 @@ import { join, relative } from 'node:path';
 export interface Candidate {
   label: string;
   insert: string;
-  kind: 'file' | 'agent';
+  kind: 'file' | 'dir' | 'agent';
 }
 
 const IGNORED = new Set([
@@ -44,10 +44,11 @@ function gitFiles(cwd: string): string[] | undefined {
   }
 }
 
-function walk(cwd: string): string[] {
-  const out: string[] = [];
+function walk(cwd: string): { files: string[]; dirs: string[] } {
+  const files: string[] = [];
+  const dirs: string[] = [];
   const stack: { dir: string; depth: number }[] = [{ dir: cwd, depth: 0 }];
-  while (stack.length > 0 && out.length < MAX_ENTRIES) {
+  while (stack.length > 0 && files.length < MAX_ENTRIES) {
     const { dir, depth } = stack.pop()!;
     let entries: string[];
     try {
@@ -66,21 +67,31 @@ function walk(cwd: string): string[] {
         continue;
       }
       if (isDir) {
+        dirs.push(relative(cwd, full));
         if (depth < MAX_DEPTH) stack.push({ dir: full, depth: depth + 1 });
       } else {
-        out.push(relative(cwd, full));
-        if (out.length >= MAX_ENTRIES) break;
+        files.push(relative(cwd, full));
+        if (files.length >= MAX_ENTRIES) break;
       }
     }
   }
-  return out.sort();
+  return { files: files.sort(), dirs: dirs.sort() };
 }
 
 export function collectCandidates(cwd: string, agentNames: string[]): Candidate[] {
-  const paths = gitFiles(cwd) ?? walk(cwd);
   const agents: Candidate[] = agentNames.map((name) => ({ label: `@${name}`, insert: name, kind: 'agent' }));
+  const tracked = gitFiles(cwd);
+  const walked = walk(cwd);
+  const paths = tracked ?? walked.files;
+  const dirs = new Set<string>(walked.dirs);
+  for (const path of paths) {
+    for (let i = 0; i < path.length; i++) {
+      if (path[i] === '/' || path[i] === '\\') dirs.add(path.slice(0, i));
+    }
+  }
+  const dirCandidates: Candidate[] = [...dirs].map((path) => ({ label: `${path}/`, insert: `${path}/`, kind: 'dir' }));
   const files: Candidate[] = paths.map((path) => ({ label: path, insert: path, kind: 'file' }));
-  return [...agents, ...files];
+  return [...agents, ...dirCandidates, ...files];
 }
 
 function isBoundary(target: string, i: number): boolean {
@@ -119,8 +130,9 @@ function fuzzyScore(query: string, target: string): number | undefined {
 }
 
 function basename(path: string): string {
-  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-  return cut === -1 ? path : path.slice(cut + 1);
+  const p = path.endsWith('/') || path.endsWith('\\') ? path.slice(0, -1) : path;
+  const cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+  return cut === -1 ? p : p.slice(cut + 1);
 }
 
 function score(query: string, candidate: Candidate): number | undefined {
@@ -128,7 +140,7 @@ function score(query: string, candidate: Candidate): number | undefined {
   const pathScore = fuzzyScore(query, candidate.label);
   if (pathScore === undefined) return undefined;
   let total = pathScore;
-  if (candidate.kind === 'file') {
+  if (candidate.kind === 'file' || candidate.kind === 'dir') {
     const base = basename(candidate.label);
     const baseScore = fuzzyScore(query, base);
     if (baseScore !== undefined) {

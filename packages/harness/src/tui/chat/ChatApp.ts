@@ -1282,7 +1282,7 @@ export class ChatApp {
       const rows = palette.map((c) => ({ left: `/${c.name}`, right: c.description }));
       children.push(listView(rows, this.paletteCursor, this.theme()));
     } else if (this.pickerVisible()) {
-      const rows = this.pickerRanked.map((c) => ({ left: c.label, right: c.kind === 'agent' ? 'agent' : '' }));
+      const rows = this.pickerRanked.map((c) => ({ left: c.label, right: c.kind === 'file' ? '' : c.kind }));
       children.push(listView(rows, this.pickerCursor, this.theme()));
     }
 
