@@ -1,6 +1,6 @@
 {
   "name": "mu-harness",
-  "version": "0.16.22",
+  "version": "0.17.0",
   "private": true,
   "description": "Agent harness: createHarness wires mu-core into a host — XDG paths, model registry, plugins, disk-loaded agents & skills, sub-agents, sessions (JSONL + SQLite catalog), slash commands, permission/approval hooks, an optional scheduler, and a composable TUI chat app",
   "type": "module",
