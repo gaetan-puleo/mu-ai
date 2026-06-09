@@ -838,6 +838,7 @@ export class ChatApp {
   }
 
   private deleteMention(): boolean {
+    if (this.pickerMention !== undefined) return false;
     const value = this.editor.getValue();
     const cursor = this.editor.cursorPos;
     const re = /@[^\s]+/g;
