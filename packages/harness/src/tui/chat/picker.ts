@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
@@ -28,7 +29,20 @@ const IGNORED = new Set([
 const MAX_ENTRIES = 5000;
 const MAX_DEPTH = 6;
 
-let cache: { cwd: string; files: string[] } | undefined;
+function gitFiles(cwd: string): string[] | undefined {
+  try {
+    const out = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
+      cwd,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const files = out.split('\0').filter((f) => f.length > 0);
+    return files.length > 0 ? files.slice(0, MAX_ENTRIES).sort() : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function walk(cwd: string): string[] {
   const out: string[] = [];
@@ -63,42 +77,76 @@ function walk(cwd: string): string[] {
 }
 
 export function collectCandidates(cwd: string, agentNames: string[]): Candidate[] {
-  if (!cache || cache.cwd !== cwd) cache = { cwd, files: walk(cwd) };
+  const paths = gitFiles(cwd) ?? walk(cwd);
   const agents: Candidate[] = agentNames.map((name) => ({ label: `@${name}`, insert: name, kind: 'agent' }));
-  const files: Candidate[] = cache.files.map((path) => ({ label: path, insert: path, kind: 'file' }));
+  const files: Candidate[] = paths.map((path) => ({ label: path, insert: path, kind: 'file' }));
   return [...agents, ...files];
 }
 
-export function invalidateCandidates(): void {
-  cache = undefined;
+function isBoundary(target: string, i: number): boolean {
+  if (i === 0) return true;
+  const prev = target[i - 1] ?? '';
+  if (/[/\\_\-. ]/.test(prev)) return true;
+  const cur = target[i] ?? '';
+  return prev === prev.toLowerCase() && prev !== prev.toUpperCase() && cur === cur.toUpperCase() &&
+    cur !== cur.toLowerCase();
 }
 
-function score(query: string, target: string): number | undefined {
+function fuzzyScore(query: string, target: string): number | undefined {
   if (query.length === 0) return 0;
   const q = query.toLowerCase();
-  const t = target.toLowerCase();
   let qi = 0;
   let total = 0;
   let prev = -2;
-  for (let i = 0; i < t.length && qi < q.length; i++) {
-    if (t[i] === q[qi]) {
+  let run = 0;
+  for (let i = 0; i < target.length && qi < q.length; i++) {
+    if (target[i].toLowerCase() === q[qi]) {
       let s = 1;
-      if (i === prev + 1) s += 2;
-      if (i === 0 || /[/_\-. ]/.test(t[i - 1] ?? '')) s += 3;
+      if (i === prev + 1) {
+        run += 1;
+        s += 2 + run;
+      } else {
+        run = 0;
+      }
+      if (isBoundary(target, i)) s += 4;
       total += s;
       prev = i;
       qi += 1;
     }
   }
   if (qi < q.length) return undefined;
-  return total - t.length * 0.01;
+  return total;
+}
+
+function basename(path: string): string {
+  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return cut === -1 ? path : path.slice(cut + 1);
+}
+
+function score(query: string, candidate: Candidate): number | undefined {
+  if (query.length === 0) return 0;
+  const pathScore = fuzzyScore(query, candidate.label);
+  if (pathScore === undefined) return undefined;
+  let total = pathScore;
+  if (candidate.kind === 'file') {
+    const base = basename(candidate.label);
+    const baseScore = fuzzyScore(query, base);
+    if (baseScore !== undefined) {
+      total += baseScore * 2;
+      const lb = base.toLowerCase();
+      const lq = query.toLowerCase();
+      if (lb === lq) total += 100;
+      else if (lb.startsWith(lq)) total += 40;
+    }
+  }
+  return total - candidate.label.length * 0.05;
 }
 
 export function rank(query: string, candidates: Candidate[], limit = 8): Candidate[] {
   if (!query) return candidates.slice(0, limit);
   const scored: { candidate: Candidate; score: number }[] = [];
   for (const candidate of candidates) {
-    const s = score(query, candidate.label);
+    const s = score(query, candidate);
     if (s !== undefined) scored.push({ candidate, score: s });
   }
   scored.sort((a, b) => b.score - a.score);
