@@ -11,7 +11,7 @@ import { type Command, commandPalette } from './components/command-palette';
 import { Renderer } from './renderer';
 import type { Component, SurfaceEntry } from './surface';
 import type { Terminal } from './types/terminal';
-import { modal, type ModalOptions, toast as toastView, type ToastKind } from './views';
+import { modal, type ModalOptions, toast as toastView, type ToastKind, toastWidth } from './views';
 
 export interface TuiOptions {
   synchronizedOutput?: boolean;
@@ -39,6 +39,7 @@ interface LayerEntry {
 
 interface ToastEntry {
   view: Component;
+  width: number;
 }
 
 export class TUI {
@@ -136,7 +137,7 @@ export class TUI {
   }
 
   toast(message: string, opts: { duration?: number; kind?: ToastKind } = {}): ToastHandle {
-    const entry: ToastEntry = { view: toastView(message, { kind: opts.kind }) };
+    const entry: ToastEntry = { view: toastView(message, { kind: opts.kind }), width: toastWidth(message, opts) };
     this.toasts.push(entry);
     this.requestRender();
     const timer = setTimeout(() => this.dismissToast(entry), opts.duration ?? 3000);
@@ -186,7 +187,7 @@ export class TUI {
 
         let y = 0;
         for (const entry of toasts) {
-          const w = Math.min(40, s.width);
+          const w = Math.max(1, Math.min(entry.width, s.width));
           const h = s.measure(entry.view, w);
           if (y + h > s.height) break;
           s.child(entry.view, { x: s.width - w, y, width: w, height: h });

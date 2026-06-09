@@ -1,6 +1,6 @@
 import { type Color, DEFAULT_BORDER_CHARS } from './layout/types';
 import { type Component, measureWidth, type Surface } from './surface';
-import { wrapText } from './utils';
+import { visibleWidth, wrapText } from './utils';
 
 export const text = (value: string): Component => ({
   render: (s) => {
@@ -131,14 +131,30 @@ export interface ToastOptions {
   kind?: ToastKind;
 }
 
-const TOAST_BACKGROUND: Record<ToastKind, Color> = {
-  info: '#1e3a5f',
-  success: '#1e4620',
-  error: '#5f1e1e',
+const TOAST_BG: Color = '#2b313b';
+
+const TOAST_ACCENT: Record<ToastKind, string> = {
+  info: '88;166;255',
+  success: '63;185;80',
+  error: '248;81;73',
 };
 
+const TOAST_ICON: Record<ToastKind, string> = {
+  info: '•',
+  success: '✓',
+  error: '✕',
+};
+
+function toastLabel(message: string, kind: ToastKind): string {
+  return ` \x1b[38;2;${TOAST_ACCENT[kind]}m${TOAST_ICON[kind]}\x1b[39m ${message} `;
+}
+
 export const toast = (message: string, opts: ToastOptions = {}): Component =>
-  box(text(message), { border: true, background: TOAST_BACKGROUND[opts.kind ?? 'info'], padding: 0 });
+  box(text(toastLabel(message, opts.kind ?? 'info')), { background: TOAST_BG, padding: 0 });
+
+export function toastWidth(message: string, opts: ToastOptions = {}): number {
+  return visibleWidth(toastLabel(message, opts.kind ?? 'info'));
+}
 
 export const modal = (content: Component, opts: ModalOptions = {}): Component => ({
   render: (s) => {
