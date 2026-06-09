@@ -1,3 +1,4 @@
+import { colorToRgba } from './layout/color';
 import { type Color, DEFAULT_BORDER_CHARS } from './layout/types';
 import { type Component, measureWidth, type Surface } from './surface';
 import { visibleWidth, wrapText } from './utils';
@@ -90,7 +91,9 @@ export const box = (child: Component, opts: BoxOptions = {}): Component => ({
     const selfH = Math.min(contentH + 2 * inset, s.height);
 
     if (opts.background) {
-      s.fill({ x: 0, y: 0, width: s.width, height: selfH }, opts.background, opts.backgroundOpacity);
+      const rect = { x: 0, y: 0, width: s.width, height: selfH };
+      if ((opts.backgroundOpacity ?? 1) >= 1) s.clear(rect, opts.background);
+      else s.fill(rect, opts.background, opts.backgroundOpacity);
     }
     if (opts.border) drawBorder(s, selfH);
 
@@ -129,7 +132,11 @@ export type ToastKind = 'info' | 'success' | 'error';
 
 export interface ToastOptions {
   kind?: ToastKind;
+  background?: Color;
+  foreground?: Color;
 }
+
+const TOAST_PADDING = 1;
 
 const TOAST_BG: Color = '#2b313b';
 
@@ -145,15 +152,24 @@ const TOAST_ICON: Record<ToastKind, string> = {
   error: '✕',
 };
 
-function toastLabel(message: string, kind: ToastKind): string {
-  return ` \x1b[38;2;${TOAST_ACCENT[kind]}m${TOAST_ICON[kind]}\x1b[39m ${message} `;
+function fgSeq(color: Color): string {
+  const { r, g, b } = colorToRgba(color);
+  return `\x1b[38;2;${r};${g};${b}m`;
+}
+
+function toastLabel(message: string, kind: ToastKind, foreground?: Color): string {
+  const messageFg = foreground ? fgSeq(foreground) : '\x1b[39m';
+  return `\x1b[38;2;${TOAST_ACCENT[kind]}m${TOAST_ICON[kind]}${messageFg} ${message}`;
 }
 
 export const toast = (message: string, opts: ToastOptions = {}): Component =>
-  box(text(toastLabel(message, opts.kind ?? 'info')), { background: TOAST_BG, padding: 0 });
+  box(text(toastLabel(message, opts.kind ?? 'info', opts.foreground)), {
+    background: opts.background ?? TOAST_BG,
+    padding: TOAST_PADDING,
+  });
 
 export function toastWidth(message: string, opts: ToastOptions = {}): number {
-  return visibleWidth(toastLabel(message, opts.kind ?? 'info'));
+  return visibleWidth(toastLabel(message, opts.kind ?? 'info')) + 2 * TOAST_PADDING;
 }
 
 export const modal = (content: Component, opts: ModalOptions = {}): Component => ({

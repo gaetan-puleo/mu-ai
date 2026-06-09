@@ -49,6 +49,8 @@ export class TUI {
   private backdrop: Rgba = OPAQUE_BLACK;
   private layers: LayerEntry[] = [];
   private toasts: ToastEntry[] = [];
+  private toastBackground: Color | undefined;
+  private toastForeground: Color | undefined;
   private escapeUnsub: (() => void) | undefined;
   private started = false;
   private terminalFocused = true;
@@ -100,6 +102,14 @@ export class TUI {
     this.requestRender(true);
   }
 
+  setToastBackground(color: Color): void {
+    this.toastBackground = color;
+  }
+
+  setToastForeground(color: Color): void {
+    this.toastForeground = color;
+  }
+
   setFocus(component: Component | null): void {
     this.focused = component;
     this.requestRender();
@@ -137,7 +147,14 @@ export class TUI {
   }
 
   toast(message: string, opts: { duration?: number; kind?: ToastKind } = {}): ToastHandle {
-    const entry: ToastEntry = { view: toastView(message, { kind: opts.kind }), width: toastWidth(message, opts) };
+    const entry: ToastEntry = {
+      view: toastView(message, {
+        kind: opts.kind,
+        background: this.toastBackground,
+        foreground: this.toastForeground,
+      }),
+      width: toastWidth(message, opts),
+    };
     this.toasts.push(entry);
     this.requestRender();
     const timer = setTimeout(() => this.dismissToast(entry), opts.duration ?? 3000);
@@ -185,12 +202,13 @@ export class TUI {
         if (root) s.child(root, full);
         for (const entry of layers) s.child(entry.layer, full);
 
-        let y = 0;
+        const margin = s.width > 2 ? 1 : 0;
+        let y = margin;
         for (const entry of toasts) {
-          const w = Math.max(1, Math.min(entry.width, s.width));
+          const w = Math.max(1, Math.min(entry.width, s.width - margin));
           const h = s.measure(entry.view, w);
           if (y + h > s.height) break;
-          s.child(entry.view, { x: s.width - w, y, width: w, height: h });
+          s.child(entry.view, { x: s.width - w - margin, y, width: w, height: h });
           y += h + 1;
         }
       },

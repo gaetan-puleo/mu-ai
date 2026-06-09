@@ -122,6 +122,20 @@ export function fillBackground(buf: CellBuffer, rect: Rect, color: Rgba, clip: R
   }
 }
 
+export function clearBackground(buf: CellBuffer, rect: Rect, color: Rgba, clip: Rect): void {
+  if (color.a < 1 || effectiveOpacity(buf) < 1) {
+    fillBackground(buf, rect, color, clip);
+    return;
+  }
+  const safe = intersectRect(intersectRect(rect, clip), bufferRect(buf));
+  if (isEmptyRect(safe)) return;
+  for (let y = safe.y; y < safe.y + safe.height; y++) {
+    for (let x = safe.x; x < safe.x + safe.width; x++) {
+      buf.cells[getIndex(buf, x, y)] = { grapheme: ' ', width: 1, style: { ...defaultStyle(), bg: color } };
+    }
+  }
+}
+
 export function writeCells(buf: CellBuffer, x: number, y: number, cells: Cell[], clip: Rect): void {
   if (cells.length === 0) return;
   const safe = intersectRect(clip, bufferRect(buf));

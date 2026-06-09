@@ -271,6 +271,8 @@ export class ChatApp {
 
     this.tui.setRoot({ render: (s) => this.root().render(s) });
     this.tui.setBackgroundColor(this.theme().colors.background);
+    this.tui.setToastBackground(this.theme().colors.surface);
+    this.tui.setToastForeground(this.theme().colors.text);
     this.tui.setFocus(this.editor);
     this.tui.addInputInterceptor((event) => this.intercept(event));
     this.tui.addGlobalKeybinding({ chord: { key: 'c', ctrl: true }, handler: () => this.onCtrlC() });
@@ -280,6 +282,8 @@ export class ChatApp {
 
     this.unsubscribeTheme = this.themeProvider.subscribe(() => {
       this.tui.setBackgroundColor(this.theme().colors.background);
+      this.tui.setToastBackground(this.theme().colors.surface);
+      this.tui.setToastForeground(this.theme().colors.text);
       this.tui.requestRender(true);
     });
 

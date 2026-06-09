@@ -1,6 +1,13 @@
 import type { InputEvent } from './events';
 import { parseLine } from './layout/ansi';
-import { type CellBuffer, fillBackground, popOpacity, pushOpacity, writeCells } from './layout/cellbuffer';
+import {
+  type CellBuffer,
+  clearBackground,
+  fillBackground,
+  popOpacity,
+  pushOpacity,
+  writeCells,
+} from './layout/cellbuffer';
 import { colorToRgba } from './layout/color';
 import { intersectRect } from './layout/insets';
 import type { Color, Rect } from './layout/types';
@@ -18,6 +25,7 @@ export interface Surface {
   readonly focused: boolean;
   text(x: number, y: number, value: string): void;
   fill(rect: Rect, color: Color, opacity?: number): void;
+  clear(rect: Rect, color: Color): void;
   measure(child: Component, width: number): number;
   child(child: Component, rect: Rect, opts?: { opacity?: number; focused?: boolean }): void;
 }
@@ -52,6 +60,11 @@ class BufferSurface implements Surface {
   fill(rect: Rect, color: Color, opacity = 1): void {
     const abs: Rect = { x: this.ox + rect.x, y: this.oy + rect.y, width: rect.width, height: rect.height };
     fillBackground(this.env.buffer, abs, colorToRgba(color, opacity), this.clip);
+  }
+
+  clear(rect: Rect, color: Color): void {
+    const abs: Rect = { x: this.ox + rect.x, y: this.oy + rect.y, width: rect.width, height: rect.height };
+    clearBackground(this.env.buffer, abs, colorToRgba(color), this.clip);
   }
 
   measure(child: Component, width: number): number {
@@ -100,6 +113,11 @@ class ProbeSurface implements Surface {
   }
 
   fill(rect: Rect): void {
+    if (Number.isFinite(rect.height)) this.bumpRow(rect.y + rect.height);
+    if (Number.isFinite(rect.width)) this.bumpCol(rect.x + rect.width);
+  }
+
+  clear(rect: Rect): void {
     if (Number.isFinite(rect.height)) this.bumpRow(rect.y + rect.height);
     if (Number.isFinite(rect.width)) this.bumpCol(rect.x + rect.width);
   }
