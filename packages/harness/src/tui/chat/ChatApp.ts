@@ -674,11 +674,6 @@ export class ChatApp {
 
     if (key === 'escape' || key === 'esc') return this.onEscape();
 
-    if (key === 'backspace') {
-      if (this.deleteMention()) return true;
-      return false;
-    }
-
     if (key === 'enter' && event.alt) {
       if (this.running) {
         this.enqueueFromInput();
@@ -835,25 +830,6 @@ export class ChatApp {
     this.pickerRanked = [];
     this.tui.requestRender();
     return true;
-  }
-
-  private deleteMention(): boolean {
-    if (this.pickerMention !== undefined) return false;
-    const value = this.editor.getValue();
-    const cursor = this.editor.cursorPos;
-    const re = /@[^\s]+/g;
-    let match: RegExpExecArray | null;
-    while ((match = re.exec(value)) !== null) {
-      const start = match.index;
-      const end = start + match[0].length;
-      if (cursor > start && cursor <= end) {
-        this.editor.setValue(value.slice(0, start) + value.slice(end));
-        this.editor.setCursor(start);
-        this.tui.requestRender();
-        return true;
-      }
-    }
-    return false;
   }
 
   private pushHistory(text: string): void {
