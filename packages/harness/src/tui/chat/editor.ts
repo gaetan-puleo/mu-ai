@@ -26,6 +26,7 @@ export class MultilineEditor implements Component {
   hiddenPrefix = '';
   chipColor?: () => string;
   mentionRanges?: (value: string, cursor: number) => ChipRange[];
+  onPaste?: (text: string) => string | undefined;
   onSubmit?: (value: string) => void;
   onChange?: (value: string) => void;
 
@@ -60,7 +61,7 @@ export class MultilineEditor implements Component {
 
   handleInput(event: InputEvent): void {
     if (event.type === 'paste') {
-      this.insert(event.text);
+      this.insert(this.onPaste?.(event.text) ?? event.text);
       return;
     }
     if (event.type === 'text') {

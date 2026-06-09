@@ -190,6 +190,8 @@ export class ChatApp {
   private running = false;
   private readonly queue: string[] = [];
   private readonly pendingShell: { cmd: string; output: string }[] = [];
+  private readonly pastes = new Map<string, string>();
+  private pasteSeq = 0;
   private models: ModelInfo[] = [];
 
   private paletteCursor = 0;
@@ -240,7 +242,16 @@ export class ChatApp {
       onSubmit: (value) => this.submit(value),
       onChange: (value) => this.onInputChange(value),
     });
-    this.editor.mentionRanges = (value, cursor) => mentionRanges(value, activeMention(value, cursor)?.start);
+    this.editor.mentionRanges = (value, cursor) => {
+      const ranges = mentionRanges(value, activeMention(value, cursor)?.start);
+      for (const placeholder of this.pastes.keys()) {
+        for (let i = value.indexOf(placeholder); i !== -1; i = value.indexOf(placeholder, i + placeholder.length)) {
+          ranges.push({ start: i, end: i + placeholder.length });
+        }
+      }
+      return ranges;
+    };
+    this.editor.onPaste = (text) => this.capturePaste(text);
     this.editor.chipColor = () => {
       const bg = this.theme().styles.commandPaletteSelected.bg;
       return bg ? fgToAnsi(bg) : '';
@@ -587,6 +598,24 @@ export class ChatApp {
     });
   }
 
+  private capturePaste(text: string): string | undefined {
+    const lines = text.split('\n').length;
+    if (lines < 2 && text.length <= 200) return undefined;
+    const id = ++this.pasteSeq;
+    const summary = lines > 1 ? `${lines} lines` : `${text.length} chars`;
+    const placeholder = `[pasted #${id}, ${summary}]`;
+    this.pastes.set(placeholder, text);
+    return placeholder;
+  }
+
+  private expandPastes(text: string): string {
+    let out = text;
+    for (const [placeholder, content] of this.pastes) {
+      out = out.split(placeholder).join(content);
+    }
+    return out;
+  }
+
   private flushShellContext(userText: string): string {
     if (this.pendingShell.length === 0) return userText;
     const blocks = this.pendingShell
@@ -602,37 +631,49 @@ export class ChatApp {
     if (this.modelPickerOpen || this.sessionPickerOpen) return;
 
     this.clearError();
-    this.pushHistory(trimmed);
+    const text = this.expandPastes(trimmed);
     this.editor.setValue('');
+    this.clearPastes();
+    this.pushHistory(text);
 
-    if (trimmed.startsWith('!') || trimmed.startsWith('$')) {
-      this.runShell(trimmed.slice(1).trim());
+    if (text.startsWith('!') || text.startsWith('$')) {
+      this.runShell(text.slice(1).trim());
       return;
     }
-    if (trimmed.startsWith('/')) {
-      this.runCommand(trimmed);
+    if (text.startsWith('/')) {
+      this.runCommand(text);
       return;
     }
-    if (this.tryDispatch(trimmed)) return;
+    if (this.tryDispatch(text)) return;
 
     if (this.running) {
-      this.queue.push(trimmed);
+      this.queue.push(text);
       this.tui.requestRender();
       return;
     }
-    this.send(trimmed);
+    this.send(text);
+  }
+
+  private clearPastes(): void {
+    this.pastes.clear();
+    this.pasteSeq = 0;
   }
 
   private enqueueFromInput(): void {
     const value = this.editor.getValue().trim();
     if (!value) return;
-    this.pushHistory(value);
+    const text = this.expandPastes(value);
     this.editor.setValue('');
-    this.queue.push(value);
+    this.clearPastes();
+    this.pushHistory(text);
+    this.queue.push(text);
     this.tui.requestRender();
   }
 
   private onInputChange(value: string): void {
+    for (const placeholder of this.pastes.keys()) {
+      if (!value.includes(placeholder)) this.pastes.delete(placeholder);
+    }
     if (value !== this.paletteDismissedFor) this.paletteDismissedFor = '__none__';
     const items = this.paletteItems();
     this.paletteCursor = Math.max(0, Math.min(this.paletteCursor, Math.max(0, items.length - 1)));
