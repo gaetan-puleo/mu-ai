@@ -18,12 +18,13 @@ export {
   type ToastOptions,
 } from './views';
 export { Editor, editor, type EditorOptions } from './components/editor';
-export { ScrollView, type ScrollViewOptions, scrollView } from './components/scroll-view';
+export { ScrollView, scrollView, type ScrollViewOptions } from './components/scroll-view';
 export { type SelectItem, SelectList, selectList } from './components/select-list';
 export { type Command, CommandPalette, commandPalette, type CommandPaletteOptions } from './components/command-palette';
 
 export { type LayerHandle, type ToastHandle, TUI, type TuiOptions } from './tui';
 export { ProcessTerminal, type ProcessTerminalOptions } from './terminal';
+export { copyToClipboard } from './clipboard';
 export type { Terminal, TerminalMode } from './types/terminal';
 
 export type { InputEvent, KeyInputEvent, Modifiers, MouseInputEvent } from './events';

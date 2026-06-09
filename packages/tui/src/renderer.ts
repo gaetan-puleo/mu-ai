@@ -19,6 +19,7 @@ export interface RendererHost {
   isFocused(component: Component): boolean;
   setEntries(entries: SurfaceEntry[]): void;
   getBackdropColor(): Rgba;
+  decorateBuffer?(buffer: CellBuffer): void;
 }
 
 export class Renderer {
@@ -95,6 +96,7 @@ export class Renderer {
     } else {
       this.host.setEntries([]);
     }
+    this.host.decorateBuffer?.(buffer);
     return buffer;
   }
 

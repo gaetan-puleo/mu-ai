@@ -1,7 +1,10 @@
+import { copyToClipboard } from './clipboard';
 import type { InputEvent } from './events';
 import { InputRouter } from './inputRouter';
 import type { GlobalKeybinding } from './keybinds';
+import type { CellBuffer } from './layout/cellbuffer';
 import { colorToRgba, OPAQUE_BLACK, type Rgba } from './layout/color';
+import { highlightSelection, orderPoints, type Point, selectedText } from './selection';
 import { containsPoint } from './layout/insets';
 import type { Color } from './layout/types';
 import { type Command, commandPalette } from './components/command-palette';
@@ -12,6 +15,12 @@ import { modal, type ModalOptions, toast as toastView, type ToastKind } from './
 
 export interface TuiOptions {
   synchronizedOutput?: boolean;
+  textSelection?: boolean;
+}
+
+interface Selection {
+  anchor: Point;
+  head: Point;
 }
 
 export interface LayerHandle {
@@ -43,6 +52,10 @@ export class TUI {
   private started = false;
   private terminalFocused = true;
 
+  private lastBuffer: CellBuffer | null = null;
+  private selectAnchor: Point | null = null;
+  private selection: Selection | null = null;
+
   private readonly renderer: Renderer;
   private readonly inputRouter: InputRouter;
 
@@ -56,6 +69,7 @@ export class TUI {
           this.entries = entries;
         },
         getBackdropColor: () => this.backdrop,
+        decorateBuffer: (buffer) => this.decorateBuffer(buffer),
       },
       options.synchronizedOutput ?? true,
     );
@@ -69,6 +83,10 @@ export class TUI {
       },
       requestRender: (force) => this.requestRender(force),
     });
+
+    if (options.textSelection ?? true) {
+      this.inputRouter.addInputInterceptor((event) => this.handleSelectionInput(event));
+    }
   }
 
   setRoot(component: Component | null): void {
@@ -194,6 +212,54 @@ export class TUI {
 
   addInputInterceptor(listener: (event: InputEvent) => boolean | undefined): () => void {
     return this.inputRouter.addInputInterceptor(listener);
+  }
+
+  private handleSelectionInput(event: InputEvent): boolean | undefined {
+    if (event.type !== 'mouse') return undefined;
+    if (event.kind === 'press' && event.button === 'left') {
+      this.selectAnchor = { x: event.x, y: event.y };
+      if (this.selection) {
+        this.selection = null;
+        this.requestRender();
+      }
+      return undefined;
+    }
+    if (event.kind === 'drag' && this.selectAnchor) {
+      const head = { x: event.x, y: event.y };
+      if (!this.selection && head.x === this.selectAnchor.x && head.y === this.selectAnchor.y) return true;
+      this.selection = { anchor: this.selectAnchor, head };
+      this.requestRender();
+      return true;
+    }
+    if (event.kind === 'release') {
+      const had = this.selection !== null;
+      const text = had ? this.extractSelection() : '';
+      this.selectAnchor = null;
+      if (had) {
+        this.selection = null;
+        this.requestRender();
+        if (text.trim().length > 0) {
+          copyToClipboard(this.terminal, text);
+          this.toast('Copied to clipboard', { kind: 'success' });
+        }
+        return true;
+      }
+      return undefined;
+    }
+    return undefined;
+  }
+
+  private decorateBuffer(buffer: CellBuffer): void {
+    this.lastBuffer = buffer;
+    if (!this.selection) return;
+    const { start, end } = orderPoints(this.selection.anchor, this.selection.head);
+    highlightSelection(buffer, start, end);
+  }
+
+  private extractSelection(): string {
+    if (!this.lastBuffer || !this.selection) return '';
+    const { start, end } = orderPoints(this.selection.anchor, this.selection.head);
+    return selectedText(this.lastBuffer, start, end);
   }
 
   requestRender(force = false): void {
