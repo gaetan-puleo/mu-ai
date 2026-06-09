@@ -21,7 +21,7 @@ import {
 } from 'mu-tui';
 import { buildCommands, type ChatCommand, type CommandHost, filterCommands } from './commands';
 import { MultilineEditor } from './editor';
-import { activeMention, type Candidate, collectCandidates, rank } from './picker';
+import { activeMention, type Candidate, collectCandidates, mentionRanges, rank } from './picker';
 import { formatTokens, statusComponent, statusFromEvent, type StatusState } from './status';
 import { asHexColor, styleToAnsi, type Theme, ThemeProvider, themesByName } from './theme';
 import {
@@ -240,6 +240,7 @@ export class ChatApp {
       onSubmit: (value) => this.submit(value),
       onChange: (value) => this.onInputChange(value),
     });
+    this.editor.mentionRanges = (value, cursor) => mentionRanges(value, activeMention(value, cursor)?.start);
 
     this.scroll = scrollView(
       { render: (s) => transcriptComponent(this.transcript, this.theme()).render(s) },

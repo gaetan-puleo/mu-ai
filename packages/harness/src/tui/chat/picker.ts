@@ -165,6 +165,24 @@ export function rank(query: string, candidates: Candidate[], limit = 8): Candida
   return scored.slice(0, limit).map((entry) => entry.candidate);
 }
 
+export interface MentionRange {
+  start: number;
+  end: number;
+}
+
+export function mentionRanges(value: string, excludeStart?: number): MentionRange[] {
+  const ranges: MentionRange[] = [];
+  const re = /@[^\s]+/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(value)) !== null) {
+    const start = match.index;
+    if (start === excludeStart) continue;
+    if (start > 0 && !/\s/.test(value[start - 1] ?? ' ')) continue;
+    ranges.push({ start, end: start + match[0].length });
+  }
+  return ranges;
+}
+
 export interface ActiveMention {
   start: number;
   query: string;

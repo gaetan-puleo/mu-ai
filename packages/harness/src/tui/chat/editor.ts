@@ -11,6 +11,12 @@ export interface MultilineEditorOptions {
 const CURSOR = '\x1b[7m';
 const RESET = '\x1b[0m';
 const DIM = '\x1b[2m';
+const CHIP = '\x1b[33m';
+
+interface ChipRange {
+  start: number;
+  end: number;
+}
 
 export class MultilineEditor implements Component {
   private value = '';
@@ -18,6 +24,7 @@ export class MultilineEditor implements Component {
   private readonly placeholder: string;
   private readonly maxRows: number;
   hiddenPrefix = '';
+  mentionRanges?: (value: string, cursor: number) => ChipRange[];
   onSubmit?: (value: string) => void;
   onChange?: (value: string) => void;
 
@@ -76,10 +83,10 @@ export class MultilineEditor implements Component {
         this.deleteForward();
         return;
       case 'left':
-        this.cursor = Math.max(0, this.cursor - 1);
+        this.moveLeft();
         return;
       case 'right':
-        this.cursor = Math.min(this.value.length, this.cursor + 1);
+        this.moveRight();
         return;
       case 'home':
         this.cursor = this.lineStart();
@@ -107,16 +114,37 @@ export class MultilineEditor implements Component {
     this.onChange?.(this.value);
   }
 
+  private chips(): ChipRange[] {
+    return this.mentionRanges ? this.mentionRanges(this.value, this.cursor) : [];
+  }
+
+  private moveLeft(): void {
+    const chip = this.chips().find((c) => c.start < this.cursor && this.cursor <= c.end);
+    this.cursor = chip ? chip.start : Math.max(0, this.cursor - 1);
+  }
+
+  private moveRight(): void {
+    const chip = this.chips().find((c) => c.start <= this.cursor && this.cursor < c.end);
+    this.cursor = chip ? chip.end : Math.min(this.value.length, this.cursor + 1);
+  }
+
   private backspace(): void {
     if (this.cursor === 0) return;
-    this.value = this.value.slice(0, this.cursor - 1) + this.value.slice(this.cursor);
-    this.cursor -= 1;
+    const chip = this.chips().find((c) => c.start < this.cursor && this.cursor <= c.end);
+    const from = chip ? chip.start : this.cursor - 1;
+    const to = chip ? chip.end : this.cursor;
+    this.value = this.value.slice(0, from) + this.value.slice(to);
+    this.cursor = from;
     this.onChange?.(this.value);
   }
 
   private deleteForward(): void {
     if (this.cursor >= this.value.length) return;
-    this.value = this.value.slice(0, this.cursor) + this.value.slice(this.cursor + 1);
+    const chip = this.chips().find((c) => c.start <= this.cursor && this.cursor < c.end);
+    const from = chip ? chip.start : this.cursor;
+    const to = chip ? chip.end : this.cursor + 1;
+    this.value = this.value.slice(0, from) + this.value.slice(to);
+    this.cursor = from;
     this.onChange?.(this.value);
   }
 
@@ -143,24 +171,67 @@ export class MultilineEditor implements Component {
       return;
     }
 
+    const off = hidden ? 1 : 0;
+    const chips = this.chips()
+      .map((c) => ({ start: c.start - off, end: c.end - off }))
+      .filter((c) => c.end > 0);
+
     const lines = value.split('\n');
     const { row: cr, col: cc } = this.cursorRowCol(lines, cursorIdx);
     const height = Math.max(1, s.height);
     const top = cr >= height ? cr - height + 1 : 0;
 
-    for (let r = 0; r < height && top + r < lines.length; r++) {
-      const line = lines[top + r];
-      if (top + r === cr && s.focused) {
-        const hscroll = cc >= width ? cc - width + 1 : 0;
-        const visible = line.slice(hscroll, hscroll + width);
-        const col = cc - hscroll;
-        const before = visible.slice(0, col);
-        const at = visible.slice(col, col + 1) || ' ';
-        const after = visible.slice(col + 1);
-        s.text(0, r, `${before}${CURSOR}${at}${RESET}${after}`);
-      } else {
-        s.text(0, r, line.length > width ? line.slice(0, width) : line);
-      }
+    const lineStarts: number[] = [];
+    let offset = 0;
+    for (const line of lines) {
+      lineStarts.push(offset);
+      offset += line.length + 1;
     }
+
+    for (let r = 0; r < height && top + r < lines.length; r++) {
+      const idx = top + r;
+      const line = lines[idx];
+      const isCursorRow = idx === cr && s.focused;
+      const hscroll = isCursorRow && cc >= width ? cc - width + 1 : 0;
+      s.text(0, r, this.renderRow(line, lineStarts[idx], chips, hscroll, width, isCursorRow ? cc : null));
+    }
+  }
+
+  private renderRow(
+    line: string,
+    lineStart: number,
+    chips: ChipRange[],
+    hscroll: number,
+    width: number,
+    cursorCol: number | null,
+  ): string {
+    const inChip = (abs: number) => chips.some((c) => abs >= c.start && abs < c.end);
+    let out = '';
+    let yellow = false;
+    for (let c = hscroll; c < hscroll + width; c++) {
+      const isCursor = cursorCol !== null && c === cursorCol;
+      const hasChar = c < line.length;
+      if (!hasChar && !isCursor) break;
+      const ch = hasChar ? line[c] : ' ';
+      if (isCursor) {
+        if (yellow) {
+          out += RESET;
+          yellow = false;
+        }
+        out += `${CURSOR}${ch}${RESET}`;
+        continue;
+      }
+      const wantYellow = hasChar && inChip(lineStart + c);
+      if (wantYellow && !yellow) {
+        out += CHIP;
+        yellow = true;
+      } else if (!wantYellow && yellow) {
+        out += RESET;
+        yellow = false;
+      }
+      out += ch;
+    }
+    if (yellow) out += RESET;
+    return out;
   }
 }
