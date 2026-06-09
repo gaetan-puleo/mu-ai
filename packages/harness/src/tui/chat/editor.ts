@@ -24,6 +24,7 @@ export class MultilineEditor implements Component {
   private readonly placeholder: string;
   private readonly maxRows: number;
   hiddenPrefix = '';
+  chipColor?: () => string;
   mentionRanges?: (value: string, cursor: number) => ChipRange[];
   onSubmit?: (value: string) => void;
   onChange?: (value: string) => void;
@@ -172,6 +173,7 @@ export class MultilineEditor implements Component {
     }
 
     const off = hidden ? 1 : 0;
+    const chipColor = this.chipColor?.() || CHIP;
     const chips = this.chips()
       .map((c) => ({ start: c.start - off, end: c.end - off }))
       .filter((c) => c.end > 0);
@@ -193,7 +195,7 @@ export class MultilineEditor implements Component {
       const line = lines[idx];
       const isCursorRow = idx === cr && s.focused;
       const hscroll = isCursorRow && cc >= width ? cc - width + 1 : 0;
-      s.text(0, r, this.renderRow(line, lineStarts[idx], chips, hscroll, width, isCursorRow ? cc : null));
+      s.text(0, r, this.renderRow(line, lineStarts[idx], chips, chipColor, hscroll, width, isCursorRow ? cc : null));
     }
   }
 
@@ -201,6 +203,7 @@ export class MultilineEditor implements Component {
     line: string,
     lineStart: number,
     chips: ChipRange[],
+    chipColor: string,
     hscroll: number,
     width: number,
     cursorCol: number | null,
@@ -223,7 +226,7 @@ export class MultilineEditor implements Component {
       }
       const wantYellow = hasChar && inChip(lineStart + c);
       if (wantYellow && !yellow) {
-        out += CHIP;
+        out += chipColor;
         yellow = true;
       } else if (!wantYellow && yellow) {
         out += RESET;

@@ -23,7 +23,7 @@ import { buildCommands, type ChatCommand, type CommandHost, filterCommands } fro
 import { MultilineEditor } from './editor';
 import { activeMention, type Candidate, collectCandidates, mentionRanges, rank } from './picker';
 import { formatTokens, statusComponent, statusFromEvent, type StatusState } from './status';
-import { asHexColor, styleToAnsi, type Theme, ThemeProvider, themesByName } from './theme';
+import { asHexColor, fgToAnsi, styleToAnsi, type Theme, ThemeProvider, themesByName } from './theme';
 import {
   entryComponent,
   formatToolArgs,
@@ -241,6 +241,10 @@ export class ChatApp {
       onChange: (value) => this.onInputChange(value),
     });
     this.editor.mentionRanges = (value, cursor) => mentionRanges(value, activeMention(value, cursor)?.start);
+    this.editor.chipColor = () => {
+      const bg = this.theme().styles.commandPaletteSelected.bg;
+      return bg ? fgToAnsi(bg) : '';
+    };
 
     this.scroll = scrollView(
       { render: (s) => transcriptComponent(this.transcript, this.theme()).render(s) },
