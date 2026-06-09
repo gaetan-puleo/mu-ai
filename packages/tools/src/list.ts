@@ -5,15 +5,15 @@ import { formatError, sanitizePath, validatedCwd } from './utils';
 
 import type { ToolFactoryOptions } from './types';
 
-type ListDirToolOptions = ToolFactoryOptions;
+type ListToolOptions = ToolFactoryOptions;
 
-interface ListDirArgs {
+interface ListArgs {
   path?: unknown;
   recursive?: unknown;
   depth?: unknown;
 }
 
-function listDirRecursive(dir: string, prefix: string, depth: number, maxDepth: number, recursive: boolean): string {
+function listRecursive(dir: string, prefix: string, depth: number, maxDepth: number, recursive: boolean): string {
   let entries: string[];
   try {
     entries = readdirSync(dir).sort();
@@ -34,25 +34,25 @@ function listDirRecursive(dir: string, prefix: string, depth: number, maxDepth: 
       isSymlink = st.isSymbolicLink();
       isDir = isSymlink ? false : st.isDirectory();
     } catch {
-      lines.push(`${prefix}${connector}⚠ ${entry}`);
+      lines.push(`${prefix}${connector}${entry} [error]`);
       continue;
     }
-    const icon = isSymlink ? '🔗' : isDir ? '📁' : '📄';
-    lines.push(`${prefix}${connector}${icon} ${entry}`);
+    const suffix = isDir ? '/' : isSymlink ? '@' : '';
+    lines.push(`${prefix}${connector}${entry}${suffix}`);
 
     if (recursive && isDir && !isSymlink && depth < maxDepth) {
       const extension = isLast ? '    ' : '│   ';
-      lines.push(listDirRecursive(fullPath, prefix + extension, depth + 1, maxDepth, recursive));
+      lines.push(listRecursive(fullPath, prefix + extension, depth + 1, maxDepth, recursive));
     }
   }
 
   return lines.join('\n');
 }
 
-export function createListDirTool(opts: ListDirToolOptions): Tool {
+export function createListTool(opts: ListToolOptions): Tool {
   const getCwd = validatedCwd(opts.getCwd);
   return {
-    name: 'list_dir',
+    name: 'list',
     description:
       'List the contents of a directory, optionally recursing with a depth limit. Reuse a listing already shown in the conversation instead of listing the same path again.',
     parameters: {
@@ -66,9 +66,9 @@ export function createListDirTool(opts: ListDirToolOptions): Tool {
       additionalProperties: false,
     },
     run(input): Promise<ContentPart[]> {
-      const args = (input ?? {}) as ListDirArgs;
+      const args = (input ?? {}) as ListArgs;
       if (typeof args.path !== 'string') {
-        return Promise.resolve([text('Error: list_dir requires a string `path`')]);
+        return Promise.resolve([text('Error: list requires a string `path`')]);
       }
       const cwd = getCwd();
       const path = sanitizePath(args.path, cwd);
@@ -81,7 +81,7 @@ export function createListDirTool(opts: ListDirToolOptions): Tool {
       try {
         const recursive = typeof args.recursive === 'boolean' ? args.recursive : false;
         const maxDepth = typeof args.depth === 'number' ? args.depth : 2;
-        const lines = listDirRecursive(path, '', 0, maxDepth, recursive);
+        const lines = listRecursive(path, '', 0, maxDepth, recursive);
         return Promise.resolve([text(lines || '(empty directory)')]);
       } catch (err) {
         return Promise.resolve([text(formatError(err))]);

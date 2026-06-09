@@ -39,7 +39,7 @@ agent, `Esc Esc` cancels, `Ctrl+T` toggles the theme.
 core/            # agent loop: messages, tools, provider, createAgent
 harness/         # sessions, agents, skills, sub-agents, permissions, scheduler, plugins, chat TUI
 tui/             # terminal UI engine (parser, layout, components)
-tools/           # read, write, edit, bash, list_dir
+tools/           # read, write, edit, bash, list
 local-provider/  # llama-swap / llama.cpp provider
 webfetch/        # URL → markdown tool
 coding-agent/    # the `mu` CLI

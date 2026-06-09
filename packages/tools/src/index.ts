@@ -1,7 +1,7 @@
 import type { Tool } from 'mu-core';
 import { createBashTool } from './bash';
 import { createEditFileTool } from './edit-file';
-import { createListDirTool } from './list-dir';
+import { createListTool } from './list';
 import { createReadFileTool } from './read-file';
 import { createWriteFileTool } from './write-file';
 
@@ -23,8 +23,8 @@ export function createMuTools(options: MuToolsOptions = {}): Tool[] {
       maxOutputBytes: options.bashMaxOutputBytes,
       getAbortSignal: options.getBashAbortSignal,
     }),
-    createListDirTool({ getCwd }),
+    createListTool({ getCwd }),
   ];
 }
 
-export { createBashTool, createEditFileTool, createListDirTool, createReadFileTool, createWriteFileTool };
+export { createBashTool, createEditFileTool, createListTool, createReadFileTool, createWriteFileTool };

@@ -216,7 +216,7 @@ const truncateText = (value: string, max: number): string =>
 export function formatToolArgs(name: string, input: unknown, max = 120): string {
   if (input === null || typeof input !== 'object') return truncateText(String(input ?? ''), max);
   const args = input as Record<string, unknown>;
-  if (name === 'edit' || name === 'write' || name === 'read' || name === 'list_dir') {
+  if (name === 'edit' || name === 'write' || name === 'read' || name === 'list') {
     return truncateText(stringifyArg(args.path), max);
   }
   if (name === 'bash') return truncateText(stringifyArg(args.cmd), max);
