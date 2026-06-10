@@ -1,12 +1,13 @@
 import type { Provider } from 'mu-core';
 import type { Agent, AgentRegistry, ToolDecision } from '../agents';
 import type { CommandRegistry } from '../commands';
+import type { Scope } from '../common';
 import type { HarnessConfig, HarnessConfigOptions } from '../config';
 import type { ApprovalManager } from '../permissions';
 import type { PluginStore } from '../plugin';
 import type { Scheduler, TaskStore } from '../scheduler';
 import type { AgentSessionConfig, SessionManager } from '../session';
-import type { Skill, SkillRegistry, SkillScope } from '../skills';
+import type { Skill, SkillRegistry } from '../skills';
 import type { SubAgentRegistry, SubAgentResult } from '../subAgents';
 import type { ModelRegistry } from './models';
 
@@ -23,7 +24,17 @@ export type HarnessOptions =
      * argument is overridden (and dropped from the tool schema). Unset → the
      * model chooses, defaulting to 'local'.
      */
-    skillScope?: SkillScope;
+    skillScope?: Scope;
+    /**
+     * Forces the save location of `create_agent`. Same semantics as
+     * {@link skillScope}: set to pin the scope, leave unset to let the model choose.
+     */
+    agentScope?: Scope;
+    /**
+     * Overrides where `create_agent` writes (and which dirs are loaded at boot).
+     * Defaults to `{ local: <cwd>/agents, config: <configDir>/agents }`.
+     */
+    agentDirs?: { local?: string; config?: string };
     title?: boolean;
     titleModel?: string;
     cwd?: string;

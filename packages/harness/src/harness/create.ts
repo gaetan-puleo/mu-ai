@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import process from 'node:process';
 import type { Tool } from 'mu-core';
 import type { Agent } from '../agents';
-import { createAgentRegistry, grantArg, loadAgents, toolDecision, toolNames } from '../agents';
+import { createAgentRegistry, createAgentWriterTool, grantArg, loadAgents, toolDecision, toolNames } from '../agents';
 import {
   createAgentsCommand,
   createCommandRegistry,
@@ -55,6 +55,8 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     agents: hostAgents = [],
     skills: hostSkills = [],
     skillScope,
+    agentScope,
+    agentDirs,
     title,
     titleModel,
     scheduler: enableScheduler = false,
@@ -65,13 +67,15 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
   const config = createHarnessConfig({ hostName, xdg });
   const models = createModelRegistry({ providers, default: model });
   const pluginsDir = join(config.configDir, 'plugins');
-  const agentsDir = join(config.configDir, 'agents');
+  const agentsDir = agentDirs?.config ?? join(config.configDir, 'agents');
+  const localAgentsDir = agentDirs?.local ?? join(cwd, 'agents');
   const plugins = createPluginStore({ dir: pluginsDir });
   const newId = () => crypto.randomUUID();
 
   const pluginAgents = (sessionDefaults.plugins ?? []).flatMap((plugin) => plugin.agents ?? []);
+  const localAgents = await loadAgents(localAgentsDir);
   const diskAgents = await loadAgents(agentsDir);
-  const agents = createAgentRegistry([...hostAgents, ...pluginAgents, ...diskAgents]);
+  const agents = createAgentRegistry([...hostAgents, ...pluginAgents, ...localAgents, ...diskAgents]);
 
   const skillsDir = join(config.configDir, 'skills');
   const cwdSkillsDir = join(cwd, 'skills');
@@ -98,6 +102,11 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     registry: skills,
     forceScope: skillScope,
   });
+  const agentWriterTool = createAgentWriterTool({
+    dirs: { local: localAgentsDir, config: agentsDir },
+    registry: agents,
+    forceScope: agentScope,
+  });
   const scopeSkills = (agent?: Agent) => {
     if (!agent) return skills;
     return skills.select(
@@ -119,6 +128,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     ...extra,
     createSkillTool(scopeSkills(agent)),
     skillWriterTool,
+    agentWriterTool,
     ...schedulerTools,
   ];
 

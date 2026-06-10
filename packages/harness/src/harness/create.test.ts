@@ -121,6 +121,15 @@ Deno.test('agents: the registry is wired from the host options', async () => {
   await cleanup();
 });
 
+Deno.test('agents: createHarness loads sub-agents from a configured agentDirs.local', async () => {
+  const localDir = await Deno.makeTempDir();
+  await Deno.writeTextFile(`${localDir}/helper.md`, '---\nname: helper\ndescription: helps\n---\nYou help.');
+  const { harness, cleanup } = await makeHarness({ agentDirs: { local: localDir } });
+  assertEquals(harness.agents.get('helper')?.prompt, 'You help.');
+  await cleanup();
+  await Deno.remove(localDir, { recursive: true });
+});
+
 const waitForTitle = async (harness: Harness, id: string) => {
   for (let i = 0; i < 100; i++) {
     const record = await harness.sessions.get(id);

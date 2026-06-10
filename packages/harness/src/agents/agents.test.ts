@@ -171,3 +171,23 @@ Deno.test('registry: unknown extends / cycle => error', () => {
     'cycle',
   );
 });
+
+Deno.test('registry: add registers a new agent live and get()/list() see it', () => {
+  const reg = createAgentRegistry([{ name: 'a', description: 'A', prompt: 'PA' }]);
+  assertEquals(reg.get('b'), undefined);
+  reg.add({ name: 'b', description: 'B', prompt: 'PB', tools: ['read'] });
+  assertEquals(reg.get('b')?.prompt, 'PB');
+  assertEquals(reg.list().map((x) => x.name).sort(), ['a', 'b']);
+});
+
+Deno.test('registry: add replaces an existing agent and re-resolves its dependents', () => {
+  const reg = createAgentRegistry([
+    { name: 'base', description: '', prompt: 'OLD', tools: ['read'] },
+    { name: 'child', description: '', prompt: '', extends: 'base' },
+  ]);
+  assertEquals(reg.get('child')?.prompt, 'OLD');
+  reg.add({ name: 'base', description: '', prompt: 'NEW', tools: ['read', 'grep'] });
+  assertEquals(reg.get('base')?.prompt, 'NEW');
+  assertEquals(reg.get('child')?.prompt, 'NEW');
+  assertEquals(reg.get('child')?.tools, ['read', 'grep']);
+});
