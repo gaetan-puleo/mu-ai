@@ -116,6 +116,7 @@ async function run(): Promise<void> {
     plugins,
     agents: [...projectAgents, ...builtinAgents],
     system: BASE_SYSTEM_PROMPT,
+    sourceUrl: 'https://github.com/gaetan-puleo/mu-ai/tree/main/packages/coding-agent',
     hooks: primaryHook,
     approvals: {
       manager: approvals,

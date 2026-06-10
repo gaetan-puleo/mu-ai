@@ -8,6 +8,8 @@ Deno.test('environmentBlock lists the config, plugins, skills and sub-agents dir
     pluginsDir: '/c/plugins',
     skillsDir: '/c/skills',
     agentsDir: '/c/agents',
+    hostName: 'arya',
+    hostSourceUrl: 'https://github.com/gaetan-puleo/arya',
   });
 
   assertEquals(block.startsWith('<env>\n'), true);
@@ -17,5 +19,20 @@ Deno.test('environmentBlock lists the config, plugins, skills and sub-agents dir
   assertStringIncludes(block, 'Plugins directory: /c/plugins');
   assertStringIncludes(block, 'Skills directory: /c/skills');
   assertStringIncludes(block, 'Sub-agents directory: /c/agents');
-  assertStringIncludes(block, 'source code: https://github.com/gaetan-puleo/mu-ai');
+  assertStringIncludes(block, 'Harness (mu) source code: https://github.com/gaetan-puleo/mu-ai');
+  assertStringIncludes(block, 'arya source code: https://github.com/gaetan-puleo/arya');
+});
+
+Deno.test('environmentBlock omits the host source line when no host URL is given', () => {
+  const block = environmentBlock({
+    os: 'linux',
+    configDir: '/c',
+    pluginsDir: '/c/plugins',
+    skillsDir: '/c/skills',
+    agentsDir: '/c/agents',
+    hostName: 'mu',
+  });
+
+  assertEquals(block.includes('mu source code:'), false);
+  assertStringIncludes(block, 'Harness (mu) source code:');
 });

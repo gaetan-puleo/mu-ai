@@ -1,4 +1,4 @@
-const MU_SOURCE_URL = 'https://github.com/gaetan-puleo/mu-ai';
+const HARNESS_SOURCE_URL = 'https://github.com/gaetan-puleo/mu-ai';
 
 export interface EnvironmentInfo {
   os: string;
@@ -6,6 +6,8 @@ export interface EnvironmentInfo {
   pluginsDir: string;
   skillsDir: string;
   agentsDir: string;
+  hostName: string;
+  hostSourceUrl?: string;
 }
 
 export function environmentBlock(info: EnvironmentInfo): string {
@@ -15,7 +17,8 @@ export function environmentBlock(info: EnvironmentInfo): string {
     `Plugins directory: ${info.pluginsDir}`,
     `Skills directory: ${info.skillsDir}`,
     `Sub-agents directory: ${info.agentsDir}`,
-    `mu / harness source code: ${MU_SOURCE_URL}`,
+    `Harness (mu) source code: ${HARNESS_SOURCE_URL}`,
   ];
+  if (info.hostSourceUrl) lines.push(`${info.hostName} source code: ${info.hostSourceUrl}`);
   return `<env>\n${lines.join('\n')}\n</env>`;
 }

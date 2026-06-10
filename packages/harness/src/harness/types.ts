@@ -27,6 +27,7 @@ export type HarnessOptions =
     title?: boolean;
     titleModel?: string;
     cwd?: string;
+    sourceUrl?: string;
     scheduler?: boolean;
     approvals?: {
       manager: ApprovalManager;

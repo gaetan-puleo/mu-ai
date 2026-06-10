@@ -82,6 +82,8 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     pluginsDir,
     skillsDir,
     agentsDir,
+    hostName,
+    hostSourceUrl: options.sourceUrl,
   });
   const envHook: AgentSessionHooks = {
     prepareRequest: ({ system }) => ({ system: system ? `${system}\n\n${envBlock}` : envBlock }),
