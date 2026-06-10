@@ -13,5 +13,7 @@ export const parseSkill = (source: string, fallbackName: string, dir?: string): 
   // Emit optional keys only when present — strict-equality tests rely on no `undefined`-valued keys.
   if (dir !== undefined) skill.dir = dir;
   if (platforms.length) skill.platforms = platforms;
+  const command = str(fields.command);
+  if (command) skill.command = command;
   return skill;
 };

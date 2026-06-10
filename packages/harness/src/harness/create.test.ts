@@ -1,6 +1,7 @@
-import { assertEquals, assertThrows } from '@std/assert';
+import { assertEquals, assertStringIncludes, assertThrows } from '@std/assert';
 import type { ContentPart, Provider } from 'mu-core';
 import type { Agent } from '../agents';
+import type { Skill } from '../skills';
 import { createHarness } from './create';
 import type { Harness, HarnessOptions } from './types';
 
@@ -128,6 +129,32 @@ Deno.test('agents: createHarness loads sub-agents from a configured agentDirs.lo
   assertEquals(harness.agents.get('helper')?.prompt, 'You help.');
   await cleanup();
   await Deno.remove(localDir, { recursive: true });
+});
+
+Deno.test('skill commands: opt-in `command` registers a runnable slash command; others get none', async () => {
+  const arya: Agent = { name: 'arya', description: '', prompt: 'You are arya.' };
+  const withCmd: Skill = { name: 'greet', description: 'Greets', prompt: 'Say hello.', command: 'greet' };
+  const noCmd: Skill = { name: 'plain', description: 'Plain', prompt: 'Nothing.' };
+  const { harness, cleanup } = await makeHarness({
+    agents: [arya],
+    skills: [withCmd, noCmd],
+    providers: { local: scripted([[{ type: 'text', text: 'Hello!' }]]) },
+  });
+
+  // Registered for the opt-in skill only.
+  assertEquals(harness.commands.get('greet')?.name, 'greet');
+  assertEquals(harness.commands.get('plain'), undefined);
+
+  // Invoking it runs the skill and returns its output.
+  const result = await harness.commands.run('/greet say hi', {});
+  assertEquals(result.ok, true);
+  assertStringIncludes(String(result.output), 'Hello!');
+
+  // Survives a hot-reload (host skills persist; the command is re-synced).
+  await harness.reloadDefinitions();
+  assertEquals(harness.commands.get('greet')?.name, 'greet');
+
+  await cleanup();
 });
 
 Deno.test('reloadDefinitions: create/edit/delete agents on disk; defaultAgents is the fallback', async () => {

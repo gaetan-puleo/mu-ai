@@ -22,6 +22,11 @@ Deno.test('parseSkill reads the frontmatter and keeps the body as prompt', () =>
   });
 });
 
+Deno.test('parseSkill reads the optional command field (absent => undefined)', () => {
+  assertEquals(parseSkill('---\nname: x\ndescription: d\ncommand: do-x\n---\nbody', 'x').command, 'do-x');
+  assertEquals(parseSkill('---\nname: y\ndescription: d\n---\nbody', 'y').command, undefined);
+});
+
 Deno.test('parseSkill without frontmatter: body = prompt, name = fallback', () => {
   const skill = parseSkill('just do it', 'helper');
   assertEquals(skill.name, 'helper');

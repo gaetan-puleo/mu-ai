@@ -9,6 +9,7 @@ import {
   createCommandRegistry,
   createHelpCommand,
   createSessionsCommand,
+  createSkillCommand,
   createSkillsCommand,
 } from '../commands';
 import { createHarnessConfig } from '../config';
@@ -239,6 +240,23 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
   ]);
   commands.register(createHelpCommand(() => commands.list()));
 
+  // Register slash commands for skills that opt in via their `command` field,
+  // and keep them in sync across hot-reloads. A name already taken by another
+  // command is left alone (built-ins win).
+  const skillCommandNames = new Set<string>();
+  const syncSkillCommands = (): void => {
+    for (const name of skillCommandNames) commands.unregister(name);
+    skillCommandNames.clear();
+    for (const skill of skills.list()) {
+      if (!skill.command || commands.get(skill.command)) continue;
+      commands.register(
+        createSkillCommand(skill, { skills, agents, spawn, runs, activeAgent: () => approvals?.activeAgent() }),
+      );
+      skillCommandNames.add(skill.command);
+    }
+  };
+  syncSkillCommands();
+
   if (scheduler) await scheduler.start();
 
   return {
@@ -257,6 +275,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     reloadDefinitions: async () => {
       agents.replaceAll(await mergedAgents());
       skills.replaceAll(await mergedSkills());
+      syncSkillCommands();
     },
     scheduler,
     tasks,

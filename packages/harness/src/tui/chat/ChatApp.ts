@@ -112,6 +112,14 @@ export interface ChatHost {
    * in the status line) leave this unset (the default).
    */
   minimal?: boolean;
+  /**
+   * Harness slash commands to surface in the TUI alongside the built-in ones
+   * (e.g. `/agents`, skill commands). Called fresh so hot-reloaded commands show
+   * up. A name that collides with a built-in TUI command is ignored.
+   */
+  commands?(): { name: string; description: string }[];
+  /** Runs a harness command (e.g. "/agents foo"); its output is shown in the transcript. */
+  runCommand?(input: string): Promise<{ ok: boolean; output?: unknown; error?: string }>;
   onExit(code: number): void;
 }
 
@@ -810,8 +818,34 @@ export class ChatApp {
     this.tui.requestRender();
   }
 
+  // Built-in TUI commands plus any harness commands (computed fresh so hot-reloaded
+  // skill commands appear). Harness names that collide with a TUI command are dropped.
+  private harnessCommands(): ChatCommand[] {
+    if (!this.host.commands || !this.host.runCommand) return [];
+    const taken = new Set(this.commands.map((c) => c.name));
+    return this.host.commands()
+      .filter((c) => !taken.has(c.name))
+      .map((c): ChatCommand => ({
+        name: c.name,
+        description: c.description,
+        run: async (args) => {
+          const res = await this.host.runCommand!(`/${c.name}${args ? ` ${args}` : ''}`);
+          if (res.ok) {
+            if (res.output != null) this.transcript.note(String(res.output));
+          } else {
+            this.transcript.note(res.error ?? 'command failed', true);
+          }
+          this.tui.requestRender();
+        },
+      }));
+  }
+
+  private allCommands(): ChatCommand[] {
+    return [...this.commands, ...this.harnessCommands()];
+  }
+
   private paletteItems(): ChatCommand[] {
-    return filterCommands(this.commands, this.editor.getValue(), this.paletteDismissedFor).slice(0, MAX_LIST_ROWS);
+    return filterCommands(this.allCommands(), this.editor.getValue(), this.paletteDismissedFor).slice(0, MAX_LIST_ROWS);
   }
 
   private paletteMove(delta: number): boolean {
@@ -846,7 +880,7 @@ export class ChatApp {
     const space = body.indexOf(' ');
     const name = (space === -1 ? body : body.slice(0, space)).toLowerCase();
     const args = space === -1 ? '' : body.slice(space + 1).trim();
-    const command = this.commands.find((c) => c.name === name);
+    const command = this.allCommands().find((c) => c.name === name);
     if (!command) {
       this.transcript.note(`Unknown command: /${name}`, true);
       this.tui.requestRender();
