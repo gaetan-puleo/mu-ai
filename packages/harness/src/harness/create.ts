@@ -33,6 +33,7 @@ import {
   runSkill,
 } from '../skills';
 import { createSubAgentRegistry, createSubAgentTool, runSubAgent } from '../subAgents';
+import { environmentBlock } from './environment';
 import { createModelRegistry } from './models';
 import type { Harness, HarnessOptions } from './types';
 
@@ -62,15 +63,23 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
   const cwd = options.cwd ?? process.cwd();
   const config = createHarnessConfig({ hostName, xdg });
   const models = createModelRegistry({ providers, default: model });
-  const plugins = createPluginStore({ dir: join(config.configDir, 'plugins') });
+  const pluginsDir = join(config.configDir, 'plugins');
+  const agentsDir = join(config.configDir, 'agents');
+  const plugins = createPluginStore({ dir: pluginsDir });
   const newId = () => crypto.randomUUID();
 
   const pluginAgents = (sessionDefaults.plugins ?? []).flatMap((plugin) => plugin.agents ?? []);
-  const diskAgents = await loadAgents(join(config.configDir, 'agents'));
+  const diskAgents = await loadAgents(agentsDir);
   const agents = createAgentRegistry([...hostAgents, ...pluginAgents, ...diskAgents]);
 
   const skillsDir = join(config.configDir, 'skills');
   const cwdSkillsDir = join(cwd, 'skills');
+
+  const envBlock = environmentBlock({ configDir: config.configDir, pluginsDir, skillsDir, agentsDir });
+  const envHook: AgentSessionHooks = {
+    prepareRequest: ({ system }) => ({ system: system ? `${system}\n\n${envBlock}` : envBlock }),
+  };
+
   const pluginSkills = (sessionDefaults.plugins ?? []).flatMap((plugin) => plugin.skills ?? []);
   const cwdSkills = await loadSkills(cwdSkillsDir);
   const diskSkills = await loadSkills(skillsDir);
@@ -132,7 +141,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
       store,
       persona(agent, {
         tools: sessionTools(agent),
-        hooks: mergeHooks([sessionDefaults.hooks, allowList(toolNames(agent)), approvalHook(() => agent)]),
+        hooks: mergeHooks([sessionDefaults.hooks, allowList(toolNames(agent)), approvalHook(() => agent), envHook]),
       }),
     );
 
@@ -182,7 +191,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     revive: ({ id, model: ref, messages }) =>
       createAgentSession({
         ...sessionDefaults,
-        hooks: mergeHooks([sessionDefaults.hooks, approvalHook(() => approvals?.activeAgent())]),
+        hooks: mergeHooks([sessionDefaults.hooks, approvalHook(() => approvals?.activeAgent()), envHook]),
         tools: sessionTools(undefined, [createSubAgentTool({ registry: agents, spawn, runs, parentId: id })]),
         ...models.resolve(ref),
         id,
