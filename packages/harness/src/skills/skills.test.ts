@@ -1,12 +1,10 @@
-import { assertEquals, assertStringIncludes } from '@std/assert';
-import { readFile } from 'node:fs/promises';
+import { assertEquals } from '@std/assert';
 import { join } from 'node:path';
 import { parseSkill } from './parser';
 import { loadSkills } from './loader';
 import { skillMatchesPlatform } from './platform';
 import { createSkillRegistry } from './registry';
 import { createSkillTool } from './tool';
-import { createSkillWriterTool } from './writer';
 
 Deno.test('parseSkill reads the frontmatter and keeps the body as prompt', () => {
   const skill = parseSkill(
@@ -91,44 +89,6 @@ Deno.test('skill tool over a select() view: catalog and loading are scoped', asy
 
   const denied = await tool.run({ name: 'commit' }, {});
   assertEquals(denied[0], { type: 'text', text: 'Error: unknown skill "commit".' });
-});
-
-Deno.test('create_skill writes locally by default and to config on demand, and registers', async () => {
-  const root = await Deno.makeTempDir();
-  const local = join(root, 'local');
-  const config = join(root, 'config');
-  const reg = createSkillRegistry();
-  const tool = createSkillWriterTool({ dirs: { local, config }, registry: reg });
-
-  const made = await tool.run({ name: 'My Skill', description: 'd', instructions: 'BODY' }, {});
-  assertStringIncludes((made[0] as { text: string }).text, join(local, 'my-skill', 'SKILL.md'));
-  assertEquals(reg.get('my-skill')?.prompt, 'BODY');
-  assertStringIncludes(await readFile(join(local, 'my-skill', 'SKILL.md'), 'utf-8'), 'BODY');
-
-  const global = await tool.run({ name: 'glob', description: 'd', instructions: 'G', scope: 'config' }, {});
-  assertStringIncludes((global[0] as { text: string }).text, join(config, 'glob', 'SKILL.md'));
-  assertEquals(reg.get('glob')?.dir, join(config, 'glob'));
-
-  await Deno.remove(root, { recursive: true });
-});
-
-Deno.test('create_skill forceScope overrides the model scope and drops it from the schema', async () => {
-  const root = await Deno.makeTempDir();
-  const local = join(root, 'local');
-  const config = join(root, 'config');
-  const reg = createSkillRegistry();
-  const tool = createSkillWriterTool({ dirs: { local, config }, registry: reg, forceScope: 'config' });
-
-  // No `scope` property is offered to the model when a scope is forced.
-  const props = (tool.parameters as { properties: Record<string, unknown> }).properties;
-  assertEquals('scope' in props, false);
-
-  // Even when the model tries to pass scope: 'local', it lands in config.
-  const made = await tool.run({ name: 'forced', description: 'd', instructions: 'B', scope: 'local' }, {});
-  assertStringIncludes((made[0] as { text: string }).text, join(config, 'forced', 'SKILL.md'));
-  assertEquals(reg.get('forced')?.dir, join(config, 'forced'));
-
-  await Deno.remove(root, { recursive: true });
 });
 
 const writeSkill = async (root: string, relDir: string, frontmatter: string, body = 'BODY'): Promise<void> => {

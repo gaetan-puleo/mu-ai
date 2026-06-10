@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import process from 'node:process';
 import type { Tool } from 'mu-core';
 import type { Agent } from '../agents';
-import { createAgentRegistry, createAgentWriterTool, grantArg, loadAgents, toolDecision, toolNames } from '../agents';
+import { createAgentRegistry, grantArg, loadAgents, toolDecision, toolNames } from '../agents';
 import {
   createAgentsCommand,
   createCommandRegistry,
@@ -26,14 +26,7 @@ import {
   persistTo,
   runTitler,
 } from '../session';
-import {
-  createRunSkillTool,
-  createSkillRegistry,
-  createSkillTool,
-  createSkillWriterTool,
-  loadSkills,
-  runSkill,
-} from '../skills';
+import { createRunSkillTool, createSkillRegistry, createSkillTool, loadSkills, runSkill } from '../skills';
 import { createSubAgentRegistry, createSubAgentTool, runSubAgent } from '../subAgents';
 import { environmentBlock } from './environment';
 import { createModelRegistry } from './models';
@@ -56,8 +49,6 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     agents: hostAgents = [],
     defaultAgents = [],
     skills: hostSkills = [],
-    skillScope,
-    agentScope,
     agentDirs,
     title,
     titleModel,
@@ -111,16 +102,6 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     ...await loadSkills(skillsDir),
   ];
   const skills = createSkillRegistry(await mergedSkills());
-  const skillWriterTool = createSkillWriterTool({
-    dirs: { local: cwdSkillsDir, config: skillsDir },
-    registry: skills,
-    forceScope: skillScope,
-  });
-  const agentWriterTool = createAgentWriterTool({
-    dirs: { local: localAgentsDir, config: agentsDir },
-    registry: agents,
-    forceScope: agentScope,
-  });
   const scopeSkills = (agent?: Agent) => {
     if (!agent) return skills;
     return skills.select(
@@ -141,8 +122,6 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     ...(sessionDefaults.tools ?? []),
     ...extra,
     createSkillTool(scopeSkills(agent)),
-    skillWriterTool,
-    agentWriterTool,
     ...schedulerTools,
   ];
 
