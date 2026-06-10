@@ -4,12 +4,21 @@ export interface SkillRegistry {
   list(): Skill[];
   get(name: string): Skill | undefined;
   add(skill: Skill): void;
+  /**
+   * Replace the entire set in place (rebuild) — used by hot-reload to reflect
+   * created, edited, and deleted skills. Existing references see the new set.
+   */
+  replaceAll(skills: Skill[]): void;
   select(names: string[]): SkillRegistry;
 }
 
 export const createSkillRegistry = (skills: Skill[] = []): SkillRegistry => {
   const byName = new Map<string, Skill>();
-  for (const skill of skills) if (!byName.has(skill.name)) byName.set(skill.name, skill);
+  const load = (list: Skill[]): void => {
+    byName.clear();
+    for (const skill of list) if (!byName.has(skill.name)) byName.set(skill.name, skill);
+  };
+  load(skills);
 
   const view = (allow?: Set<string>): SkillRegistry => ({
     list: () => [...byName.values()].filter((skill) => !allow || allow.has(skill.name)),
@@ -18,6 +27,7 @@ export const createSkillRegistry = (skills: Skill[] = []): SkillRegistry => {
       byName.set(skill.name, skill);
       allow?.add(skill.name);
     },
+    replaceAll: (list) => load(list),
     select: (names) => view(new Set(allow ? names.filter((name) => allow.has(name)) : names)),
   });
 

@@ -40,6 +40,21 @@ Deno.test('registry: first wins, add replaces', () => {
   assertEquals(reg.list().length, 1);
 });
 
+Deno.test('registry: replaceAll rebuilds in place — add, edit and delete', () => {
+  const reg = createSkillRegistry([
+    { name: 'a', description: 'A1', prompt: 'PA' },
+    { name: 'b', description: 'B', prompt: 'PB' },
+  ]);
+  assertEquals(reg.list().map((s) => s.name).sort(), ['a', 'b']);
+  reg.replaceAll([
+    { name: 'a', description: 'A2', prompt: 'PA2' }, // edited
+    { name: 'c', description: 'C', prompt: 'PC' }, // added; b removed
+  ]);
+  assertEquals(reg.list().map((s) => s.name).sort(), ['a', 'c']);
+  assertEquals(reg.get('a')?.description, 'A2');
+  assertEquals(reg.get('b'), undefined);
+});
+
 Deno.test('skill tool: dynamic catalog and body loading', async () => {
   const reg = createSkillRegistry();
   const tool = createSkillTool(reg);

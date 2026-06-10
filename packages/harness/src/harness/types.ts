@@ -18,6 +18,11 @@ export type HarnessOptions =
     providers: Record<string, Provider>;
     model: string;
     agents?: Agent[];
+    /**
+     * Lowest-priority fallback agents (e.g. a host's built-in primary). Merged
+     * last, so disk- or host-defined agents of the same name override them.
+     */
+    defaultAgents?: Agent[];
     skills?: Skill[];
     /**
      * Forces the save location of `create_skill`. When set, the model's `scope`
@@ -56,6 +61,12 @@ export interface Harness {
   readonly skills: SkillRegistry;
   readonly subAgents: SubAgentRegistry;
   dispatchSubAgent(agent: string, task: string, parentId: string): Promise<SubAgentResult>;
+  /**
+   * Re-read the on-disk agent and skill directories and refresh the registries
+   * in place (create/edit/delete), preserving host/plugin/default contributions.
+   * Lets a host hot-reload definitions without a restart.
+   */
+  reloadDefinitions(): Promise<void>;
   readonly commands: CommandRegistry;
   readonly scheduler?: Scheduler;
   readonly tasks?: TaskStore;

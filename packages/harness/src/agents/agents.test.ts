@@ -191,3 +191,18 @@ Deno.test('registry: add replaces an existing agent and re-resolves its dependen
   assertEquals(reg.get('child')?.prompt, 'NEW');
   assertEquals(reg.get('child')?.tools, ['read', 'grep']);
 });
+
+Deno.test('registry: replaceAll rebuilds in place — add, edit and delete', () => {
+  const reg = createAgentRegistry([
+    { name: 'a', description: 'A1', prompt: 'PA' },
+    { name: 'b', description: 'B', prompt: 'PB' },
+  ]);
+  assertEquals(reg.list().map((x) => x.name).sort(), ['a', 'b']);
+  reg.replaceAll([
+    { name: 'a', description: 'A2', prompt: 'PA2' }, // edited
+    { name: 'c', description: 'C', prompt: 'PC' }, // added; b removed
+  ]);
+  assertEquals(reg.list().map((x) => x.name).sort(), ['a', 'c']);
+  assertEquals(reg.get('a')?.description, 'A2');
+  assertEquals(reg.get('b'), undefined);
+});

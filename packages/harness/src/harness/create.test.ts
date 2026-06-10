@@ -130,6 +130,35 @@ Deno.test('agents: createHarness loads sub-agents from a configured agentDirs.lo
   await Deno.remove(localDir, { recursive: true });
 });
 
+Deno.test('reloadDefinitions: create/edit/delete agents on disk; defaultAgents is the fallback', async () => {
+  const localDir = await Deno.makeTempDir();
+  const fallback: Agent = { name: 'arya', description: 'built-in', prompt: 'BUILTIN' };
+  const { harness, cleanup } = await makeHarness({ agentDirs: { local: localDir }, defaultAgents: [fallback] });
+
+  // Fallback present when nothing is on disk.
+  assertEquals(harness.agents.get('arya')?.prompt, 'BUILTIN');
+
+  // Create on disk + reload → visible.
+  await Deno.writeTextFile(`${localDir}/helper.md`, '---\nname: helper\ndescription: h\n---\nYou help.');
+  await harness.reloadDefinitions();
+  assertEquals(harness.agents.get('helper')?.prompt, 'You help.');
+
+  // A disk agent overrides the default fallback by name.
+  await Deno.writeTextFile(`${localDir}/arya.md`, '---\nname: arya\ndescription: custom\n---\nCUSTOM');
+  await harness.reloadDefinitions();
+  assertEquals(harness.agents.get('arya')?.prompt, 'CUSTOM');
+
+  // Delete both → override gives way to the fallback, helper disappears.
+  await Deno.remove(`${localDir}/arya.md`);
+  await Deno.remove(`${localDir}/helper.md`);
+  await harness.reloadDefinitions();
+  assertEquals(harness.agents.get('arya')?.prompt, 'BUILTIN');
+  assertEquals(harness.agents.get('helper'), undefined);
+
+  await cleanup();
+  await Deno.remove(localDir, { recursive: true });
+});
+
 const waitForTitle = async (harness: Harness, id: string) => {
   for (let i = 0; i < 100; i++) {
     const record = await harness.sessions.get(id);

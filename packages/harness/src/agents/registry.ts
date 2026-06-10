@@ -11,6 +11,11 @@ export interface AgentRegistry {
    * re-resolved so they pick up the change.
    */
   add(agent: Agent): void;
+  /**
+   * Replace the entire set in place (rebuild) — used by hot-reload to reflect
+   * created, edited, and deleted definitions. Existing references see the new set.
+   */
+  replaceAll(agents: Agent[]): void;
 }
 
 const asMap = (grants: ToolGrants | undefined): Record<string, GrantValue> | undefined => {
@@ -74,7 +79,7 @@ const merge = (base: Agent, child: Agent): Agent => ({
 
 export const createAgentRegistry = (agents: Agent[] = []): AgentRegistry => {
   const raw = new Map<string, Agent>();
-  for (const agent of agents) if (!raw.has(agent.name)) raw.set(agent.name, agent);
+  const byName = new Map<string, Agent>();
 
   const resolve = (name: string, seen: Set<string>): Agent => {
     const agent = raw.get(name)!;
@@ -85,8 +90,15 @@ export const createAgentRegistry = (agents: Agent[] = []): AgentRegistry => {
     return merge(resolve(agent.extends, new Set(seen).add(name)), agent);
   };
 
-  const byName = new Map<string, Agent>();
-  for (const name of raw.keys()) byName.set(name, resolve(name, new Set()));
+  // Rebuild both maps in place so existing holders of this registry see the new set.
+  const load = (list: Agent[]): void => {
+    raw.clear();
+    for (const agent of list) if (!raw.has(agent.name)) raw.set(agent.name, agent);
+    byName.clear();
+    for (const name of raw.keys()) byName.set(name, resolve(name, new Set()));
+  };
+
+  load(agents);
 
   return {
     list: () => [...byName.values()],
@@ -96,5 +108,6 @@ export const createAgentRegistry = (agents: Agent[] = []): AgentRegistry => {
       byName.set(agent.name, resolve(agent.name, new Set()));
       for (const [name, a] of raw) if (a.extends === agent.name) byName.set(name, resolve(name, new Set()));
     },
+    replaceAll: (list) => load(list),
   };
 };

@@ -53,6 +53,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     providers,
     model,
     agents: hostAgents = [],
+    defaultAgents = [],
     skills: hostSkills = [],
     skillScope,
     agentScope,
@@ -73,9 +74,17 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
   const newId = () => crypto.randomUUID();
 
   const pluginAgents = (sessionDefaults.plugins ?? []).flatMap((plugin) => plugin.agents ?? []);
-  const localAgents = await loadAgents(localAgentsDir);
-  const diskAgents = await loadAgents(agentsDir);
-  const agents = createAgentRegistry([...hostAgents, ...pluginAgents, ...localAgents, ...diskAgents]);
+  const loadDiskAgents = async (): Promise<
+    Agent[]
+  > => [...await loadAgents(localAgentsDir), ...await loadAgents(agentsDir)];
+  // Priority (first wins): host > plugin > local dir > config dir > default fallback.
+  const mergedAgents = async (): Promise<Agent[]> => [
+    ...hostAgents,
+    ...pluginAgents,
+    ...await loadDiskAgents(),
+    ...defaultAgents,
+  ];
+  const agents = createAgentRegistry(await mergedAgents());
 
   const skillsDir = join(config.configDir, 'skills');
   const cwdSkillsDir = join(cwd, 'skills');
@@ -94,9 +103,13 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
   };
 
   const pluginSkills = (sessionDefaults.plugins ?? []).flatMap((plugin) => plugin.skills ?? []);
-  const cwdSkills = await loadSkills(cwdSkillsDir);
-  const diskSkills = await loadSkills(skillsDir);
-  const skills = createSkillRegistry([...hostSkills, ...pluginSkills, ...cwdSkills, ...diskSkills]);
+  const mergedSkills = async () => [
+    ...hostSkills,
+    ...pluginSkills,
+    ...await loadSkills(cwdSkillsDir),
+    ...await loadSkills(skillsDir),
+  ];
+  const skills = createSkillRegistry(await mergedSkills());
   const skillWriterTool = createSkillWriterTool({
     dirs: { local: cwdSkillsDir, config: skillsDir },
     registry: skills,
@@ -240,6 +253,10 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
       const def = agents.get(agent);
       if (!def) throw new Error(`unknown sub-agent "${agent}"`);
       return await runSubAgent(def, task, { spawn, runs, parentId });
+    },
+    reloadDefinitions: async () => {
+      agents.replaceAll(await mergedAgents());
+      skills.replaceAll(await mergedSkills());
     },
     scheduler,
     tasks,
