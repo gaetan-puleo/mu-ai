@@ -104,12 +104,12 @@ export interface ChatHost {
    */
   banner?: string;
   /**
-   * Lean input presentation: drop the surface-background input frame, the
-   * model/provider/agent footer inside the input, and the context readout on
-   * the status bar — leaving a bare prompt + editor. The {@link ChatHost.banner}
+   * Lean input presentation: keep the surface-background input frame but drop
+   * the model/provider/agent footer inside the input and the context readout on
+   * the status bar — leaving a framed prompt + editor. The {@link ChatHost.banner}
    * splash is independent and still shown if set. Hosts that want the full
-   * information-rich input (surface frame, model · provider · @agent footer,
-   * token/context usage in the status line) leave this unset (the default).
+   * information-rich input (model · provider · @agent footer, token/context usage
+   * in the status line) leave this unset (the default).
    */
   minimal?: boolean;
   onExit(code: number): void;
@@ -1240,7 +1240,6 @@ export class ChatApp {
 
   private inputPanel(): Component {
     const inner = this.approvalView() ?? this.editorInner();
-    if (this.minimal) return box(inner, { padding: 0 });
     return box(inner, { background: this.theme().colors.surface, padding: 1 });
   }
 
