@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
 import type { Tool } from 'mu-core';
@@ -75,7 +76,13 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
   const skillsDir = join(config.configDir, 'skills');
   const cwdSkillsDir = join(cwd, 'skills');
 
-  const envBlock = environmentBlock({ configDir: config.configDir, pluginsDir, skillsDir, agentsDir });
+  const envBlock = environmentBlock({
+    os: `${os.platform()} ${os.release()} (${os.arch()})`,
+    configDir: config.configDir,
+    pluginsDir,
+    skillsDir,
+    agentsDir,
+  });
   const envHook: AgentSessionHooks = {
     prepareRequest: ({ system }) => ({ system: system ? `${system}\n\n${envBlock}` : envBlock }),
   };
