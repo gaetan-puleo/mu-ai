@@ -706,7 +706,8 @@
           "dependencies": [
             "npm:@swc/wasm-typescript@^1.15.0",
             "npm:cli-highlight@^2.1.11",
-            "npm:croner@9"
+            "npm:croner@9",
+            "npm:ws@^8.18.0"
           ]
         }
       },
