@@ -51,8 +51,14 @@ export interface ChannelHost {
  */
 export async function runChannels(opts: RunChannelsOptions): Promise<ChannelHost> {
   const { harness, approvals, adapters, idGen } = opts;
+  // Channels bind to a SPECIFIC session id: reopen it from disk if it exists,
+  // else create it. This is what lets a network adapter address persisted
+  // sessions by id (a plain `() => create()` could only ever make new ones).
   const manager = createChannelManager({
-    createSession: () => harness.sessions.create(),
+    createSession: async (id) => {
+      const stored = await harness.sessions.read(id);
+      return stored ? await harness.sessions.open(id) : harness.sessions.create({ id });
+    },
     idGen,
   });
 

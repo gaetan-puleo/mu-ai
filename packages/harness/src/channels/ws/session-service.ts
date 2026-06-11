@@ -1,8 +1,8 @@
 import type { Message } from 'mu-core';
 import type { Agent } from '../../agents';
-import type { AgentSession } from '../../session';
 import type { SubAgentRegistry } from '../../subAgents';
 import type { Harness } from '../../harness/types';
+import type { ChannelManager } from '../types';
 import { messagesToWire, type WireMessage } from './wire';
 
 export interface SessionSummaryWire {
@@ -23,14 +23,15 @@ export interface PersistedSessionWire {
 }
 
 /**
- * The session-facing operations the WebSocket adapter needs, backed by a harness.
- * Caches live sessions by id (so a session opened for streaming is reused) and
- * exposes both wire-mapped summaries/history (for the companion) and lossless
- * `rawMessages` (for the TUI client). Generalized from arya's runtime.
+ * Session-store operations the WebSocket adapter needs that the
+ * {@link ChannelManager} doesn't cover (list / history / fork / create / rename
+ * / delete). The LIVE conversation itself flows through the manager's channels;
+ * here we read a channel's live `messages` when present, falling back to disk.
+ * Wire-mapped summaries/history are for the companion; `rawMessages` is the
+ * lossless mu-core view for the TUI client.
  */
 export interface SessionService {
   agents(): Agent[];
-  session(id: string): Promise<AgentSession>;
   create(id: string, title?: string): Promise<void>;
   list(): Promise<SessionSummaryWire[]>;
   history(id: string): Promise<PersistedSessionWire | null>;
@@ -41,27 +42,20 @@ export interface SessionService {
   readonly subAgents: SubAgentRegistry;
 }
 
-export function createSessionService(harness: Harness): SessionService {
+export function createSessionService(harness: Harness, manager: ChannelManager): SessionService {
   const { sessions, agents } = harness;
-  const cache = new Map<string, AgentSession>();
 
-  const liveSession = async (id: string): Promise<AgentSession> => {
-    const cached = cache.get(id);
-    if (cached) return cached;
-    const stored = await sessions.read(id);
-    const session = stored ? await sessions.open(id) : sessions.create({ id });
-    cache.set(id, session);
-    return session;
+  // A channel's live, in-memory messages (authoritative once a turn has run);
+  // otherwise read the persisted copy from disk.
+  const messagesOf = async (id: string): Promise<Message[] | undefined> => {
+    const live = manager.get(id)?.messages;
+    return live ? [...live] : (await sessions.read(id))?.messages;
   };
-
-  const messagesOf = async (id: string): Promise<Message[] | undefined> =>
-    cache.get(id) ? [...cache.get(id)!.messages] : (await sessions.read(id))?.messages;
 
   return {
     agents: () => agents.list(),
-    session: liveSession,
     create: async (id, title) => {
-      cache.set(id, sessions.create({ id }));
+      sessions.create({ id });
       if (title) sessions.rename(id, title);
     },
     list: async () => {
@@ -95,14 +89,9 @@ export function createSessionService(harness: Harness): SessionService {
     rawMessages: async (id) => (await messagesOf(id)) ?? [],
     fork: async (id, upToIndex) => {
       const forked = await sessions.fork(id, upToIndex);
-      cache.set(forked.id, forked);
       return { id: forked.id, messages: [...forked.messages] };
     },
-    delete: async (id) => {
-      cache.get(id)?.abort();
-      cache.delete(id);
-      await sessions.delete(id);
-    },
+    delete: async (id) => sessions.delete(id),
     rename: (id, title) => sessions.rename(id, title),
     subAgents: harness.subAgents,
   };

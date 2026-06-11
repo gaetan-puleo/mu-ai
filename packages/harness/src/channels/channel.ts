@@ -6,17 +6,26 @@ import type { Channel } from './types';
 export const createChannel = (config: {
   id: string;
   title: string;
-  createSession: () => AgentSession;
+  /**
+   * Lazily produce the channel's session. Receives the channel id so a host can
+   * bind the channel to a SPECIFIC (possibly persisted, reopened-from-disk)
+   * session — hence the optional Promise return.
+   */
+  createSession: (id: string) => AgentSession | Promise<AgentSession>;
 }): Channel => {
   let session: AgentSession | undefined;
+  let pending: Promise<AgentSession> | undefined;
   const emitter = createEmitter<AgentSessionEvent>();
 
-  const ensure = (): AgentSession => {
-    if (!session) {
-      session = config.createSession();
-      session.subscribe(emitter.emit);
+  const ensure = (): Promise<AgentSession> => {
+    if (!pending) {
+      pending = Promise.resolve(config.createSession(config.id)).then((s) => {
+        session = s;
+        s.subscribe(emitter.emit);
+        return s;
+      });
     }
-    return session;
+    return pending;
   };
 
   return {
@@ -28,7 +37,7 @@ export const createChannel = (config: {
     get messages() {
       return session?.messages ?? [];
     },
-    send: (input: string | ContentPart[]) => ensure().send(input),
+    send: async (input: string | ContentPart[]) => (await ensure()).send(input),
     abort: () => session?.abort(),
     subscribe: emitter.subscribe,
   };

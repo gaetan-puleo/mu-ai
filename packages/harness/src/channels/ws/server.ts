@@ -1,10 +1,11 @@
 import type { IncomingMessage } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { Command } from '../../commands';
+import type { AgentSessionEvent } from '../../session';
 import type { ChannelAdapter, ChannelAdapterContext, ChannelAdapterHandle } from '../adapter';
-import { createSessionBridge, type SessionBridge } from './bridge';
 import { createSessionService } from './session-service';
 import { observeSubAgent } from './sub-agent';
+import { emitSessionEvent } from './wire-events';
 import {
   approvalRequestToWire,
   parseInbound,
@@ -45,9 +46,11 @@ function toWireCommands(commands: Command[]): WireCommand[] {
 
 /**
  * Serves a harness over WebSocket: companion + TUI clients connect, drive sessions,
- * switch models, fork, dispatch sub-agents, and answer approvals. Generalized from
- * arya's bespoke server. Frames are broadcast to all clients (each carries a
- * `sessionId`); rich clients scope by `sessionId` on their end.
+ * switch models, fork, dispatch sub-agents, and answer approvals. A real
+ * {@link ChannelAdapter}: live conversations are opened through the shared
+ * ChannelManager and their events arrive via a single `manager.subscribe` — so
+ * `manager.list()` / `manager.subscribe` reflect the real state. Frames are
+ * broadcast to all clients (each carries a `sessionId`); rich clients scope by it.
  */
 export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapter {
   const log = opts.log ?? (() => {});
@@ -61,12 +64,12 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
   return adapter;
 
   async function start(ctx: ChannelAdapterContext): Promise<ChannelAdapterHandle> {
-    const { harness, approvals } = ctx;
-    const service = createSessionService(harness);
+    const { harness, approvals, manager } = ctx;
+    const service = createSessionService(harness, manager);
     const commands = harness.commands;
 
     const clients = new Map<WebSocket, ClientSession>();
-    const bridges = new Map<string, SessionBridge>();
+    const toolNamesBySession = new Map<string, Map<string, string>>();
     const approvalSessions = new Map<string, string>();
     let currentApprovalSessionId: string | null = null;
 
@@ -83,6 +86,21 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event));
     }
     pushFn = push;
+
+    // Single outbound path: every channel's events flow through the shared
+    // ChannelManager and are translated to wire frames here, keyed by channelId.
+    const managerUnsub = manager.subscribe((event) => {
+      if (event.type === 'channel_open' || event.type === 'channel_close') return;
+      const sessionId = event.channelId;
+      let toolNames = toolNamesBySession.get(sessionId);
+      if (!toolNames) {
+        toolNames = new Map();
+        toolNamesBySession.set(sessionId, toolNames);
+      }
+      emitSessionEvent(sessionId, event as AgentSessionEvent, toolNames, push, (sid) => {
+        currentApprovalSessionId = sid;
+      });
+    });
 
     const getAgents = (): WireAgent[] =>
       service.agents().map((a) => ({ name: a.name, description: a.description, color: a.color }));
@@ -102,22 +120,6 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
       }
     }
 
-    async function activate(sessionId: string): Promise<SessionBridge> {
-      const existing = bridges.get(sessionId);
-      if (existing) return existing;
-      const session = await service.session(sessionId);
-      const bridge = createSessionBridge({
-        sessionId,
-        getSession: () => session,
-        broadcast: push,
-        onTurnStart: (sid) => {
-          currentApprovalSessionId = sid;
-        },
-      });
-      bridges.set(sessionId, bridge);
-      return bridge;
-    }
-
     async function refreshSessions(sessionId: string, kind: WireSessionChangeKind): Promise<void> {
       push({ type: 'sessions:changed', sessionId, kind });
       push({ type: 'sessions:listed', sessions: await service.list() });
@@ -129,8 +131,8 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
           const sessionId = msg.sessionId ?? client.sessionId;
           client.sessionId = sessionId;
           currentApprovalSessionId = sessionId;
-          const bridge = await activate(sessionId);
-          void bridge.send(msg.text).catch((err: unknown) => {
+          const channel = manager.get(sessionId) ?? manager.open({ id: sessionId });
+          void channel.send(msg.text).catch((err: unknown) => {
             push({ type: 'error', sessionId, message: err instanceof Error ? err.message : String(err) });
           });
           return;
@@ -174,12 +176,10 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
             reason: 'echo-only (server uses a single configured primary agent)',
           });
           return;
-        case 'abort': {
-          const session = await service.session(msg.sessionId);
-          session.abort();
+        case 'abort':
+          manager.get(msg.sessionId)?.abort();
           push({ type: 'turn_end', sessionId: msg.sessionId, reason: 'aborted' });
           return;
-        }
         case 'models:list': {
           const frame = await modelsFrame();
           if (frame) send(client.ws, frame);
@@ -211,8 +211,9 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
           return;
         }
         case 'sessions:delete': {
-          bridges.get(msg.sessionId)?.detach();
-          bridges.delete(msg.sessionId);
+          manager.get(msg.sessionId)?.abort();
+          manager.close(msg.sessionId);
+          toolNamesBySession.delete(msg.sessionId);
           await service.delete(msg.sessionId);
           await refreshSessions(msg.sessionId, 'deleted');
           return;
@@ -340,12 +341,12 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
 
     return {
       stop: async () => {
+        managerUnsub();
         subAgentUnsub();
         approvalUnsub?.();
         approvalUnsub = undefined;
         pushFn = () => {};
-        for (const bridge of bridges.values()) bridge.detach();
-        bridges.clear();
+        toolNamesBySession.clear();
         approvalSessions.clear();
         for (const { ws } of clients.values()) {
           if (ws.readyState === WebSocket.OPEN) ws.close(WS_CLOSE_POLICY, 'Server shutting down');

@@ -4,7 +4,7 @@ import { createChannel } from './channel';
 import type { Channel, ChannelManager, ChannelManagerEvent } from './types';
 
 export const createChannelManager = (config: {
-  createSession: () => AgentSession;
+  createSession: (id: string) => AgentSession | Promise<AgentSession>;
   idGen?: () => string;
 }): ChannelManager => {
   const channels = new Map<string, Channel>();

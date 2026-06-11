@@ -44,6 +44,10 @@ Deno.test('connectHarness drives a remote session end-to-end over WebSocket', as
   await done;
 
   assertStringIncludes(text, 'bonjour');
+  // The WS adapter drives the SHARED ChannelManager (not a private cache): the
+  // live session is a real channel the manager knows about.
+  assertEquals(channels.manager.get(session.id)?.id, session.id);
+  assertEquals(channels.manager.list().length, 1);
 
   await remote.close();
   await channels.stop();
