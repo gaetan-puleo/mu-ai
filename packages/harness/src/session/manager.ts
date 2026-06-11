@@ -25,7 +25,6 @@ export interface SessionManager {
   fork(id: string, upToIndex: number): Promise<AgentSession>;
   list(filter?: { cwd?: string; parentId?: string }): Promise<SessionRecord[]>;
   get(id: string): Promise<SessionRecord | undefined>;
-  /** Read a session's stored messages by id without instantiating a live session. */
   read(id: string): Promise<StoredSession | undefined>;
   rename(id: string, title: string): void;
   delete(id: string): Promise<void>;

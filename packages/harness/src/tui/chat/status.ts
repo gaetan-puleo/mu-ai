@@ -17,7 +17,6 @@ export interface StatusState {
   busy: boolean;
   spinnerTick: number;
   context: string;
-  /** Lean mode: hide the context readout, leaving only a busy spinner. */
   minimal?: boolean;
 }
 

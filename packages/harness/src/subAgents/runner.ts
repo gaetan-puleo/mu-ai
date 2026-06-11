@@ -4,13 +4,9 @@ import type { SubAgentRegistry, SubAgentResult } from './types';
 
 export interface RunSubAgentDeps {
   spawn(agent: Agent): AgentSession;
-  /** When provided, the spawned run is registered (so hosts can read/observe it). */
   runs?: SubAgentRegistry;
-  /** Parent session id the run is attributed to. */
   parentId?: string;
-  /** Run id; defaults to the spawned session's id so persistence keys align. */
   runId?: string;
-  /** Aborts the spawned session when the parent turn is cancelled. */
   signal?: AbortSignal;
 }
 

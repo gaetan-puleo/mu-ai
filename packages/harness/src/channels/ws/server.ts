@@ -21,15 +21,12 @@ export interface WebSocketAdapterOptions {
   port: number;
   host?: string;
   authToken?: string;
-  /** Selects the primary agent id reported to clients (single-agent hosts). */
   activeAgentId?: string;
-  /** Provider model listing (provider-specific; e.g. listLocalModels). */
   listModels?: () => Promise<WireModel[]>;
   maxPayloadBytes?: number;
   log?: (msg: string) => void;
 }
 
-/** A {@link ChannelAdapter} that also lets the host push extra frames (e.g. scheduler events). */
 export type WebSocketAdapter = ChannelAdapter & { push(frame: WsOutbound): void };
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024;
@@ -44,14 +41,6 @@ function toWireCommands(commands: Command[]): WireCommand[] {
   return commands.map((c) => ({ command: `/${c.name}`, description: c.description }));
 }
 
-/**
- * Serves a harness over WebSocket: companion + TUI clients connect, drive sessions,
- * switch models, fork, dispatch sub-agents, and answer approvals. A real
- * {@link ChannelAdapter}: live conversations are opened through the shared
- * ChannelManager and their events arrive via a single `manager.subscribe` — so
- * `manager.list()` / `manager.subscribe` reflect the real state. Frames are
- * broadcast to all clients (each carries a `sessionId`); rich clients scope by it.
- */
 export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapter {
   const log = opts.log ?? (() => {});
   let pushFn: (frame: WsOutbound) => void = () => {};
@@ -194,7 +183,12 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
         case 'subagent:dispatch': {
           try {
             const result = await harness.dispatchSubAgent(msg.agent, msg.task, msg.parentId);
-            send(client.ws, { type: 'subagent:result', requestId: msg.requestId, agent: result.agent, text: result.text });
+            send(client.ws, {
+              type: 'subagent:result',
+              requestId: msg.requestId,
+              agent: result.agent,
+              text: result.text,
+            });
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             send(client.ws, { type: 'subagent:error', requestId: msg.requestId, message });
@@ -231,7 +225,11 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
         case 'sessions:get': {
           const session = await service.history(msg.sessionId);
           send(client.ws, { type: 'sessions:history', sessionId: msg.sessionId, session });
-          send(client.ws, { type: 'sessions:raw', sessionId: msg.sessionId, messages: await service.rawMessages(msg.sessionId) });
+          send(client.ws, {
+            type: 'sessions:raw',
+            sessionId: msg.sessionId,
+            messages: await service.rawMessages(msg.sessionId),
+          });
           return;
         }
       }

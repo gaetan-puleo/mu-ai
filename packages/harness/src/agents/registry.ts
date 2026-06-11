@@ -4,17 +4,7 @@ import type { Agent, GrantValue, ToolDecision, ToolGrants } from './types';
 export interface AgentRegistry {
   list(): Agent[];
   get(name: string): Agent | undefined;
-  /**
-   * Register (or replace) an agent at runtime — mirrors {@link SkillRegistry.add}.
-   * Lets tools like `create_agent` make a freshly-authored agent immediately
-   * delegatable without a restart. Agents that `extends` the added one are
-   * re-resolved so they pick up the change.
-   */
   add(agent: Agent): void;
-  /**
-   * Replace the entire set in place (rebuild) — used by hot-reload to reflect
-   * created, edited, and deleted definitions. Existing references see the new set.
-   */
   replaceAll(agents: Agent[]): void;
 }
 

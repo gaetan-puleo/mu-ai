@@ -3,7 +3,6 @@ import type { WireMessage } from './wire';
 import type { ApprovalAction, PendingApproval } from '../../permissions';
 import type { Message, Usage } from 'mu-core';
 
-/** A model the provider exposes; mirrors mu's `ModelInfo` (ChatApp). */
 export interface WireModel {
   id: string;
   ownedBy?: string;

@@ -7,14 +7,6 @@ import { createWsClient } from './ws-client';
 import { textOf, type WireMessage } from './wire';
 import type { SubAgentEventWire, WireAgent, WireCommand, WsOutbound } from './protocol';
 
-/**
- * Connects to a harness served over WebSocket (a {@link webSocketAdapter}) and
- * returns a {@link ChatHost} ready to drive mu's `ChatApp`. The remote harness is
- * proxied: {@link AgentSession}, {@link ApprovalManager} and {@link SubAgentRegistry}
- * are faked over the wire — inbound frames are routed by `sessionId` and replayed
- * as session events; host calls are translated to outbound frames. Local-only
- * concerns (theme/thinking/history/banner/onExit) come from {@link ConnectHarnessOptions}.
- */
 export interface ConnectHarnessOptions {
   url: string;
   token?: string;
@@ -55,7 +47,6 @@ const parseArgs = (raw: string): unknown => {
   }
 };
 
-/** Translate a (lossy) wire message into the session events ChatApp renders. */
 function wireToEvents(wire: WireMessage): AgentSessionEvent[] {
   if (wire.role !== 'assistant') return [];
   const events: AgentSessionEvent[] = [];
@@ -113,7 +104,9 @@ export async function connectHarness(opts: ConnectHarnessOptions): Promise<Remot
       },
       tools: [] as readonly Tool[],
       send: (input: string | ContentPart[]) => {
-        if (!readonly) client.send({ type: 'chat', sessionId: id, text: typeof input === 'string' ? input : textOf(input) });
+        if (!readonly) {
+          client.send({ type: 'chat', sessionId: id, text: typeof input === 'string' ? input : textOf(input) });
+        }
         return Promise.resolve();
       },
       abort: () => {

@@ -57,24 +57,14 @@ export interface ModelInfo {
   ownedBy?: string;
 }
 
-/** Toggles for optional chat affordances. Each defaults to enabled (true). */
 export interface ChatFeatures {
-  /** Tool-approval modal driven by the approval manager. */
   approvals?: boolean;
-  /** Sub-agent panel, @mention dispatch, and the agent picker. */
   subAgents?: boolean;
-  /** `/sessions` + `/new` session switching. */
   sessionPicker?: boolean;
-  /** `/model` model switching. */
   modelPicker?: boolean;
 }
 
 export interface ChatHost {
-  /**
-   * The initial session. Optional: when omitted, the session is created lazily
-   * via {@link ChatHost.createSession} on the first user message — nothing is
-   * persisted until the user actually sends something.
-   */
   session?: AgentSession;
   approvals: ApprovalManager;
   cwd: string;
@@ -95,30 +85,11 @@ export interface ChatHost {
   saveTheme(name: string): void;
   initialThinking: boolean;
   saveThinking(visible: boolean): void;
-  /** Input-line history persistence. Optional; in-memory only when omitted. */
   history?: { load(): string[]; append(text: string): void };
   features?: ChatFeatures;
-  /**
-   * ASCII art shown centered in the empty transcript, before the first message
-   * (a splash). Cleared once the conversation starts.
-   */
   banner?: string;
-  /**
-   * Lean input presentation: keep the surface-background input frame but drop
-   * the model/provider/agent footer inside the input and the context readout on
-   * the status bar — leaving a framed prompt + editor. The {@link ChatHost.banner}
-   * splash is independent and still shown if set. Hosts that want the full
-   * information-rich input (model · provider · @agent footer, token/context usage
-   * in the status line) leave this unset (the default).
-   */
   minimal?: boolean;
-  /**
-   * Harness slash commands to surface in the TUI alongside the built-in ones
-   * (e.g. `/agents`, skill commands). Called fresh so hot-reloaded commands show
-   * up. A name that collides with a built-in TUI command is ignored.
-   */
   commands?(): { name: string; description: string }[];
-  /** Runs a harness command (e.g. "/agents foo"); its output is shown in the transcript. */
   runCommand?(input: string): Promise<{ ok: boolean; output?: unknown; error?: string }>;
   onExit(code: number): void;
 }
@@ -420,7 +391,6 @@ export class ChatApp {
     return this.features[name] !== false;
   }
 
-  /** Returns the active session, creating it lazily on first use. */
   private ensureSession(): AgentSession {
     if (!this.session) {
       this.session = this.host.createSession();
@@ -1239,7 +1209,6 @@ export class ChatApp {
     }
   }
 
-  /** Styled model id + provider + active agent, shown in the input container footer. */
   private modelLabel(): string {
     const ref = this.host.modelRef();
     const slash = ref.indexOf('/');
@@ -1330,7 +1299,6 @@ export class ChatApp {
     };
   }
 
-  /** The input area: error/palette/picker/waiting affordances + the input panel (no status bar). */
   private inputGroup(): Component[] {
     const children: Component[] = [];
 
@@ -1448,7 +1416,6 @@ export class ChatApp {
     return column([this.subAgentHeader(entry), flex(this.subScroll)]);
   }
 
-  /** Wraps a child to a max width, horizontally centered (keeps its natural height). */
   private centered(child: Component, maxW: number): Component {
     return {
       render: (s) => {
@@ -1461,7 +1428,6 @@ export class ChatApp {
     };
   }
 
-  /** The ASCII banner rendered at its natural height, centered as a block. */
   private bannerBlock(): Component {
     const theme = this.theme();
     const sgr = styleToAnsi({ fg: theme.colors.accent, bold: true });

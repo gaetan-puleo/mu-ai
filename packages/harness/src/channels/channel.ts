@@ -6,11 +6,6 @@ import type { Channel } from './types';
 export const createChannel = (config: {
   id: string;
   title: string;
-  /**
-   * Lazily produce the channel's session. Receives the channel id so a host can
-   * bind the channel to a SPECIFIC (possibly persisted, reopened-from-disk)
-   * session — hence the optional Promise return.
-   */
   createSession: (id: string) => AgentSession | Promise<AgentSession>;
 }): Channel => {
   let session: AgentSession | undefined;

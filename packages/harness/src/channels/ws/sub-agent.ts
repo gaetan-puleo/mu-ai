@@ -16,11 +16,6 @@ const lastAssistantText = (messages: readonly Message[]): string => {
   return '';
 };
 
-/**
- * Subscribes to a spawned sub-agent's session and streams its lifecycle as
- * `sub_agent_event` frames (started/content/tool_call/tool_result/completed/error)
- * for the client's live preview. Generalized from arya's sub-agent channel.
- */
 export function observeSubAgent(
   session: AgentSession,
   meta: SubAgentMeta,

@@ -4,10 +4,6 @@ export interface SkillRegistry {
   list(): Skill[];
   get(name: string): Skill | undefined;
   add(skill: Skill): void;
-  /**
-   * Replace the entire set in place (rebuild) — used by hot-reload to reflect
-   * created, edited, and deleted skills. Existing references see the new set.
-   */
   replaceAll(skills: Skill[]): void;
   select(names: string[]): SkillRegistry;
 }

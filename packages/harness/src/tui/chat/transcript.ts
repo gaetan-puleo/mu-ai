@@ -50,7 +50,6 @@ export class Transcript {
   entries: Entry[] = [];
   expanded = false;
   thinkingVisible = false;
-  /** Current speaker, stamped onto assistant entries so each shows who replied. */
   speaker: { name: string; color?: Color } | undefined;
   private pending: Extract<Entry, { kind: 'assistant' }> | undefined;
   private pendingReasoning: ReasoningEntry | undefined;
@@ -273,7 +272,9 @@ const assistantEntry = (entry: Extract<Entry, { kind: 'assistant' }>, theme: The
     const innerW = Math.max(1, s.width - PAD * 2);
     let y = 0;
     if (entry.agent) {
-      const sgr = styleToAnsi(entry.agentColor ? { fg: entry.agentColor, bold: true } : { ...theme.styles.muted, bold: true });
+      const sgr = styleToAnsi(
+        entry.agentColor ? { fg: entry.agentColor, bold: true } : { ...theme.styles.muted, bold: true },
+      );
       s.text(PAD, 0, `${sgr}${fit(entry.agent, innerW)}${RESET}`);
       y = 1;
     }

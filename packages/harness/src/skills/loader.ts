@@ -22,14 +22,6 @@ const isDir = async (path: string): Promise<boolean> => {
   }
 };
 
-/**
- * Loads skills from `dir`, supporting Hermes/agentskills.io layout:
- * - flat `dir/<skill>/SKILL.md`
- * - one level of category nesting `dir/<category>/<skill>/SKILL.md`
- * Hidden dirs (.git/.github/.hub) are skipped. Skills whose `platforms` does not
- * include the current OS are filtered out (so the registry never sees them).
- * `current` is injectable for testing; defaults to `process.platform`.
- */
 export const loadSkills = async (dir: string, current: string = process.platform): Promise<Skill[]> => {
   const skills: Skill[] = [];
 

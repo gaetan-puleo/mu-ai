@@ -22,14 +22,6 @@ export interface PersistedSessionWire {
   messages: WireMessage[];
 }
 
-/**
- * Session-store operations the WebSocket adapter needs that the
- * {@link ChannelManager} doesn't cover (list / history / fork / create / rename
- * / delete). The LIVE conversation itself flows through the manager's channels;
- * here we read a channel's live `messages` when present, falling back to disk.
- * Wire-mapped summaries/history are for the companion; `rawMessages` is the
- * lossless mu-core view for the TUI client.
- */
 export interface SessionService {
   agents(): Agent[];
   create(id: string, title?: string): Promise<void>;

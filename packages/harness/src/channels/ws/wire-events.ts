@@ -4,12 +4,6 @@ import type { WsOutbound } from './protocol';
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-/**
- * Translates one session's {@link AgentSessionEvent}s into {@link WsOutbound}
- * frames for a given `sessionId`. Pure: no session/channel ownership — the
- * server drives it from the shared ChannelManager's event stream. `toolNames`
- * is the per-session accumulator `messageToWire` needs to recover tool names.
- */
 export function emitSessionEvent(
   sessionId: string,
   event: AgentSessionEvent,

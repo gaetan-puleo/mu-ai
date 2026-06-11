@@ -16,7 +16,6 @@ export const createEmitter = <T>(): Emitter<T> => {
   };
 };
 
-/** Normalize a YAML value that may be a string[] or a comma-separated string into a trimmed string[]. */
 export const strList = (value: unknown): string[] => {
   if (Array.isArray(value)) {
     return value.filter((v): v is string => typeof v === 'string').map((v) => v.trim()).filter(Boolean);

@@ -1,12 +1,6 @@
 import { WebSocket } from 'ws';
 import type { WsInbound, WsOutbound } from './protocol';
 
-/**
- * Thin typed transport over the `ws` package — the client half of the channel
- * protocol, used by {@link connectHarness}. Pure plumbing: connect, send
- * {@link WsInbound}, fan out {@link WsOutbound} to subscribers, close. Frame
- * routing/correlation lives in the caller.
- */
 export interface WsClientOptions {
   url: string;
   token?: string;
