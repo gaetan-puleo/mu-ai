@@ -120,6 +120,9 @@ const AUDIO_MIME: Record<string, string> = {
   '.webm': 'audio/webm',
 };
 const ATTACHMENT_PLACEHOLDER = /\[(?:image|audio) #\d+\]/g;
+// Cap raw attachment bytes so the base64 chat frame (~1.34x) stays under a typical
+// 16MB WS payload limit, with headroom for text + JSON. Fail loudly, not silently.
+const MAX_ATTACHMENT_BYTES = 11 * 1024 * 1024;
 
 const lastAssistantText = (messages: readonly Message[]): string => {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -691,6 +694,11 @@ export class ChatApp {
   private addAttachment(kind: 'image' | 'audio', mime: string, data: Uint8Array): void {
     if (!this.capable(kind)) {
       this.setStatus(`the active model has no ${kind} capability — ${kind} not attached`);
+      this.tui.requestRender();
+      return;
+    }
+    if (data.byteLength > MAX_ATTACHMENT_BYTES) {
+      this.setStatus(`${kind} too large (${Math.round(data.byteLength / (1024 * 1024))}MB) — not attached`);
       this.tui.requestRender();
       return;
     }
