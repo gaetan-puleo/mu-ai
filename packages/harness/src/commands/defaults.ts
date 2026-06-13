@@ -51,8 +51,13 @@ const estTokens = (chars: number): number => Math.max(1, Math.round(chars / 4));
 const GRID_COLS = 24;
 const GRID_ROWS = 8;
 const GRID_CELLS = GRID_COLS * GRID_ROWS;
-// Heatmap glyphs (monochrome — the output renders as plain text in every channel).
 const GLYPH = { system: '█', context: '▓', tools: '▒', messages: '░', free: '·' } as const;
+// ANSI SGR colours — mu's TUI text utils are ANSI-aware so these render in the terminal;
+// the companion strips them (plain text). Keep them paired with a reset.
+const RESET = '\x1b[0m';
+const COLOR = { system: '\x1b[36m', context: '\x1b[33m', tools: '\x1b[35m', messages: '\x1b[32m', free: '\x1b[2m' } as const;
+const paint = (s: string, color: string): string => `${color}${s}${RESET}`;
+const fillColor = (pct: number): string => (pct >= 80 ? '\x1b[31m' : pct >= 50 ? '\x1b[33m' : '\x1b[32m');
 
 /** Split mu's concatenated effectiveSystem (agent prompt + <env> block + tool-prompt block). */
 function splitSystem(system: string): { agent: string; env: string; toolPrompts: string } {
@@ -103,10 +108,10 @@ export const createContextCommand = (): Command => ({
     ]);
     const exact = [mSys, mCtx, mTools, mMsgs].every((m) => m.exact);
     const cats = [
-      { label: 'system', n: mSys.n, glyph: GLYPH.system },
-      { label: 'context', n: mCtx.n, glyph: GLYPH.context },
-      { label: 'tools', n: mTools.n, glyph: GLYPH.tools },
-      { label: 'messages', n: mMsgs.n, glyph: GLYPH.messages },
+      { label: 'system', n: mSys.n, glyph: GLYPH.system, color: COLOR.system },
+      { label: 'context', n: mCtx.n, glyph: GLYPH.context, color: COLOR.context },
+      { label: 'tools', n: mTools.n, glyph: GLYPH.tools, color: COLOR.tools },
+      { label: 'messages', n: mMsgs.n, glyph: GLYPH.messages, color: COLOR.messages },
     ];
     const total = cats.reduce((s, c) => s + c.n, 0);
     const window = (await ctx.session?.contextWindow?.()) ?? 0;
@@ -120,20 +125,27 @@ export const createContextCommand = (): Command => ({
         : c.label === 'messages'
         ? `  (${body.length})`
         : '';
-      lines.push(`  ${c.glyph} ${c.label.padEnd(8)} ${mark(c.n)}${extra}`);
+      lines.push(`  ${paint(c.glyph, c.color)} ${c.label.padEnd(8)} ${mark(c.n)}${extra}`);
     }
-    const pct = window ? ` / ${window} (${Math.round((total / window) * 100)}%)` : '';
+    const pctNum = window ? Math.round((total / window) * 100) : 0;
+    const pct = window ? ` / ${window} ${paint(`(${pctNum}%)`, fillColor(pctNum))}` : '';
     lines.push(`  ── total   ${mark(total)}${pct}`);
 
     // Heatmap grid (each cell ≈ window/GRID_CELLS tokens).
     if (window > 0) {
       const cellTokens = Math.max(1, window / GRID_CELLS);
       const cells: string[] = [];
-      for (const c of cats) for (let i = 0; i < Math.round(c.n / cellTokens) && cells.length < GRID_CELLS; i++) cells.push(c.glyph);
-      while (cells.length < GRID_CELLS) cells.push(GLYPH.free);
+      for (const c of cats) {
+        for (let i = 0; i < Math.round(c.n / cellTokens) && cells.length < GRID_CELLS; i++) cells.push(paint(c.glyph, c.color));
+      }
+      while (cells.length < GRID_CELLS) cells.push(paint(GLYPH.free, COLOR.free));
       cells.length = GRID_CELLS;
       lines.push('');
-      lines.push(`  ${GLYPH.system} system  ${GLYPH.context} context  ${GLYPH.tools} tools  ${GLYPH.messages} messages  ${GLYPH.free} free`);
+      lines.push(
+        `  ${paint(GLYPH.system, COLOR.system)} system  ${paint(GLYPH.context, COLOR.context)} context  ` +
+          `${paint(GLYPH.tools, COLOR.tools)} tools  ${paint(GLYPH.messages, COLOR.messages)} messages  ` +
+          `${paint(GLYPH.free, COLOR.free)} free`,
+      );
       for (let r = 0; r < GRID_ROWS; r++) lines.push(`  ${cells.slice(r * GRID_COLS, (r + 1) * GRID_COLS).join('')}`);
     }
 
