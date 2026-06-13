@@ -261,6 +261,17 @@ export const createLocalProvider = (config: LocalProviderConfig = {}): Provider 
         .catch(() => undefined);
     },
 
+    async contextWindow(modelRef: string): Promise<number | undefined> {
+      const model = modelRef || config.model;
+      if (!model) return undefined;
+      if (ctxByModel.has(model)) return ctxByModel.get(model);
+      const { backend, info } = await ensureBackend();
+      const ctx = await backend.contextWindow({ baseUrl: info.baseUrl, apiKey: config.apiKey, model })
+        .catch(() => undefined);
+      ctxByModel.set(model, ctx);
+      return ctx;
+    },
+
     async *stream(req) {
       const model = req.model || config.model;
       if (!model) throw new LocalProviderError('No model specified', 'config_invalid');

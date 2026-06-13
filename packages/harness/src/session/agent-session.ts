@@ -104,6 +104,7 @@ export const createAgentSession = (config: AgentSessionConfig): AgentSession => 
     },
     assembleRequest,
     countTokens: (text: string) => config.provider.countTokens?.(text, config.model) ?? Promise.resolve(undefined),
+    contextWindow: () => config.provider.contextWindow?.(config.model) ?? Promise.resolve(undefined),
     send,
     abort: () => controller?.abort(),
     subscribe: emitter.subscribe,

@@ -48,4 +48,6 @@ export interface Provider {
   capabilities?(model: string): Promise<ModelModalities | undefined>;
   /** Exact token count of `text` via the model's own tokenizer, when the provider supports it. */
   countTokens?(text: string, model: string): Promise<number | undefined>;
+  /** The model's context window in tokens, when the provider can report it. */
+  contextWindow?(model: string): Promise<number | undefined>;
 }

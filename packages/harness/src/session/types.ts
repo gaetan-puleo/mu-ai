@@ -24,6 +24,8 @@ export interface AgentSession {
   assembleRequest?(): Promise<AssembledRequest>;
   /** Exact token count of `text` via the model's own tokenizer, when the provider supports it. */
   countTokens?(text: string): Promise<number | undefined>;
+  /** The active model's context window in tokens, when reportable. */
+  contextWindow?(): Promise<number | undefined>;
   send(input: string | ContentPart[]): Promise<void>;
   abort(): void;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;

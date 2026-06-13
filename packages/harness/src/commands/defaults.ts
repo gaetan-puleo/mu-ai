@@ -48,49 +48,96 @@ export const createQuitCommand = (onQuit: () => void | Promise<void>): Command =
 
 const estTokens = (chars: number): number => Math.max(1, Math.round(chars / 4));
 
+const GRID_COLS = 24;
+const GRID_ROWS = 8;
+const GRID_CELLS = GRID_COLS * GRID_ROWS;
+// Heatmap glyphs (monochrome — the output renders as plain text in every channel).
+const GLYPH = { system: '█', context: '▓', tools: '▒', messages: '░', free: '·' } as const;
+
+/** Split mu's concatenated effectiveSystem (agent prompt + <env> block + tool-prompt block). */
+function splitSystem(system: string): { agent: string; env: string; toolPrompts: string } {
+  const start = system.indexOf('<env>');
+  const end = system.indexOf('</env>');
+  if (start === -1 || end <= start) return { agent: system.trim(), env: '', toolPrompts: '' };
+  return {
+    agent: system.slice(0, start).trim(),
+    env: system.slice(start, end + '</env>'.length),
+    toolPrompts: system.slice(end + '</env>'.length).trim(),
+  };
+}
+
 /**
- * Universal `/context` — shows the EXACT request the model saw on the last turn
- * (real assembled system incl. env + tool prompt blocks, the post-hook tool set, and
- * an estimated per-component token breakdown). Works on any channel that injects the
- * live session into the command context.
+ * Universal `/context` — shows the EXACT context of the live session: real per-category
+ * token counts (system / context / tools / messages, via the model's own tokenizer),
+ * the context-window fill %, and a heatmap grid. Works on any channel.
  */
 export const createContextCommand = (): Command => ({
   name: 'context',
-  description: 'Show the exact context for the current session (real system, tools, token count)',
+  description: 'Show the live context: per-category tokens, window fill %, and a heatmap',
   run: async (_args, ctx) => {
     const last = await ctx.session?.assembleRequest?.();
     if (!last) return { ok: true, output: 'No session in memory yet — start a conversation first.' };
 
-    const systemText = last.system;
-    const toolsText = last.tools
-      .map((t) => JSON.stringify({ name: t.name, description: t.description, parameters: t.parameters }) + (t.prompt ?? ''))
+    const { agent, env, toolPrompts } = splitSystem(last.system);
+    const toolSchemas = last.tools
+      .map((t) => JSON.stringify({ name: t.name, description: t.description, parameters: t.parameters }))
       .join('\n');
     const body = last.messages.filter((m) => m.role !== 'system');
     const messagesText = body.map((m) => JSON.stringify(m.content)).join('\n');
 
-    // Prefer the model's own tokenizer (llama.cpp /tokenize); fall back to a chars/4 estimate.
+    // Prefer the model's own tokenizer (llama.cpp /tokenize); fall back to chars/4.
     const count = ctx.session?.countTokens;
-    const [rSys, rTools, rMsgs] = count
-      ? await Promise.all([count(systemText), count(toolsText), count(messagesText)])
-      : [undefined, undefined, undefined];
-    const exact = rSys !== undefined && rTools !== undefined && rMsgs !== undefined;
-    const sys = rSys ?? estTokens(systemText.length);
-    const tools = rTools ?? estTokens(toolsText.length);
-    const msgs = rMsgs ?? estTokens(messagesText.length);
+    const measure = async (text: string): Promise<{ n: number; exact: boolean }> => {
+      if (!text) return { n: 0, exact: true };
+      if (count) {
+        const n = await count(text);
+        if (n !== undefined) return { n, exact: true };
+      }
+      return { n: estTokens(text.length), exact: false };
+    };
+    const [mSys, mCtx, mTools, mMsgs] = await Promise.all([
+      measure(agent),
+      measure(env),
+      measure(`${toolSchemas}\n${toolPrompts}`),
+      measure(messagesText),
+    ]);
+    const exact = [mSys, mCtx, mTools, mMsgs].every((m) => m.exact);
+    const cats = [
+      { label: 'system', n: mSys.n, glyph: GLYPH.system },
+      { label: 'context', n: mCtx.n, glyph: GLYPH.context },
+      { label: 'tools', n: mTools.n, glyph: GLYPH.tools },
+      { label: 'messages', n: mMsgs.n, glyph: GLYPH.messages },
+    ];
+    const total = cats.reduce((s, c) => s + c.n, 0);
+    const window = (await ctx.session?.contextWindow?.()) ?? 0;
     const mark = (n: number): string => (exact ? `${n}` : `~${n}`);
 
-    const toolNames = last.tools.map((t) => t.name).join(', ') || '(none)';
-    const output = [
-      `context — tokens (${exact ? 'exact, model tokenizer' : 'estimated ≈ chars/4'}):`,
-      `  system    ${mark(sys)}`,
-      `  tools     ${mark(tools)}  (${last.tools.length}: ${toolNames})`,
-      `  messages  ${mark(msgs)}  (${body.length})`,
-      `  ── total  ${mark(sys + tools + msgs)}`,
-      '',
-      '── system prompt (exact) ──',
-      last.system,
-    ].join('\n');
-    return { ok: true, output };
+    const lines = [`context — tokens (${exact ? 'exact, model tokenizer' : 'estimated ≈ chars/4'}):`];
+    for (const c of cats) {
+      if (c.label === 'context' && c.n === 0) continue;
+      const extra = c.label === 'tools'
+        ? `  (${last.tools.length})`
+        : c.label === 'messages'
+        ? `  (${body.length})`
+        : '';
+      lines.push(`  ${c.glyph} ${c.label.padEnd(8)} ${mark(c.n)}${extra}`);
+    }
+    const pct = window ? ` / ${window} (${Math.round((total / window) * 100)}%)` : '';
+    lines.push(`  ── total   ${mark(total)}${pct}`);
+
+    // Heatmap grid (each cell ≈ window/GRID_CELLS tokens).
+    if (window > 0) {
+      const cellTokens = Math.max(1, window / GRID_CELLS);
+      const cells: string[] = [];
+      for (const c of cats) for (let i = 0; i < Math.round(c.n / cellTokens) && cells.length < GRID_CELLS; i++) cells.push(c.glyph);
+      while (cells.length < GRID_CELLS) cells.push(GLYPH.free);
+      cells.length = GRID_CELLS;
+      lines.push('');
+      lines.push(`  ${GLYPH.system} system  ${GLYPH.context} context  ${GLYPH.tools} tools  ${GLYPH.messages} messages  ${GLYPH.free} free`);
+      for (let r = 0; r < GRID_ROWS; r++) lines.push(`  ${cells.slice(r * GRID_COLS, (r + 1) * GRID_COLS).join('')}`);
+    }
+
+    return { ok: true, output: lines.join('\n') };
   },
 });
 
