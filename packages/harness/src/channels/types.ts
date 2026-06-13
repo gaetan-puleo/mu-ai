@@ -1,5 +1,5 @@
 import type { ContentPart, Message } from 'mu-core';
-import type { AgentSessionEvent } from '../session';
+import type { AgentSession, AgentSessionEvent } from '../session';
 
 export type ChannelEvent =
   | AgentSessionEvent
@@ -13,6 +13,8 @@ export interface Channel {
   readonly title: string;
   readonly started: boolean;
   readonly messages: readonly Message[];
+  /** The live AgentSession, once started — exposes `lastRequest` for inspection commands. */
+  readonly session?: AgentSession;
   send(input: string | ContentPart[]): Promise<void>;
   abort(): void;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;

@@ -160,7 +160,7 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
         }
         case 'command': {
           const sessionId = msg.sessionId ?? client.sessionId;
-          const result = await commands.run(msg.text, { sessionId });
+          const result = await commands.run(msg.text, { sessionId, session: manager.get(sessionId)?.session });
           if (result.ok) {
             if (result.output != null) {
               push({

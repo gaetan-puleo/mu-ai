@@ -46,6 +46,47 @@ export const createQuitCommand = (onQuit: () => void | Promise<void>): Command =
   },
 });
 
+const estTokens = (chars: number): number => Math.max(1, Math.round(chars / 4));
+
+/**
+ * Universal `/context` — shows the EXACT request the model saw on the last turn
+ * (real assembled system incl. env + tool prompt blocks, the post-hook tool set, and
+ * an estimated per-component token breakdown). Works on any channel that injects the
+ * live session into the command context.
+ */
+export const createContextCommand = (): Command => ({
+  name: 'context',
+  description: 'Show the exact context sent to the model (real system, tools, token estimate)',
+  run: (_args, ctx) => {
+    const last = ctx.session?.lastRequest;
+    if (!last) return { ok: true, output: 'No context assembled yet — send a message first.' };
+    const sysChars = last.system.length;
+    const toolsChars = last.tools.reduce(
+      (n, t) =>
+        n + JSON.stringify({ name: t.name, description: t.description, parameters: t.parameters }).length +
+        (t.prompt?.length ?? 0),
+      0,
+    );
+    const body = last.messages.filter((m) => m.role !== 'system');
+    const msgChars = body.reduce((n, m) => n + JSON.stringify(m.content).length, 0);
+    const sysTok = estTokens(sysChars);
+    const toolsTok = estTokens(toolsChars);
+    const msgTok = estTokens(msgChars);
+    const toolNames = last.tools.map((t) => t.name).join(', ') || '(none)';
+    const output = [
+      'context sent to the model — estimated tokens (≈ chars/4):',
+      `  system    ~${sysTok}  (${sysChars} chars)`,
+      `  tools     ~${toolsTok}  (${last.tools.length}: ${toolNames})`,
+      `  messages  ~${msgTok}  (${body.length})`,
+      `  ── total  ~${sysTok + toolsTok + msgTok}`,
+      '',
+      '── system prompt (exact) ──',
+      last.system,
+    ].join('\n');
+    return { ok: true, output };
+  },
+});
+
 export const createHelpCommand = (list: () => Command[]): Command => ({
   name: 'help',
   description: 'Show available commands',

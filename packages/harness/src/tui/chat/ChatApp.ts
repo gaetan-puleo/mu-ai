@@ -97,7 +97,10 @@ export interface ChatHost {
   banner?: string;
   minimal?: boolean;
   commands?(): { name: string; description: string }[];
-  runCommand?(input: string): Promise<{ ok: boolean; output?: unknown; error?: string }>;
+  runCommand?(
+    input: string,
+    ctx?: { session?: AgentSession },
+  ): Promise<{ ok: boolean; output?: unknown; error?: string }>;
   onExit(code: number): void;
 }
 
@@ -933,7 +936,7 @@ export class ChatApp {
         name: c.name,
         description: c.description,
         run: async (args) => {
-          const res = await this.host.runCommand!(`/${c.name}${args ? ` ${args}` : ''}`);
+          const res = await this.host.runCommand!(`/${c.name}${args ? ` ${args}` : ''}`, { session: this.session });
           if (res.ok) {
             if (res.output != null) this.transcript.note(String(res.output));
           } else {

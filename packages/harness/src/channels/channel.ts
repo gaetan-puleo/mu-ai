@@ -32,6 +32,9 @@ export const createChannel = (config: {
     get messages() {
       return session?.messages ?? [];
     },
+    get session() {
+      return session;
+    },
     send: async (input: string | ContentPart[]) => (await ensure()).send(input),
     abort: () => session?.abort(),
     subscribe: emitter.subscribe,

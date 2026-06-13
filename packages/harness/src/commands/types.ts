@@ -1,3 +1,5 @@
+import type { AgentSession } from '../session';
+
 export interface CommandResult {
   ok: boolean;
   output?: unknown;
@@ -6,6 +8,8 @@ export interface CommandResult {
 
 export interface CommandContext {
   sessionId?: string;
+  /** The live session for this invocation — lets a command inspect what the model actually saw. */
+  session?: AgentSession;
 }
 
 export interface Command {

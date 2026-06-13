@@ -74,7 +74,7 @@ export async function runApp(opts: RunAppOptions): Promise<void> {
     subAgents: harness.subAgents,
     dispatchSubAgent: (agent, task, parentId) => harness.dispatchSubAgent(agent, task, parentId),
     commands: () => harness.commands.list().map((c) => ({ name: c.name, description: c.description })),
-    runCommand: (input) => harness.commands.run(input),
+    runCommand: (input, ctx) => harness.commands.run(input, { session: ctx?.session }),
     initialTheme: state.theme ?? 'dark',
     saveTheme: (name) => {
       state.theme = name;

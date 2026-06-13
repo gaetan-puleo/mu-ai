@@ -1,5 +1,6 @@
 export {
   createAgentsCommand,
+  createContextCommand,
   createHelpCommand,
   createQuitCommand,
   createSessionsCommand,

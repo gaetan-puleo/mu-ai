@@ -7,6 +7,7 @@ import { createAgentRegistry, grantArg, loadAgents, toolDecision, toolNames } fr
 import {
   createAgentsCommand,
   createCommandRegistry,
+  createContextCommand,
   createHelpCommand,
   createSessionsCommand,
   createSkillCommand,
@@ -215,6 +216,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     createAgentsCommand(agents),
     createSkillsCommand(skills),
     createSessionsCommand(sessions, { cwd }),
+    createContextCommand(),
     ...(tasks ? [createTasksCommand(tasks)] : []),
   ]);
   commands.register(createHelpCommand(() => commands.list()));
