@@ -1,5 +1,5 @@
 import type { LocalBackendInfo, LocalModel } from '../types';
-import type { Backend } from './types';
+import { type Backend, type ModelModalities, toModalities } from './types';
 
 export const LLAMA_CPP_KIND = 'llama-cpp' as const;
 
@@ -32,6 +32,7 @@ export interface LlamaCppProps {
   default_generation_settings?: { n_ctx?: number };
   total_slots?: number;
   model_path?: string;
+  modalities?: { vision?: boolean; audio?: boolean; video?: boolean };
 }
 
 export async function getLlamaCppProps(
@@ -104,10 +105,19 @@ export async function llamaCppContextWindow(config: {
   return props?.default_generation_settings?.n_ctx;
 }
 
+export async function llamaCppModalities(config: {
+  baseUrl: string;
+  apiKey?: string;
+}): Promise<ModelModalities | undefined> {
+  const props = await getLlamaCppProps(config);
+  return toModalities(props?.modalities);
+}
+
 export const llamaCpp: Backend = {
   kind: LLAMA_CPP_KIND,
   detect: detectLlamaCpp,
   openAIBaseUrl: getLlamaCppOpenAIBaseUrl,
   prepareChatRequest: prepareLlamaCppChatRequest,
   contextWindow: llamaCppContextWindow,
+  modalities: llamaCppModalities,
 };

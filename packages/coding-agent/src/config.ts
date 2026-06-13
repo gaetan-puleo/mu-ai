@@ -30,6 +30,12 @@ export const paths = {
   historyFile: join(stateDir, 'history.json'),
 };
 
+/** Declares which non-text modalities the configured model accepts. Both default off. */
+export interface ModelCapabilities {
+  vision?: boolean;
+  audio?: boolean;
+}
+
 export interface CodingAgentConfig {
   kind?: string;
   baseUrl?: string;
@@ -37,6 +43,7 @@ export interface CodingAgentConfig {
   plugins?: string[];
   provider?: string;
   primaryAgents?: string[];
+  capabilities?: ModelCapabilities;
 }
 
 export interface CodingAgentState {
@@ -77,6 +84,13 @@ export function loadConfig(): CodingAgentConfig {
   if (typeof obj.provider === 'string') out.provider = obj.provider;
   if (Array.isArray(obj.plugins) && obj.plugins.every((p) => typeof p === 'string')) {
     out.plugins = obj.plugins as string[];
+  }
+  if (typeof obj.capabilities === 'object' && obj.capabilities !== null) {
+    const caps = obj.capabilities as Record<string, unknown>;
+    out.capabilities = {
+      vision: caps.vision === true,
+      audio: caps.audio === true,
+    };
   }
   return out;
 }

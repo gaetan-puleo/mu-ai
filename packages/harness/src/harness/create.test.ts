@@ -271,7 +271,7 @@ Deno.test('subagent: end-to-end delegation via the tool injected into the parent
   const session = harness.sessions.create();
   await session.send('delegue');
 
-  const toolResult = session.messages.find((m) => m.role === 'user' && m.content[0]?.type === 'tool_result');
+  const toolResult = session.messages.find((m) => m.role === 'tool' && m.content[0]?.type === 'tool_result');
   assertEquals(toolResult?.content[0], { type: 'tool_result', id: '1', content: [{ type: 'text', text: 'reviewed' }] });
   assertEquals(session.messages.at(-1), { role: 'assistant', content: [{ type: 'text', text: 'done' }] });
 

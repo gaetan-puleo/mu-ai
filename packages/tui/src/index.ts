@@ -24,7 +24,7 @@ export { type Command, CommandPalette, commandPalette, type CommandPaletteOption
 
 export { type LayerHandle, type ToastHandle, TUI, type TuiOptions } from './tui';
 export { ProcessTerminal, type ProcessTerminalOptions } from './terminal';
-export { copyToClipboard } from './clipboard';
+export { type ClipboardImage, copyToClipboard, readClipboardImage } from './clipboard';
 export type { Terminal, TerminalMode } from './types/terminal';
 
 export type { InputEvent, KeyInputEvent, Modifiers, MouseInputEvent } from './events';

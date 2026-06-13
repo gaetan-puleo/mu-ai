@@ -5,7 +5,7 @@ import type { Backend } from './types';
 
 export * from './llama-swap';
 export * from './llama-cpp';
-export type { Backend } from './types';
+export { type Backend, type ModelModalities, toModalities } from './types';
 
 export const backends: Backend[] = [llamaSwap, llamaCpp];
 

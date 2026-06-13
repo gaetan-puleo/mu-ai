@@ -4,7 +4,7 @@ import type { ApprovalManager, PendingApproval } from '../../permissions';
 import type { SubAgentRegistry, SubAgentResult, SubAgentRun } from '../../subAgents';
 import type { ChatFeatures, ChatHost, ModelInfo } from '../../tui';
 import { createWsClient } from './ws-client';
-import { textOf, type WireMessage } from './wire';
+import { partsToAttachments, textOf, type WireMessage } from './wire';
 import type { SubAgentEventWire, WireAgent, WireCommand, WsOutbound } from './protocol';
 
 export interface ConnectHarnessOptions {
@@ -71,6 +71,9 @@ export async function connectHarness(opts: ConnectHarnessOptions): Promise<Remot
   let models: ModelInfo[] = [];
   let modelSelected = '';
   let commands: WireCommand[] = [];
+  // Mutated in place by the connect-time `capabilities` frame so the host (read once by
+  // ChatApp after connect) reflects the server's actual model modalities.
+  const features: ChatFeatures = { ...(opts.features ?? {}) };
 
   const sessionsById = new Map<string, FakeSession>();
   const subSessions = new Map<string, FakeSession>();
@@ -105,7 +108,17 @@ export async function connectHarness(opts: ConnectHarnessOptions): Promise<Remot
       tools: [] as readonly Tool[],
       send: (input: string | ContentPart[]) => {
         if (!readonly) {
-          client.send({ type: 'chat', sessionId: id, text: typeof input === 'string' ? input : textOf(input) });
+          if (typeof input === 'string') {
+            client.send({ type: 'chat', sessionId: id, text: input });
+          } else {
+            const attachments = partsToAttachments(input);
+            client.send({
+              type: 'chat',
+              sessionId: id,
+              text: textOf(input),
+              ...(attachments.length > 0 ? { attachments } : {}),
+            });
+          }
         }
         return Promise.resolve();
       },
@@ -170,6 +183,10 @@ export async function connectHarness(opts: ConnectHarnessOptions): Promise<Remot
         return;
       case 'commands':
         commands = frame.commands;
+        return;
+      case 'capabilities':
+        features.vision = frame.vision;
+        features.audio = frame.audio;
         return;
       case 'models:listed': {
         models = frame.models.map((m) => ({ id: m.id, ownedBy: m.ownedBy }));
@@ -330,7 +347,7 @@ export async function connectHarness(opts: ConnectHarnessOptions): Promise<Remot
     initialThinking: opts.initialThinking ?? false,
     saveThinking: opts.saveThinking ?? (() => {}),
     history: opts.history,
-    features: opts.features,
+    features,
     banner: opts.banner,
     minimal: opts.minimal,
     commands: () => commands.map((c) => ({ name: c.command.replace(/^\//, ''), description: c.description })),

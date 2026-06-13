@@ -3,8 +3,10 @@ import { WebSocket, WebSocketServer } from 'ws';
 import type { Command } from '../../commands';
 import type { AgentSessionEvent } from '../../session';
 import type { ChannelAdapter, ChannelAdapterContext, ChannelAdapterHandle } from '../adapter';
+import { type ContentPart, text as textPart } from 'mu-core';
 import { createSessionService } from './session-service';
 import { observeSubAgent } from './sub-agent';
+import { attachmentsToParts, type WireAttachment } from './wire';
 import { emitSessionEvent } from './wire-events';
 import {
   approvalRequestToWire,
@@ -23,11 +25,17 @@ export interface WebSocketAdapterOptions {
   authToken?: string;
   activeAgentId?: string;
   listModels?: () => Promise<WireModel[]>;
+  /** Modalities the configured model accepts. Image/audio attachments are dropped when off. */
+  capabilities?: { vision?: boolean; audio?: boolean };
   maxPayloadBytes?: number;
   log?: (msg: string) => void;
 }
 
-export type WebSocketAdapter = ChannelAdapter & { push(frame: WsOutbound): void };
+export type WebSocketAdapter = ChannelAdapter & {
+  push(frame: WsOutbound): void;
+  /** Update the advertised model capabilities and broadcast a fresh `capabilities` frame. */
+  setCapabilities(caps: { vision: boolean; audio: boolean }): void;
+};
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024;
 const WS_CLOSE_POLICY = 1008;
@@ -44,10 +52,16 @@ function toWireCommands(commands: Command[]): WireCommand[] {
 export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapter {
   const log = opts.log ?? (() => {});
   let pushFn: (frame: WsOutbound) => void = () => {};
+  const caps = { vision: opts.capabilities?.vision === true, audio: opts.capabilities?.audio === true };
 
   const adapter: WebSocketAdapter = {
     name: 'websocket',
     push: (frame) => pushFn(frame),
+    setCapabilities: (next) => {
+      caps.vision = next.vision;
+      caps.audio = next.audio;
+      pushFn({ type: 'capabilities', vision: caps.vision, audio: caps.audio });
+    },
     start: (ctx) => start(ctx),
   };
   return adapter;
@@ -114,6 +128,23 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
       push({ type: 'sessions:listed', sessions: await service.list() });
     }
 
+    // Build the channel payload from text + attachments, dropping any modality the model lacks.
+    function buildChatPayload(
+      sessionId: string,
+      body: string,
+      attachments: WireAttachment[] | undefined,
+    ): string | ContentPart[] {
+      if (!attachments || attachments.length === 0) return body;
+      const allowed = attachments.filter((a) => (a.kind === 'image' ? caps.vision : caps.audio));
+      if (allowed.length < attachments.length) {
+        const kinds = [...new Set(attachments.filter((a) => !allowed.includes(a)).map((a) => a.kind))].join('/');
+        push({ type: 'error', sessionId, message: `the active model has no ${kinds} capability — attachment(s) dropped` });
+      }
+      if (allowed.length === 0) return body;
+      const parts = attachmentsToParts(allowed);
+      return body ? [textPart(body), ...parts] : parts;
+    }
+
     async function dispatch(client: ClientSession, msg: WsInbound): Promise<void> {
       switch (msg.type) {
         case 'chat': {
@@ -121,7 +152,8 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
           client.sessionId = sessionId;
           currentApprovalSessionId = sessionId;
           const channel = manager.get(sessionId) ?? manager.open({ id: sessionId });
-          void channel.send(msg.text).catch((err: unknown) => {
+          const payload = buildChatPayload(sessionId, msg.text, msg.attachments);
+          void channel.send(payload).catch((err: unknown) => {
             push({ type: 'error', sessionId, message: err instanceof Error ? err.message : String(err) });
           });
           return;
@@ -282,6 +314,7 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
       clients.set(ws, client);
 
       send(ws, { type: 'commands', commands: toWireCommands(commands.list()) });
+      send(ws, { type: 'capabilities', vision: caps.vision, audio: caps.audio });
       send(ws, agentsFrame());
       void modelsFrame().then((frame) => frame && send(ws, frame));
       void service.list().then((sessions) => send(ws, { type: 'sessions:listed', sessions }));

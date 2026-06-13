@@ -1,5 +1,5 @@
 import type { PersistedSessionWire, SessionSummaryWire } from './session-service';
-import type { WireMessage } from './wire';
+import type { WireAttachment, WireMessage } from './wire';
 import type { ApprovalAction, PendingApproval } from '../../permissions';
 import type { Message, Usage } from 'mu-core';
 
@@ -9,7 +9,7 @@ export interface WireModel {
 }
 
 export type WsInbound =
-  | { type: 'chat'; sessionId?: string; text: string }
+  | { type: 'chat'; sessionId?: string; text: string; attachments?: WireAttachment[] }
   | { type: 'command'; sessionId?: string; text: string }
   | { type: 'commands' }
   | { type: 'agents' }
@@ -30,6 +30,19 @@ const APPROVAL_ACTIONS = new Set<ApprovalAction>(['approve', 'approve_always', '
 
 const optionalString = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
 
+function parseAttachments(v: unknown): WireAttachment[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: WireAttachment[] = [];
+  for (const item of v) {
+    if (!item || typeof item !== 'object') continue;
+    const a = item as Record<string, unknown>;
+    if ((a.kind === 'image' || a.kind === 'audio') && typeof a.mime === 'string' && typeof a.data === 'string') {
+      out.push({ kind: a.kind, mime: a.mime, data: a.data });
+    }
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 export function parseInbound(raw: unknown): WsInbound | { error: string } {
   if (!raw || typeof raw !== 'object') return { error: 'not an object' };
   const o = raw as Record<string, unknown>;
@@ -38,7 +51,8 @@ export function parseInbound(raw: unknown): WsInbound | { error: string } {
   switch (type) {
     case 'chat': {
       if (typeof o.text !== 'string') return { error: 'chat requires text:string' };
-      return { type: 'chat', sessionId: optionalString(o.sessionId), text: o.text };
+      const attachments = parseAttachments(o.attachments);
+      return { type: 'chat', sessionId: optionalString(o.sessionId), text: o.text, ...(attachments ? { attachments } : {}) };
     }
     case 'command': {
       if (typeof o.text !== 'string') return { error: 'command requires text:string' };
@@ -178,6 +192,7 @@ export type WireSchedulerEvent =
 
 export type WsOutbound =
   | { type: 'commands'; commands: WireCommand[] }
+  | { type: 'capabilities'; vision: boolean; audio: boolean }
   | { type: 'agents'; agents: WireAgent[]; activeAgentId?: string | null }
   | { type: 'active_agent'; agentId: string | null; sessionId?: string; reason?: string }
   | { type: 'stream'; sessionId: string; text: string }

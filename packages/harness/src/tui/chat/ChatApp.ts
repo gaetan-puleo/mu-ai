@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, extname, isAbsolute, relative, resolve } from 'node:path';
 import type { AgentSession, AgentSessionEvent, SessionRecord } from '../../session';
 import type { ApprovalAction, ApprovalManager, PendingApproval } from '../../permissions';
 import type { SubAgentRegistry, SubAgentResult, SubAgentRun } from '../../subAgents';
-import type { Message } from 'mu-core';
+import { audio, type ContentPart, image, type Message } from 'mu-core';
 import {
   box,
   column,
@@ -13,6 +13,7 @@ import {
   type InputEvent,
   measure,
   ProcessTerminal,
+  readClipboardImage,
   type ScrollView,
   scrollView,
   truncateToWidth,
@@ -62,6 +63,10 @@ export interface ChatFeatures {
   subAgents?: boolean;
   sessionPicker?: boolean;
   modelPicker?: boolean;
+  /** The active model accepts image input. Default off — must be opted in. */
+  vision?: boolean;
+  /** The active model accepts audio input. Default off — must be opted in. */
+  audio?: boolean;
 }
 
 export interface ChatHost {
@@ -95,6 +100,24 @@ export interface ChatHost {
 }
 
 const DIM = '\x1b[2m';
+
+const IMAGE_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+};
+const AUDIO_MIME: Record<string, string> = {
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.ogg': 'audio/ogg',
+  '.flac': 'audio/flac',
+  '.webm': 'audio/webm',
+};
+const ATTACHMENT_PLACEHOLDER = /\[(?:image|audio) #\d+\]/g;
 
 const lastAssistantText = (messages: readonly Message[]): string => {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -171,6 +194,8 @@ export class ChatApp {
   private readonly pendingShell: { cmd: string; output: string }[] = [];
   private readonly pastes = new Map<string, string>();
   private pasteSeq = 0;
+  private readonly attachments = new Map<string, ContentPart>();
+  private attachSeq = 0;
   private models: ModelInfo[] = [];
 
   private paletteCursor = 0;
@@ -258,6 +283,7 @@ export class ChatApp {
     this.tui.addGlobalKeybinding({ chord: { key: 't', ctrl: true }, handler: () => this.toggleTheme() });
     this.tui.addGlobalKeybinding({ chord: { key: 'o', ctrl: true }, handler: () => this.toggleExpand() });
     this.tui.addGlobalKeybinding({ chord: { key: 'end', ctrl: true }, handler: () => this.jumpToBottom() });
+    this.tui.addGlobalKeybinding({ chord: { key: 'v', ctrl: true }, handler: () => void this.pasteClipboardImage() });
 
     this.unsubscribeTheme = this.themeProvider.subscribe(() => {
       this.tui.setBackgroundColor(this.theme().colors.background);
@@ -563,10 +589,13 @@ export class ChatApp {
     return text.replace(/(^|\s)@(\S+)/g, (match, pre, token) => (agents.has(token) ? match : `${pre}${token}`));
   }
 
-  private send(value: string): void {
+  private send(value: string, attachments: ContentPart[] = []): void {
     const session = this.ensureSession();
     this.transcript.appendUser(value);
-    const content = this.flushShellContext(this.stripFileMentions(value));
+    const text = this.flushShellContext(this.stripFileMentions(this.stripAttachmentPlaceholders(value)));
+    const content: string | ContentPart[] = attachments.length > 0
+      ? [...(text ? [{ type: 'text' as const, text }] : []), ...attachments]
+      : text;
     this.running = true;
     this.status.busy = true;
     this.setStatus('thinking…');
@@ -581,6 +610,20 @@ export class ChatApp {
   }
 
   private capturePaste(text: string): string | undefined {
+    // Empty bracketed paste: the terminal swallowed binary clipboard data (e.g. an image).
+    if (!text.trim()) {
+      void this.pasteClipboardImage();
+      return '';
+    }
+    // A pasted path to a local image/audio file becomes an attachment, not literal text.
+    const filePath = text.trim().replace(/^['"]|['"]$/g, '').replace(/\\ /g, ' ');
+    if (!filePath.includes('\n')) {
+      const ext = extname(filePath).toLowerCase();
+      if (IMAGE_MIME[ext] || AUDIO_MIME[ext]) {
+        void this.attachFromFile(filePath, ext);
+        return '';
+      }
+    }
     const lines = text.split('\n').length;
     if (lines < 2 && text.length <= 200) return undefined;
     const id = ++this.pasteSeq;
@@ -596,6 +639,55 @@ export class ChatApp {
       out = out.split(placeholder).join(content);
     }
     return out;
+  }
+
+  private capable(kind: 'image' | 'audio'): boolean {
+    return (kind === 'image' ? this.features.vision : this.features.audio) === true;
+  }
+
+  private async pasteClipboardImage(): Promise<void> {
+    const img = await readClipboardImage().catch(() => undefined);
+    if (!img) {
+      this.setStatus('no image in clipboard');
+      this.tui.requestRender();
+      return;
+    }
+    this.addAttachment('image', img.mime, img.data);
+  }
+
+  private async attachFromFile(path: string, ext: string): Promise<void> {
+    const kind: 'image' | 'audio' = IMAGE_MIME[ext] ? 'image' : 'audio';
+    const mime = IMAGE_MIME[ext] ?? AUDIO_MIME[ext];
+    try {
+      const buf = await readFile(resolve(this.host.cwd, path));
+      this.addAttachment(kind, mime, new Uint8Array(buf));
+    } catch {
+      this.setStatus(`could not read ${path}`);
+      this.tui.requestRender();
+    }
+  }
+
+  private addAttachment(kind: 'image' | 'audio', mime: string, data: Uint8Array): void {
+    if (!this.capable(kind)) {
+      this.setStatus(`the active model has no ${kind} capability — ${kind} not attached`);
+      this.tui.requestRender();
+      return;
+    }
+    const placeholder = `[${kind} #${++this.attachSeq}]`;
+    this.attachments.set(placeholder, kind === 'image' ? image(mime, data) : audio(mime, data));
+    const value = this.editor.getValue();
+    this.editor.setValue(value ? `${value} ${placeholder} ` : `${placeholder} `);
+    this.onInputChange(this.editor.getValue());
+    this.tui.requestRender();
+  }
+
+  private stripAttachmentPlaceholders(text: string): string {
+    return text.replace(ATTACHMENT_PLACEHOLDER, '').replace(/[ \t]{2,}/g, ' ').trim();
+  }
+
+  private clearAttachments(): void {
+    this.attachments.clear();
+    this.attachSeq = 0;
   }
 
   private flushShellContext(userText: string): string {
@@ -614,8 +706,10 @@ export class ChatApp {
 
     this.clearError();
     const text = this.expandPastes(trimmed);
+    const attachments = [...this.attachments.values()];
     this.editor.setValue('');
     this.clearPastes();
+    this.clearAttachments();
     this.pushHistory(text);
 
     if (text.startsWith('!') || text.startsWith('$')) {
@@ -629,11 +723,12 @@ export class ChatApp {
     if (this.tryDispatch(text)) return;
 
     if (this.running) {
+      if (attachments.length > 0) this.setStatus('attachments are dropped for messages queued mid-turn');
       this.queue.push(text);
       this.tui.requestRender();
       return;
     }
-    this.send(text);
+    this.send(text, attachments);
   }
 
   private clearPastes(): void {
@@ -647,6 +742,7 @@ export class ChatApp {
     const text = this.expandPastes(value);
     this.editor.setValue('');
     this.clearPastes();
+    this.clearAttachments();
     this.pushHistory(text);
     this.queue.push(text);
     this.tui.requestRender();
@@ -655,6 +751,9 @@ export class ChatApp {
   private onInputChange(value: string): void {
     for (const placeholder of this.pastes.keys()) {
       if (!value.includes(placeholder)) this.pastes.delete(placeholder);
+    }
+    for (const placeholder of this.attachments.keys()) {
+      if (!value.includes(placeholder)) this.attachments.delete(placeholder);
     }
     if (value !== this.paletteDismissedFor) this.paletteDismissedFor = '__none__';
     const items = this.paletteItems();

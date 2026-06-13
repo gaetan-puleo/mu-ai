@@ -1,7 +1,7 @@
 import process from 'node:process';
 import { type AgentSession, type ApprovalManager, ChatApp, type ChatHost, type Harness } from 'mu-harness';
 import { listLocalModels } from 'mu-local-provider';
-import { appendHistory, type CodingAgentState, loadHistory, saveState } from './config';
+import { appendHistory, type CodingAgentState, loadHistory, type ModelCapabilities, saveState } from './config';
 
 export interface AgentControl {
   ref(): string;
@@ -17,10 +17,11 @@ export interface RunAppOptions {
   providerConfig: { kind?: string; baseUrl?: string; apiKey?: string };
   state: CodingAgentState;
   agent: AgentControl;
+  capabilities?: ModelCapabilities;
 }
 
 export async function runApp(opts: RunAppOptions): Promise<void> {
-  const { harness, providerConfig, state, agent } = opts;
+  const { harness, providerConfig, state, agent, capabilities } = opts;
 
   const host: ChatHost = {
     session: opts.session,
@@ -59,6 +60,7 @@ export async function runApp(opts: RunAppOptions): Promise<void> {
       saveState(state);
     },
     history: { load: loadHistory, append: appendHistory },
+    features: { vision: capabilities?.vision === true, audio: capabilities?.audio === true },
     onExit: (code) => {
       harness.close();
       process.exit(code);

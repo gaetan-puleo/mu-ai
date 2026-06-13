@@ -7,6 +7,7 @@ export type LoopEvent =
   | { type: 'usage'; usage: Usage }
   | { type: 'reasoning'; text: string }
   | { type: 'message'; message: Message }
+  | { type: 'error'; error: Error }
   | { type: 'done'; messages: Message[] };
 
 const append = (parts: ContentPart[], part: ContentPart): void => {
@@ -52,17 +53,24 @@ export async function* run(opts: RunOptions): AsyncIterable<LoopEvent> {
   const messages = [...opts.messages];
 
   while (true) {
+    if (signal?.aborted) break;
+
     const content: ContentPart[] = [];
     const calls: ToolCallPart[] = [];
 
-    for await (const event of provider.stream({ model, messages, tools, signal })) {
-      if (event.type === 'usage' || event.type === 'reasoning') {
+    try {
+      for await (const event of provider.stream({ model, messages, tools, signal })) {
+        if (event.type === 'usage' || event.type === 'reasoning') {
+          yield event;
+          continue;
+        }
         yield event;
-        continue;
+        append(content, event);
+        if (event.type === 'tool_call') calls.push(event);
       }
-      yield event;
-      append(content, event);
-      if (event.type === 'tool_call') calls.push(event);
+    } catch (error) {
+      yield { type: 'error', error: error instanceof Error ? error : new Error(String(error)) };
+      break;
     }
 
     const message: Message = { role: 'assistant', content };
@@ -78,7 +86,7 @@ export async function* run(opts: RunOptions): AsyncIterable<LoopEvent> {
         content: await execute(registry, call, signal),
       })),
     );
-    const toolMessage: Message = { role: 'user', content: results };
+    const toolMessage: Message = { role: 'tool', content: results };
     messages.push(toolMessage);
     yield { type: 'message', message: toolMessage };
   }

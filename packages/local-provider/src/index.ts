@@ -20,6 +20,7 @@ export type {
   LocalProviderConfig,
 } from './types';
 export { LocalProviderError } from './types';
+export type { ModelModalities } from './backend';
 
 const DEFAULT_BASE_URL = 'http://localhost:8080';
 
@@ -260,10 +261,14 @@ export const createLocalProvider = (config: LocalProviderConfig = {}): Provider 
       if (extras) Object.assign(requestOptions, extras);
 
       if (!ctxByModel.has(model)) {
-        ctxByModel.set(
-          model,
-          await backend.contextWindow({ baseUrl: info.baseUrl, apiKey: config.apiKey, model }).catch(() => undefined),
-        );
+        const ctx = await backend.contextWindow({ baseUrl: info.baseUrl, apiKey: config.apiKey, model })
+          .catch(() => undefined);
+        ctxByModel.set(model, ctx);
+        // Same `/props` round-trip just happened for the context window; read the
+        // model's input modalities from it and surface them to the host (once per model).
+        const modalities = await backend.modalities({ baseUrl: info.baseUrl, apiKey: config.apiKey, model })
+          .catch(() => undefined);
+        config.onModelInfo?.({ model, contextWindow: ctx, modalities });
       }
 
       yield* streamChunks(

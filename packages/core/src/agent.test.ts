@@ -1,7 +1,7 @@
 import { assertEquals } from '@std/assert';
 import { createAgent } from './agent';
 import { image } from './types';
-import type { ContentPart, Provider, Tool } from './types';
+import type { ContentPart, Message, Provider, Tool } from './types';
 
 const scripted = (turns: ContentPart[][]): Provider => {
   let i = 0;
@@ -29,7 +29,7 @@ Deno.test('loops on a tool_call and returns the final message', async () => {
   const { message, messages } = await agent.run('photo ?');
 
   assertEquals(message.content, [{ type: 'text', text: 'voici' }]);
-  const tool = messages.find((m) => m.role === 'user' && m.content[0]?.type === 'tool_result');
+  const tool = messages.find((m) => m.role === 'tool' && m.content[0]?.type === 'tool_result');
   assertEquals(tool?.content[0], {
     type: 'tool_result',
     id: '1',
@@ -42,4 +42,42 @@ Deno.test('merges streamed text deltas', async () => {
   const agent = createAgent({ provider, model: 'mock' });
   const { message } = await agent.run('salut');
   assertEquals(message.content, [{ type: 'text', text: 'bonjour' }]);
+});
+
+Deno.test('yields an error event when the provider throws', async () => {
+  const provider = {
+    async *stream() {
+      throw new Error('provider failed');
+    },
+  };
+  const agent = createAgent({ provider, model: 'mock' });
+  const events: unknown[] = [];
+  for await (const event of agent.stream('hello')) {
+    events.push(event);
+  }
+  const doneEvent = events.at(-1) as { type: 'done'; messages: Message[] };
+  assertEquals(doneEvent.type, 'done');
+  assertEquals(doneEvent.messages.length, 1);
+  assertEquals(doneEvent.messages[0], { role: 'user', content: [{ type: 'text', text: 'hello' }] });
+  const errorEvent = events.find((e) => (e as { type: string }).type === 'error');
+  assertEquals((errorEvent as { type: 'error'; error: Error }).error.message, 'provider failed');
+});
+
+Deno.test('aborts cleanly when the signal is already aborted', async () => {
+  const provider: Provider = {
+    async *stream() {
+      yield { type: 'text', text: 'should not reach' };
+    },
+  };
+  const controller = new AbortController();
+  controller.abort();
+  const agent = createAgent({ provider, model: 'mock', signal: controller.signal });
+  const events: unknown[] = [];
+  for await (const event of agent.stream('hello')) {
+    events.push(event);
+  }
+  const doneEvent = events.at(-1) as { type: 'done'; messages: Message[] };
+  assertEquals(doneEvent.type, 'done');
+  assertEquals(doneEvent.messages.length, 1);
+  assertEquals(doneEvent.messages[0], { role: 'user', content: [{ type: 'text', text: 'hello' }] });
 });

@@ -44,7 +44,7 @@ export function observeSubAgent(
         });
         return;
       case 'message': {
-        if (ev.message.role !== 'user') return;
+        if (ev.message.role !== 'tool') return;
         for (const part of ev.message.content) {
           if (part.type !== 'tool_result') continue;
           const content = toolResultText(part.content);

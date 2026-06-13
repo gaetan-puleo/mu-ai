@@ -5,7 +5,7 @@ export type ContentPart =
   | { type: 'tool_call'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; id: string; content: ContentPart[] };
 
-export type Role = 'system' | 'user' | 'assistant';
+export type Role = 'system' | 'user' | 'assistant' | 'tool';
 export type Message = { role: Role; content: ContentPart[] };
 
 export const text = (value: string): ContentPart => ({ type: 'text', text: value });

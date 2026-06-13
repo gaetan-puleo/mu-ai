@@ -90,7 +90,7 @@ Deno.test('a plugin provides provider + tool + hook that denies, full chain', as
   assertEquals(types[0], 'turn_start');
   assertEquals(types[types.length - 1], 'turn_end');
 
-  const toolResult = session.messages.find((m) => m.role === 'user' && m.content[0]?.type === 'tool_result');
+  const toolResult = session.messages.find((m) => m.role === 'tool' && m.content[0]?.type === 'tool_result');
   assertEquals(toolResult?.content[0], {
     type: 'tool_result',
     id: '1',

@@ -1,5 +1,5 @@
 import type { LocalBackendInfo, LocalLLMResponseContext, LocalModel } from '../types';
-import type { Backend } from './types';
+import { type Backend, type ModelModalities, toModalities } from './types';
 
 export const LLAMA_SWAP_KIND = 'llama-swap' as const;
 
@@ -63,6 +63,7 @@ export interface LlamaSwapProps {
   total_slots: number;
   model_path: string;
   model_alias: string;
+  modalities?: { vision?: boolean; audio?: boolean; video?: boolean };
 }
 
 export async function getLlamaSwapProps(config: {
@@ -271,10 +272,20 @@ export async function llamaSwapContextWindow(config: {
   return props?.default_generation_settings.n_ctx;
 }
 
+export async function llamaSwapModalities(config: {
+  baseUrl: string;
+  apiKey?: string;
+  model: string;
+}): Promise<ModelModalities | undefined> {
+  const props = await getLlamaSwapProps(config);
+  return toModalities(props?.modalities);
+}
+
 export const llamaSwap: Backend = {
   kind: LLAMA_SWAP_KIND,
   detect: detectLlamaSwap,
   openAIBaseUrl: getLlamaSwapOpenAIBaseUrl,
   prepareChatRequest: prepareLlamaSwapChatRequest,
   contextWindow: llamaSwapContextWindow,
+  modalities: llamaSwapModalities,
 };

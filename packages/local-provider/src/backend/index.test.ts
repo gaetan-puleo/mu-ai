@@ -1,5 +1,7 @@
 import { assertEquals } from '@std/assert';
 import { detectBackend } from './index';
+import { llamaCppModalities } from './llama-cpp';
+import { llamaSwapModalities } from './llama-swap';
 
 const json = (body: unknown): Response =>
   new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -45,5 +47,29 @@ Deno.test('detectBackend recognizes llama-swap with priority', async () => {
 Deno.test('detectBackend returns undefined if no backend', async () => {
   await withFetch(() => notFound(), async () => {
     assertEquals(await detectBackend({ baseUrl: 'http://localhost:8080' }), undefined);
+  });
+});
+
+Deno.test('modalities are read from /props (llama-cpp + llama-swap)', async () => {
+  const props = {
+    default_generation_settings: { n_ctx: 4096 },
+    total_slots: 1,
+    model_path: '/m/gemma.gguf',
+    model_alias: 'gemma',
+    modalities: { vision: true, video: true, audio: false },
+  };
+  await withFetch((url) => (url.endsWith('/props') ? json(props) : notFound()), async () => {
+    assertEquals(await llamaCppModalities({ baseUrl: 'http://localhost:8080' }), { vision: true, audio: false });
+    assertEquals(
+      await llamaSwapModalities({ baseUrl: 'http://localhost:8080', model: 'gemma' }),
+      { vision: true, audio: false },
+    );
+  });
+});
+
+Deno.test('modalities undefined when /props omits the field (older llama.cpp)', async () => {
+  const props = { default_generation_settings: { n_ctx: 4096 }, total_slots: 1, model_path: '/m/q.gguf', model_alias: 'q' };
+  await withFetch((url) => (url.endsWith('/props') ? json(props) : notFound()), async () => {
+    assertEquals(await llamaSwapModalities({ baseUrl: 'http://localhost:8080', model: 'q' }), undefined);
   });
 });

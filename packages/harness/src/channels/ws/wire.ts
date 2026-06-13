@@ -1,6 +1,31 @@
-import type { ContentPart, Message } from 'mu-core';
+import { Buffer } from 'node:buffer';
+import { audio, type ContentPart, image, type Message } from 'mu-core';
 
 export type WireRole = 'user' | 'assistant' | 'system' | 'tool';
+
+/** A non-text content part carried over the wire as base64. */
+export interface WireAttachment {
+  kind: 'image' | 'audio';
+  mime: string;
+  data: string;
+}
+
+export const partsToAttachments = (parts: readonly ContentPart[]): WireAttachment[] =>
+  parts.flatMap((part): WireAttachment[] =>
+    part.type === 'image'
+      ? [{ kind: 'image', mime: part.mime, data: Buffer.from(part.data).toString('base64') }]
+      : part.type === 'audio'
+      ? [{ kind: 'audio', mime: part.mime, data: Buffer.from(part.data).toString('base64') }]
+      : part.type === 'tool_result'
+      ? partsToAttachments(part.content)
+      : []
+  );
+
+export const attachmentsToParts = (attachments: readonly WireAttachment[]): ContentPart[] =>
+  attachments.map((a) => {
+    const data = new Uint8Array(Buffer.from(a.data, 'base64'));
+    return a.kind === 'image' ? image(a.mime, data) : audio(a.mime, data);
+  });
 
 export interface WireToolCall {
   id: string;
@@ -29,6 +54,7 @@ export interface WireMessage {
   toolCalls?: WireToolCall[];
   toolCallId?: string;
   toolResult?: WireToolResultInfo;
+  attachments?: WireAttachment[];
   meta?: WireMessageMeta;
 }
 
@@ -74,7 +100,8 @@ export function messageToWire(
   if (results.length > 0) {
     return results.map((result, index) => {
       const content = toolResultText(result.content);
-      return {
+      const attachments = partsToAttachments(result.content);
+      const out: WireMessage = {
         id: `${idBase}:t${index}`,
         ts,
         role: 'tool' as const,
@@ -82,9 +109,14 @@ export function messageToWire(
         toolCallId: result.id,
         toolResult: { name: toolNames.get(result.id) ?? '', content },
       };
+      if (attachments.length > 0) out.attachments = attachments;
+      return out;
     });
   }
-  return [{ id: `${idBase}:u`, ts, role: 'user', content: textOf(message.content) }];
+  const userOut: WireMessage = { id: `${idBase}:u`, ts, role: 'user', content: textOf(message.content) };
+  const userAttachments = partsToAttachments(message.content);
+  if (userAttachments.length > 0) userOut.attachments = userAttachments;
+  return [userOut];
 }
 
 export function messagesToWire(messages: readonly Message[], baseTs = 0): WireMessage[] {

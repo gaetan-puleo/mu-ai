@@ -151,6 +151,7 @@ async function run(): Promise<void> {
     approvals,
     providerConfig,
     state,
+    capabilities: config.capabilities,
     agent: {
       ref: () => currentAgent().name,
       color: () => currentAgent().color,

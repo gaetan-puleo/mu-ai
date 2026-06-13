@@ -1,4 +1,5 @@
 import type OpenAI from 'openai';
+import type { ModelModalities } from './backend/types';
 
 export class LocalProviderError extends Error {
   constructor(
@@ -49,4 +50,10 @@ export interface LocalProviderConfig {
   model?: string;
   apiKey?: string;
   openAIClient?: typeof OpenAI;
+  /**
+   * Fired once per model the first time it is used (i.e. when the backend loads it and
+   * its `/props` is read). Carries the detected context window + input modalities — lets
+   * the host auto-set image/audio capabilities without a separate, model-loading probe.
+   */
+  onModelInfo?: (info: { model: string; contextWindow?: number; modalities?: ModelModalities }) => void;
 }
