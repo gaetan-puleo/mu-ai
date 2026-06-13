@@ -16,7 +16,7 @@ const sessionWith = (over: Partial<AgentSession>): AgentSession =>
     ...over,
   }) as unknown as AgentSession;
 
-Deno.test('context splits system / context(<env>) / tools / messages with exact tokens + heatmap', async () => {
+Deno.test('context splits system/context/tools + messages by role with exact tokens + heatmap', async () => {
   const session = sessionWith({
     countTokens: (text: string) => Promise.resolve(text ? 10 : 0),
     contextWindow: () => Promise.resolve(1000),
@@ -25,17 +25,17 @@ Deno.test('context splits system / context(<env>) / tools / messages with exact 
 
   assertStringIncludes(out, 'exact, model tokenizer');
   assertStringIncludes(out, 'system');
-  assertStringIncludes(out, 'context'); // the <env> block became its own category
+  assertStringIncludes(out, 'context'); // the <env> block is its own category
   assertStringIncludes(out, 'tools');
-  assertStringIncludes(out, 'messages');
+  assertStringIncludes(out, 'you'); // user messages split out by role
   assertStringIncludes(out, '%'); // window fill
-  assertStringIncludes(out, 'free'); // heatmap legend (only rendered with a window)
+  assertStringIncludes(out, '·'); // heatmap free cells (only rendered with a window)
 });
 
 Deno.test('context falls back to a chars/4 estimate without a tokenizer (no grid without a window)', async () => {
   const out = String((await createContextCommand().run('', { session: sessionWith({}) })).output);
   assertStringIncludes(out, 'estimated');
-  assertEquals(out.includes('free'), false); // no contextWindow → no heatmap
+  assertEquals(out.includes('·'), false); // no contextWindow → no heatmap
 });
 
 Deno.test('context is graceful with no live session', async () => {

@@ -51,30 +51,59 @@ const estTokens = (chars: number): number => Math.max(1, Math.round(chars / 4));
 const GRID_COLS = 24;
 const GRID_ROWS = 8;
 const GRID_CELLS = GRID_COLS * GRID_ROWS;
-const GLYPH = { system: '█', context: '▓', tools: '▒', messages: '░', free: '·' } as const;
+const BLOCK = '█';
+const FREE = '·';
 // ANSI SGR colours — mu's TUI text utils are ANSI-aware so these render in the terminal;
-// the companion strips them (plain text). Keep them paired with a reset.
+// the companion strips them (plain text), keeping the labelled breakdown readable.
 const RESET = '\x1b[0m';
-const COLOR = { system: '\x1b[36m', context: '\x1b[33m', tools: '\x1b[35m', messages: '\x1b[32m', free: '\x1b[2m' } as const;
+const DIM = '\x1b[2m';
 const paint = (s: string, color: string): string => `${color}${s}${RESET}`;
 const fillColor = (pct: number): string => (pct >= 80 ? '\x1b[31m' : pct >= 50 ? '\x1b[33m' : '\x1b[32m');
 
-/** Split mu's concatenated effectiveSystem (agent prompt + <env> block + tool-prompt block). */
-function splitSystem(system: string): { agent: string; env: string; toolPrompts: string } {
-  const start = system.indexOf('<env>');
-  const end = system.indexOf('</env>');
-  if (start === -1 || end <= start) return { agent: system.trim(), env: '', toolPrompts: '' };
+/** Extract a `<tag>…</tag>` block (with tags), or '' when absent. */
+function tagBlock(s: string, tag: string): string {
+  const i = s.indexOf(`<${tag}>`);
+  const j = s.indexOf(`</${tag}>`);
+  return i !== -1 && j > i ? s.slice(i, j + `</${tag}>`.length) : '';
+}
+
+/** Split the assembled system into its segments: agent prompt / env / instructions / memory / tool-prompts. */
+function splitSystem(system: string): {
+  agent: string;
+  env: string;
+  instructions: string;
+  memory: string;
+  toolPrompts: string;
+} {
+  const env = tagBlock(system, 'env');
+  const instructions = tagBlock(system, 'instructions');
+  const memory = tagBlock(system, 'memory');
+  const opens = ['<env>', '<instructions>', '<memory>'].map((t) => system.indexOf(t)).filter((i) => i !== -1);
+  const closes = (
+    [
+      [env, '</env>'],
+      [instructions, '</instructions>'],
+      [memory, '</memory>'],
+    ] as const
+  )
+    .filter(([b]) => b)
+    .map(([, c]) => system.indexOf(c) + c.length);
+  const firstOpen = opens.length ? Math.min(...opens) : -1;
+  const lastClose = closes.length ? Math.max(...closes) : -1;
   return {
-    agent: system.slice(0, start).trim(),
-    env: system.slice(start, end + '</env>'.length),
-    toolPrompts: system.slice(end + '</env>'.length).trim(),
+    agent: (firstOpen === -1 ? system : system.slice(0, firstOpen)).trim(),
+    env,
+    instructions,
+    memory,
+    toolPrompts: lastClose === -1 ? '' : system.slice(lastClose).trim(),
   };
 }
 
 /**
- * Universal `/context` — shows the EXACT context of the live session: real per-category
- * token counts (system / context / tools / messages, via the model's own tokenizer),
- * the context-window fill %, and a heatmap grid. Works on any channel.
+ * Universal `/context` — the live session's context broken down into all categories
+ * (system / context / instructions / memory / tools / you / agent / tool-output), each
+ * counted with the model's own tokenizer, plus the context-window fill % and a colour
+ * heatmap. Works on every channel.
  */
 export const createContextCommand = (): Command => ({
   name: 'context',
@@ -83,14 +112,14 @@ export const createContextCommand = (): Command => ({
     const last = await ctx.session?.assembleRequest?.();
     if (!last) return { ok: true, output: 'No session in memory yet — start a conversation first.' };
 
-    const { agent, env, toolPrompts } = splitSystem(last.system);
+    const sys = splitSystem(last.system);
     const toolSchemas = last.tools
       .map((t) => JSON.stringify({ name: t.name, description: t.description, parameters: t.parameters }))
       .join('\n');
     const body = last.messages.filter((m) => m.role !== 'system');
-    const messagesText = body.map((m) => JSON.stringify(m.content)).join('\n');
+    const byRole = (role: string): string =>
+      body.filter((m) => m.role === role).map((m) => JSON.stringify(m.content)).join('\n');
 
-    // Prefer the model's own tokenizer (llama.cpp /tokenize); fall back to chars/4.
     const count = ctx.session?.countTokens;
     const measure = async (text: string): Promise<{ n: number; exact: boolean }> => {
       if (!text) return { n: 0, exact: true };
@@ -100,52 +129,40 @@ export const createContextCommand = (): Command => ({
       }
       return { n: estTokens(text.length), exact: false };
     };
-    const [mSys, mCtx, mTools, mMsgs] = await Promise.all([
-      measure(agent),
-      measure(env),
-      measure(`${toolSchemas}\n${toolPrompts}`),
-      measure(messagesText),
-    ]);
-    const exact = [mSys, mCtx, mTools, mMsgs].every((m) => m.exact);
-    const cats = [
-      { label: 'system', n: mSys.n, glyph: GLYPH.system, color: COLOR.system },
-      { label: 'context', n: mCtx.n, glyph: GLYPH.context, color: COLOR.context },
-      { label: 'tools', n: mTools.n, glyph: GLYPH.tools, color: COLOR.tools },
-      { label: 'messages', n: mMsgs.n, glyph: GLYPH.messages, color: COLOR.messages },
+
+    // label, text, ANSI colour — one per category, in render order.
+    const SPEC: ReadonlyArray<[label: string, text: string, color: string]> = [
+      ['system', sys.agent, '\x1b[36m'], // cyan — the agent prompt
+      ['context', sys.env, '\x1b[33m'], // yellow — the <env> block
+      ['instructions', sys.instructions, '\x1b[34m'], // blue — AGENTS.md / CLAUDE.md
+      ['memory', sys.memory, '\x1b[35m'], // magenta — MEMORY.md
+      ['tools', `${toolSchemas}\n${sys.toolPrompts}`, '\x1b[31m'], // red — schemas + tool prompts
+      ['you', byRole('user'), '\x1b[32m'], // green — your messages
+      ['agent', byRole('assistant'), '\x1b[94m'], // bright blue — assistant replies
+      ['tool-out', byRole('tool'), '\x1b[90m'], // grey — tool results
     ];
+    const measured = await Promise.all(SPEC.map(([, text]) => measure(text)));
+    const cats = SPEC.map(([label, , color], i) => ({ label, n: measured[i].n, color })).filter((c) => c.n > 0);
+    const exact = measured.every((m) => m.exact);
     const total = cats.reduce((s, c) => s + c.n, 0);
     const window = (await ctx.session?.contextWindow?.()) ?? 0;
     const mark = (n: number): string => (exact ? `${n}` : `~${n}`);
 
     const lines = [`context — tokens (${exact ? 'exact, model tokenizer' : 'estimated ≈ chars/4'}):`];
-    for (const c of cats) {
-      if (c.label === 'context' && c.n === 0) continue;
-      const extra = c.label === 'tools'
-        ? `  (${last.tools.length})`
-        : c.label === 'messages'
-        ? `  (${body.length})`
-        : '';
-      lines.push(`  ${paint(c.glyph, c.color)} ${c.label.padEnd(8)} ${mark(c.n)}${extra}`);
-    }
+    for (const c of cats) lines.push(`  ${paint(BLOCK, c.color)} ${c.label.padEnd(13)} ${mark(c.n)}`);
     const pctNum = window ? Math.round((total / window) * 100) : 0;
     const pct = window ? ` / ${window} ${paint(`(${pctNum}%)`, fillColor(pctNum))}` : '';
-    lines.push(`  ── total   ${mark(total)}${pct}`);
+    lines.push(`  ${' '.repeat(15)}── ${mark(total)}${pct}`);
 
-    // Heatmap grid (each cell ≈ window/GRID_CELLS tokens).
     if (window > 0) {
       const cellTokens = Math.max(1, window / GRID_CELLS);
       const cells: string[] = [];
       for (const c of cats) {
-        for (let i = 0; i < Math.round(c.n / cellTokens) && cells.length < GRID_CELLS; i++) cells.push(paint(c.glyph, c.color));
+        for (let i = 0; i < Math.round(c.n / cellTokens) && cells.length < GRID_CELLS; i++) cells.push(paint(BLOCK, c.color));
       }
-      while (cells.length < GRID_CELLS) cells.push(paint(GLYPH.free, COLOR.free));
+      while (cells.length < GRID_CELLS) cells.push(paint(FREE, DIM));
       cells.length = GRID_CELLS;
       lines.push('');
-      lines.push(
-        `  ${paint(GLYPH.system, COLOR.system)} system  ${paint(GLYPH.context, COLOR.context)} context  ` +
-          `${paint(GLYPH.tools, COLOR.tools)} tools  ${paint(GLYPH.messages, COLOR.messages)} messages  ` +
-          `${paint(GLYPH.free, COLOR.free)} free`,
-      );
       for (let r = 0; r < GRID_ROWS; r++) lines.push(`  ${cells.slice(r * GRID_COLS, (r + 1) * GRID_COLS).join('')}`);
     }
 
