@@ -61,7 +61,10 @@ const GREY = '\x1b[38;2;153;153;153m';
 const BOLD = '\x1b[1m';
 const ITALIC = '\x1b[3m';
 const BUFFER_COLOR = '\x1b[38;2;255;193;7m'; // amber — the compaction reserve
-const paint = (s: string, color: string): string => `${color}${s}${RESET}`;
+// Reset BEFORE the colour too: the TUI note prefixes each line with a `dim` muted style,
+// and a bare `\x1b[38;2;…m` only sets the foreground — it wouldn't clear the inherited dim,
+// which darkened the first cell of every row. The leading reset wipes it.
+const paint = (s: string, color: string): string => `${RESET}${color}${s}${RESET}`;
 const fmtTok = (n: number): string => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
 const pctStr = (n: number, w: number): string => {
   if (w <= 0) return '';
@@ -163,12 +166,12 @@ export const createContextCommand = (): Command => ({
     // Right-hand info column — model, totals, then per-category usage (Claude Code's /context).
     const info: string[] = [];
     if (model) {
-      info.push(model.split('/').pop() ?? model);
+      info.push(`${RESET}${model.split('/').pop() ?? model}`);
       info.push(paint(model, GREY));
     }
     if (window > 0) info.push(paint(`${mark(total)}/${fmtTok(window)} tokens (${pctStr(total, window)})`, GREY));
     info.push('');
-    info.push(`${ITALIC}${GREY}Estimated usage by category${RESET}`);
+    info.push(`${RESET}${ITALIC}${GREY}Estimated usage by category${RESET}`);
     for (const c of cats) {
       info.push(`${paint(USED, c.color)} ${c.label}: ${paint(`${mark(c.n)} tokens (${pctStr(c.n, window)})`, GREY)}`);
     }
@@ -177,7 +180,7 @@ export const createContextCommand = (): Command => ({
       info.push(`${paint(FREEG, GREY)} Free space: ${paint(`${fmtTok(free)} (${pctStr(free, window)})`, GREY)}`);
     }
 
-    const lines = [`${BOLD}Context Usage${RESET}`];
+    const lines = [`${RESET}${BOLD}Context Usage${RESET}`];
 
     if (window > 0) {
       // Grid: category cells, then free, with the compaction buffer at the very end.
