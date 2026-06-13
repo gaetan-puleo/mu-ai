@@ -54,13 +54,13 @@ const GRID_CELLS = GRID_COLS * GRID_ROWS;
 const GRID_WIDTH = GRID_COLS * 2 - 1; // glyphs joined by single spaces
 const USED = '⛁'; // a filled context cell (Claude Code's /context glyph)
 const FREEG = '⛶'; // a free cell
-const BUFFER_COLOR = '\x1b[93m'; // bright yellow — the compaction reserve
-// ANSI SGR codes — mu's TUI text utils are ANSI-aware so these render in the terminal;
-// the companion strips them (plain text), keeping the labelled breakdown readable.
+// Truecolor SGR — distinct, readable hues (mu's TUI utils + the companion both strip/parse
+// these correctly). Secondary text uses a single grey so only the category glyphs carry colour.
 const RESET = '\x1b[0m';
-const DIM = '\x1b[2m';
+const GREY = '\x1b[38;2;153;153;153m';
 const BOLD = '\x1b[1m';
-const ITALIC_DIM = '\x1b[2;3m';
+const ITALIC = '\x1b[3m';
+const BUFFER_COLOR = '\x1b[38;2;255;193;7m'; // amber — the compaction reserve
 const paint = (s: string, color: string): string => `${color}${s}${RESET}`;
 const fmtTok = (n: number): string => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
 const pctStr = (n: number, w: number): string => {
@@ -139,16 +139,16 @@ export const createContextCommand = (): Command => ({
       return { n: estTokens(text.length), exact: false };
     };
 
-    // label, text, ANSI colour — one per category, in render order (descriptive labels à la Claude Code).
+    // label, text, truecolor — distinct hues across the wheel, in render order.
     const SPEC: ReadonlyArray<[label: string, text: string, color: string]> = [
-      ['System prompt', sys.agent, '\x1b[36m'], // cyan — the agent prompt
-      ['Environment', sys.env, '\x1b[33m'], // yellow — the <env> block
-      ['Instructions', sys.instructions, '\x1b[34m'], // blue — AGENTS.md / CLAUDE.md
-      ['Memory', sys.memory, '\x1b[35m'], // magenta — MEMORY.md
-      ['Tools', `${toolSchemas}\n${sys.toolPrompts}`, '\x1b[31m'], // red — schemas + tool prompts
-      ['You', byRole('user'), '\x1b[32m'], // green — your messages
-      ['Agent', byRole('assistant'), '\x1b[94m'], // bright blue — assistant replies
-      ['Tool results', byRole('tool'), '\x1b[90m'], // grey — tool results
+      ['System prompt', sys.agent, '\x1b[38;2;239;108;82m'], // coral — the agent prompt
+      ['Environment', sys.env, '\x1b[38;2;129;199;132m'], // green — the <env> block
+      ['Instructions', sys.instructions, '\x1b[38;2;100;181;246m'], // blue — AGENTS.md / CLAUDE.md
+      ['Memory', sys.memory, '\x1b[38;2;186;104;200m'], // purple — MEMORY.md
+      ['Tools', `${toolSchemas}\n${sys.toolPrompts}`, '\x1b[38;2;77;182;172m'], // teal — schemas + tool prompts
+      ['You', byRole('user'), '\x1b[38;2;121;134;203m'], // indigo — your messages
+      ['Agent', byRole('assistant'), '\x1b[38;2;240;98;146m'], // pink — assistant replies
+      ['Tool results', byRole('tool'), '\x1b[38;2;0;188;212m'], // cyan — tool results (distinct from amber buffer)
     ];
     const measured = await Promise.all(SPEC.map(([, text]) => measure(text)));
     const cats = SPEC.map(([label, , color], i) => ({ label, n: measured[i].n, color })).filter((c) => c.n > 0);
@@ -164,17 +164,17 @@ export const createContextCommand = (): Command => ({
     const info: string[] = [];
     if (model) {
       info.push(model.split('/').pop() ?? model);
-      info.push(paint(model, DIM));
+      info.push(paint(model, GREY));
     }
-    if (window > 0) info.push(paint(`${mark(total)}/${fmtTok(window)} tokens (${pctStr(total, window)})`, DIM));
+    if (window > 0) info.push(paint(`${mark(total)}/${fmtTok(window)} tokens (${pctStr(total, window)})`, GREY));
     info.push('');
-    info.push(paint('Estimated usage by category', ITALIC_DIM));
+    info.push(`${ITALIC}${GREY}Estimated usage by category${RESET}`);
     for (const c of cats) {
-      info.push(`${paint(USED, c.color)} ${c.label}: ${paint(`${mark(c.n)} tokens (${pctStr(c.n, window)})`, DIM)}`);
+      info.push(`${paint(USED, c.color)} ${c.label}: ${paint(`${mark(c.n)} tokens (${pctStr(c.n, window)})`, GREY)}`);
     }
     if (window > 0) {
-      info.push(`${paint(USED, BUFFER_COLOR)} Compaction buffer: ${paint(`${fmtTok(buffer)} tokens (${pctStr(buffer, window)})`, DIM)}`);
-      info.push(`${paint(FREEG, DIM)} Free space: ${paint(`${fmtTok(free)} (${pctStr(free, window)})`, DIM)}`);
+      info.push(`${paint(USED, BUFFER_COLOR)} Compaction buffer: ${paint(`${fmtTok(buffer)} tokens (${pctStr(buffer, window)})`, GREY)}`);
+      info.push(`${paint(FREEG, GREY)} Free space: ${paint(`${fmtTok(free)} (${pctStr(free, window)})`, GREY)}`);
     }
 
     const lines = [`${BOLD}Context Usage${RESET}`];
@@ -187,7 +187,7 @@ export const createContextCommand = (): Command => ({
       for (const c of cats) for (let i = 0; i < ratio(c.n) && cells.length < GRID_CELLS; i++) cells.push(paint(USED, c.color));
       const bufCells = Math.min(ratio(buffer), Math.max(0, GRID_CELLS - cells.length));
       const freeCells = Math.max(0, GRID_CELLS - cells.length - bufCells);
-      for (let i = 0; i < freeCells; i++) cells.push(paint(FREEG, DIM));
+      for (let i = 0; i < freeCells; i++) cells.push(paint(FREEG, GREY));
       for (let i = 0; i < bufCells; i++) cells.push(paint(USED, BUFFER_COLOR));
       cells.length = GRID_CELLS;
 
