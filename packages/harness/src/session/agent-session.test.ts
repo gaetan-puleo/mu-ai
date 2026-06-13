@@ -38,12 +38,12 @@ Deno.test('prepareRequest filters the tools schema and rewrites the system seen 
   const stored = session.messages.find((m: Message) => m.role === 'system');
   assertEquals(stored?.content[0], { type: 'text', text: 'base' });
 
-  // lastRequest must reflect what the MODEL saw (hook-rewritten), not the stored system —
-  // this is what /context-export now reads so the export tells the truth.
-  assertEquals(session.lastRequest?.system, 'base [no bash]');
-  assertEquals(session.lastRequest?.tools.map((t) => t.name), ['read']);
-  const sentSystem = session.lastRequest?.messages[0];
-  assertEquals(sentSystem?.role === 'system' && sentSystem.content[0], { type: 'text', text: 'base [no bash]' });
+  // assembleRequest must reflect what the MODEL sees (hook-rewritten), not the stored system —
+  // this is what /context and /context-export read so they tell the truth.
+  const req = await session.assembleRequest!();
+  assertEquals(req.system, 'base [no bash]');
+  assertEquals(req.tools.map((t) => t.name), ['read']);
+  assertEquals(req.messages[0]?.role === 'system' && req.messages[0].content[0], { type: 'text', text: 'base [no bash]' });
 });
 
 const scripted = (turns: ContentPart[][]): Provider => {

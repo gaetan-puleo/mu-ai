@@ -56,10 +56,10 @@ const estTokens = (chars: number): number => Math.max(1, Math.round(chars / 4));
  */
 export const createContextCommand = (): Command => ({
   name: 'context',
-  description: 'Show the exact context sent to the model (real system, tools, token estimate)',
-  run: (_args, ctx) => {
-    const last = ctx.session?.lastRequest;
-    if (!last) return { ok: true, output: 'No context assembled yet — send a message first.' };
+  description: 'Show the exact context for the current session (real system, tools, token estimate)',
+  run: async (_args, ctx) => {
+    const last = await ctx.session?.assembleRequest?.();
+    if (!last) return { ok: true, output: 'No session in memory yet — start a conversation first.' };
     const sysChars = last.system.length;
     const toolsChars = last.tools.reduce(
       (n, t) =>

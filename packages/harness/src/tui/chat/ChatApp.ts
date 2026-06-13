@@ -1203,9 +1203,9 @@ export class ChatApp {
       this.showError('Export path must stay inside the project directory.');
       return;
     }
-    // Prefer the EXACT assembled request the model saw (real system = base + hook injections
-    // + tool prompt blocks). Fall back to the stored messages only before the first turn.
-    const last = this.session?.lastRequest;
+    // Assemble the EXACT request from the live session (real system = base + hook injections
+    // + tool prompt blocks). Fall back to the stored messages if the session can't assemble.
+    const last = await this.session?.assembleRequest?.();
     const system = last
       ? last.system
       : all.filter((message) => message.role === 'system').map(textOf).join('\n\n');

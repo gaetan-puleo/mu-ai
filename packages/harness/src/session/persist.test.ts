@@ -5,20 +5,20 @@ import type { SessionStore } from './store';
 
 const noopStore = { append: async () => {} } as unknown as SessionStore;
 
-// Regression guard: session decorators must forward `lastRequest`, or /context and
+// Regression guard: session decorators must forward `assembleRequest`, or /context and
 // /context-export silently lose the real assembled prompt (they did — this is why).
-Deno.test('persistTo forwards lastRequest from the wrapped session', () => {
+Deno.test('persistTo forwards assembleRequest from the wrapped session', async () => {
   const req: AssembledRequest = { system: 'S', tools: [], messages: [] };
   const inner = {
     id: 'x',
     messages: [],
     tools: [],
-    lastRequest: req,
+    assembleRequest: () => Promise.resolve(req),
     send: async () => {},
     abort: () => {},
     subscribe: () => () => {},
   } as unknown as AgentSession;
 
   const wrapped = persistTo(noopStore, inner);
-  assertEquals(wrapped.lastRequest, req);
+  assertEquals(await wrapped.assembleRequest!(), req);
 });

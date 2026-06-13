@@ -6,13 +6,13 @@ export type AgentSessionEvent =
   | { type: 'turn_end' }
   | { type: 'error'; error: unknown };
 
-/** The exact payload sent to the provider on a turn — what the model actually saw. */
+/** The request the provider sees for a turn, assembled from the live session. */
 export interface AssembledRequest {
   /** Final system prompt: base system + prepareRequest hook injections + tool prompt blocks. */
   system: string;
-  /** Final tool set sent (after prepareRequest hooks — may differ from session.tools, e.g. per-agent filtering). */
+  /** Final tool set (after prepareRequest hooks — may differ from session.tools, e.g. per-agent filtering). */
   tools: readonly Tool[];
-  /** Final message list sent (system message + body + any hook-injected messages). */
+  /** Final message list (system message + body + any hook-injected messages). */
   messages: readonly Message[];
 }
 
@@ -20,8 +20,8 @@ export interface AgentSession {
   readonly id: string;
   readonly messages: readonly Message[];
   readonly tools: readonly Tool[];
-  /** The last request assembled and sent to the provider. Undefined before the first turn. */
-  readonly lastRequest?: AssembledRequest;
+  /** Assemble the request from the CURRENT in-memory session — what the next turn would send. */
+  assembleRequest?(): Promise<AssembledRequest>;
   send(input: string | ContentPart[]): Promise<void>;
   abort(): void;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;

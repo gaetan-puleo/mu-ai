@@ -4,14 +4,15 @@ import { createContextCommand } from './defaults';
 
 Deno.test('context command reports the REAL assembled request (not the stored system)', async () => {
   const session = {
-    lastRequest: {
-      system: 'SYS-REAL [env block]\n[tool: read]',
-      tools: [{ name: 'read', description: 'reads', parameters: {}, run: async () => [] }],
-      messages: [
-        { role: 'system', content: [{ type: 'text', text: 'SYS-REAL [env block]\n[tool: read]' }] },
-        { role: 'user', content: [{ type: 'text', text: 'hello' }] },
-      ],
-    },
+    assembleRequest: () =>
+      Promise.resolve({
+        system: 'SYS-REAL [env block]\n[tool: read]',
+        tools: [{ name: 'read', description: 'reads', parameters: {}, run: async () => [] }],
+        messages: [
+          { role: 'system', content: [{ type: 'text', text: 'SYS-REAL [env block]\n[tool: read]' }] },
+          { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+        ],
+      }),
   } as unknown as AgentSession;
 
   const res = await createContextCommand().run('', { session });
@@ -22,8 +23,8 @@ Deno.test('context command reports the REAL assembled request (not the stored sy
   assertStringIncludes(out, 'system    ~'); // per-component token estimate
 });
 
-Deno.test('context command is graceful before the first turn', async () => {
+Deno.test('context command is graceful with no live session', async () => {
   const res = await createContextCommand().run('', {});
   assertEquals(res.ok, true);
-  assertStringIncludes(String(res.output), 'No context assembled yet');
+  assertStringIncludes(String(res.output), 'No session in memory yet');
 });

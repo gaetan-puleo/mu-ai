@@ -42,7 +42,23 @@ export const createAgentSession = (config: AgentSessionConfig): AgentSession => 
   let started = false;
   let running = false;
   let controller: AbortController | undefined;
-  let lastRequest: AssembledRequest | undefined;
+
+  // Assemble the request from the CURRENT in-memory messages — the real system (base +
+  // prepareRequest hook injections like the env block + tool prompt blocks), the post-hook
+  // tool set, and the live message list. Reflects "what the next turn would send".
+  const assembleRequest = async (): Promise<AssembledRequest> => {
+    const hasSystem = messages[0]?.role === 'system';
+    const system = hasSystem ? textOf(messages[0]) : '';
+    const prepared = await hooks.prepareRequest?.({ system, tools: decorated });
+    const callTools = prepared?.tools ?? decorated;
+    const baseSystem = prepared?.system ?? system;
+    const toolBlock = callTools.map((tool) => tool.prompt?.trim()).filter(Boolean).join('\n');
+    const effectiveSystem = [baseSystem, toolBlock].filter(Boolean).join('\n\n');
+    const body = hasSystem ? messages.slice(1) : messages;
+    const withSystem = effectiveSystem ? [systemMessage(effectiveSystem), ...body] : body;
+    const callMessages = prepared?.messages?.length ? [...withSystem, ...prepared.messages] : withSystem;
+    return { system: effectiveSystem, tools: callTools, messages: callMessages };
+  };
 
   const send = async (input: string | ContentPart[]): Promise<void> => {
     if (running) throw new Error('AgentSession: busy (a turn is already running)');
@@ -59,25 +75,12 @@ export const createAgentSession = (config: AgentSessionConfig): AgentSession => 
       messages.push(message);
       emitter.emit({ type: 'turn_start', input: message });
 
-      const hasSystem = messages[0]?.role === 'system';
-      const system = hasSystem ? textOf(messages[0]) : '';
-      const prepared = await hooks.prepareRequest?.({ system, tools: decorated });
-      const callTools = prepared?.tools ?? decorated;
-      const baseSystem = prepared?.system ?? system;
-      const toolBlock = callTools.map((tool) => tool.prompt?.trim()).filter(Boolean).join('\n');
-      const effectiveSystem = [baseSystem, toolBlock].filter(Boolean).join('\n\n');
-      const body = hasSystem ? messages.slice(1) : messages;
-      const withSystem = effectiveSystem ? [systemMessage(effectiveSystem), ...body] : body;
-      const callMessages = prepared?.messages?.length ? [...withSystem, ...prepared.messages] : withSystem;
-
-      // Capture the exact assembled payload (before the call, so an errored turn is still inspectable).
-      lastRequest = { system: effectiveSystem, tools: callTools, messages: callMessages };
-
+      const request = await assembleRequest();
       const events = run({
         provider,
         model: config.model,
-        tools: callTools,
-        messages: callMessages,
+        tools: [...request.tools],
+        messages: [...request.messages],
         signal: ac.signal,
       });
       for await (const event of events) {
@@ -99,9 +102,7 @@ export const createAgentSession = (config: AgentSessionConfig): AgentSession => 
     get messages() {
       return messages;
     },
-    get lastRequest() {
-      return lastRequest;
-    },
+    assembleRequest,
     send,
     abort: () => controller?.abort(),
     subscribe: emitter.subscribe,
