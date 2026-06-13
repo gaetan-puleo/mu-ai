@@ -23,6 +23,16 @@ export interface RunAppOptions {
 export async function runApp(opts: RunAppOptions): Promise<void> {
   const { harness, providerConfig, state, agent, capabilities } = opts;
 
+  // In-process equivalent of the WS channel's model_loading broadcast: selecting a
+  // model probes its modalities (which loads it), and we surface that as a spinner.
+  const modelLoadingListeners = new Set<(model: string, loading: boolean) => void>();
+  const emitModelLoading = (model: string, loading: boolean): void => {
+    for (const l of [...modelLoadingListeners]) l(model, loading);
+  };
+
+  // Mutable so a /props probe can refine it live; ChatApp reads this same object.
+  const features = { vision: capabilities?.vision === true, audio: capabilities?.audio === true };
+
   const host: ChatHost = {
     session: opts.session,
     approvals: opts.approvals,
@@ -35,6 +45,22 @@ export async function runApp(opts: RunAppOptions): Promise<void> {
       harness.models.select(ref);
       state.model = ref;
       saveState(state);
+      // Probe the new model (loads it) behind a spinner, mirroring the WS channel,
+      // and refine the image/audio capabilities from its /props.modalities.
+      emitModelLoading(ref, true);
+      void harness.models.capabilities(ref)
+        .then((mods) => {
+          if (mods) {
+            features.vision = mods.vision;
+            features.audio = mods.audio;
+          }
+        })
+        .catch(() => undefined)
+        .finally(() => emitModelLoading(ref, false));
+    },
+    subscribeModelLoading: (listener) => {
+      modelLoadingListeners.add(listener);
+      return () => modelLoadingListeners.delete(listener);
     },
     modelRef: () => harness.models.selected,
     listModels: () => listLocalModels(providerConfig),
@@ -60,7 +86,7 @@ export async function runApp(opts: RunAppOptions): Promise<void> {
       saveState(state);
     },
     history: { load: loadHistory, append: appendHistory },
-    features: { vision: capabilities?.vision === true, audio: capabilities?.audio === true },
+    features,
     onExit: (code) => {
       harness.close();
       process.exit(code);
