@@ -31,6 +31,7 @@ import { createRunSkillTool, createSkillRegistry, createSkillTool, loadSkills, r
 import { createSubAgentRegistry, createSubAgentTool, runSubAgent } from '../subAgents';
 import { environmentBlock } from './environment';
 import { dirsForPath, loadInstructions } from './instructions';
+import { createMemoryStore, createRememberTool } from './memory';
 import { createModelRegistry } from './models';
 import type { Harness, HarnessOptions } from './types';
 
@@ -127,6 +128,18 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     },
   };
 
+  // Memory: GLOBAL (dataDir/MEMORY.md) + LOCAL (cwd/.mu/MEMORY.md), written via the `remember`
+  // tool. Re-loaded each turn so a memory saved this session shows up on the next.
+  const memory = createMemoryStore({ cwd, dataDir: config.dataDir });
+  const memoryHook: AgentSessionHooks = {
+    prepareRequest: async ({ system }) => {
+      const block = await memory.load();
+      if (!block) return undefined;
+      const tagged = `<memory>\n${block}\n</memory>`;
+      return { system: system ? `${system}\n\n${tagged}` : tagged };
+    },
+  };
+
   const pluginSkills = (sessionDefaults.plugins ?? []).flatMap((plugin) => plugin.skills ?? []);
   const mergedSkills = async () => [
     ...hostSkills,
@@ -155,6 +168,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     ...(sessionDefaults.tools ?? []),
     ...extra,
     createSkillTool(scopeSkills(agent)),
+    createRememberTool(memory),
     ...schedulerTools,
   ];
 
@@ -192,6 +206,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
           approvalHook(() => agent),
           envHook,
           instructionsHook,
+          memoryHook,
           trackPathsHook,
         ]),
       }),
@@ -248,6 +263,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
           approvalHook(() => approvals?.activeAgent()),
           envHook,
           instructionsHook,
+          memoryHook,
           trackPathsHook,
         ]),
         tools: sessionTools(undefined, [createSubAgentTool({ registry: agents, spawn, runs, parentId: id })]),
