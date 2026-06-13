@@ -32,6 +32,18 @@ export type StreamEvent =
   | { type: 'usage'; usage: Usage }
   | { type: 'reasoning'; text: string };
 
+/** Non-text input modalities a model accepts. */
+export interface ModelModalities {
+  vision: boolean;
+  audio: boolean;
+}
+
 export interface Provider {
   stream(req: { model: string; messages: Message[]; tools: Tool[]; signal?: AbortSignal }): AsyncIterable<StreamEvent>;
+  /**
+   * Probe a model's input modalities. MAY load the model (e.g. a llama.cpp `/props`
+   * fetch) — call it on model selection, not on every turn. Optional: providers that
+   * can't introspect modalities simply omit it.
+   */
+  capabilities?(model: string): Promise<ModelModalities | undefined>;
 }

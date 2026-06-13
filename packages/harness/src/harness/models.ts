@@ -1,4 +1,4 @@
-import type { Provider } from 'mu-core';
+import type { ModelModalities, Provider } from 'mu-core';
 
 export interface ModelRegistryOptions {
   providers: Record<string, Provider>;
@@ -15,6 +15,8 @@ export interface ModelRegistry {
   readonly providers: string[];
   select(ref: string): void;
   resolve(ref?: string): ResolvedModel;
+  /** Probe a model's input modalities via its provider (may load the model). Undefined if unsupported. */
+  capabilities(ref?: string): Promise<ModelModalities | undefined>;
 }
 
 export const createModelRegistry = (options: ModelRegistryOptions): ModelRegistry => {
@@ -48,5 +50,9 @@ export const createModelRegistry = (options: ModelRegistryOptions): ModelRegistr
       selected = ref;
     },
     resolve,
+    capabilities: async (ref) => {
+      const { provider, model } = resolve(ref);
+      return provider.capabilities ? await provider.capabilities(model) : undefined;
+    },
   };
 };

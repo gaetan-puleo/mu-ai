@@ -1,4 +1,4 @@
-import type { ContentPart, Message, Provider, StreamEvent, Tool, Usage } from 'mu-core';
+import type { ContentPart, Message, ModelModalities, Provider, StreamEvent, Tool, Usage } from 'mu-core';
 import OpenAI from 'openai';
 import type { Stream } from 'openai/core/streaming';
 import type {
@@ -220,27 +220,44 @@ export const createLocalProvider = (config: LocalProviderConfig = {}): Provider 
   let detected: Promise<{ backend: Backend; info: LocalBackendInfo }> | undefined;
   let client: OpenAI | undefined;
   const ctxByModel = new Map<string, number | undefined>();
+  const capsByModel = new Map<string, ModelModalities | undefined>();
+
+  const ensureBackend = (): Promise<{ backend: Backend; info: LocalBackendInfo }> => {
+    if (!detected) {
+      detected = detectBackend({ baseUrl: config.baseUrl ?? DEFAULT_BASE_URL, apiKey: config.apiKey })
+        .then((found) => {
+          if (found) return found;
+          throw new LocalProviderError(
+            config.kind ? `Cannot detect ${config.kind} backend` : 'Unsupported local backend',
+            config.kind ? 'backend_unreachable' : 'backend_unsupported',
+          );
+        })
+        .catch((err) => {
+          detected = undefined;
+          throw err;
+        });
+    }
+    return detected;
+  };
 
   return {
+    async capabilities(modelRef: string): Promise<ModelModalities | undefined> {
+      const model = modelRef || config.model;
+      if (!model) return undefined;
+      if (capsByModel.has(model)) return capsByModel.get(model);
+      const { backend, info } = await ensureBackend();
+      // Probing /props loads the model — intended: call this on model selection.
+      const modalities = await backend.modalities({ baseUrl: info.baseUrl, apiKey: config.apiKey, model })
+        .catch(() => undefined);
+      capsByModel.set(model, modalities);
+      return modalities;
+    },
+
     async *stream(req) {
       const model = req.model || config.model;
       if (!model) throw new LocalProviderError('No model specified', 'config_invalid');
 
-      if (!detected) {
-        detected = detectBackend({ baseUrl: config.baseUrl ?? DEFAULT_BASE_URL, apiKey: config.apiKey })
-          .then((found) => {
-            if (found) return found;
-            throw new LocalProviderError(
-              config.kind ? `Cannot detect ${config.kind} backend` : 'Unsupported local backend',
-              config.kind ? 'backend_unreachable' : 'backend_unsupported',
-            );
-          })
-          .catch((err) => {
-            detected = undefined;
-            throw err;
-          });
-      }
-      const { backend, info } = await detected;
+      const { backend, info } = await ensureBackend();
 
       const ClientCtor = config.openAIClient ?? OpenAI;
       client ??= new ClientCtor({
@@ -264,10 +281,12 @@ export const createLocalProvider = (config: LocalProviderConfig = {}): Provider 
         const ctx = await backend.contextWindow({ baseUrl: info.baseUrl, apiKey: config.apiKey, model })
           .catch(() => undefined);
         ctxByModel.set(model, ctx);
-        // Same `/props` round-trip just happened for the context window; read the
-        // model's input modalities from it and surface them to the host (once per model).
-        const modalities = await backend.modalities({ baseUrl: info.baseUrl, apiKey: config.apiKey, model })
-          .catch(() => undefined);
+        // Reuse modalities already probed by capabilities() (on model select); otherwise read
+        // them from the same `/props` we just fetched for the context window.
+        const modalities = capsByModel.has(model)
+          ? capsByModel.get(model)
+          : await backend.modalities({ baseUrl: info.baseUrl, apiKey: config.apiKey, model }).catch(() => undefined);
+        capsByModel.set(model, modalities);
         config.onModelInfo?.({ model, contextWindow: ctx, modalities });
       }
 

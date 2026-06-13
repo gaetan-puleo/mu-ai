@@ -210,6 +210,13 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
           harness.models.select(msg.ref);
           const frame = await modelsFrame();
           if (frame) push(frame);
+          // Detect the new model's input modalities (loads the model) and re-advertise.
+          const modalities = await harness.models.capabilities(msg.ref).catch(() => undefined);
+          if (modalities) {
+            caps.vision = modalities.vision;
+            caps.audio = modalities.audio;
+            push({ type: 'capabilities', vision: caps.vision, audio: caps.audio });
+          }
           return;
         }
         case 'subagent:dispatch': {

@@ -1,10 +1,7 @@
+import type { ModelModalities } from 'mu-core';
 import type { LocalBackendInfo } from '../types';
 
-/** Input modalities a model accepts, as reported by llama.cpp's `/props.modalities`. */
-export interface ModelModalities {
-  vision: boolean;
-  audio: boolean;
-}
+export type { ModelModalities };
 
 /** Narrow a raw `/props.modalities` object (`{vision,video,audio}`) to the modalities we care about. */
 export const toModalities = (raw: unknown): ModelModalities | undefined => {
