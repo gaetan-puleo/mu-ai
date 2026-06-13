@@ -48,16 +48,23 @@ export const createQuitCommand = (onQuit: () => void | Promise<void>): Command =
 
 const estTokens = (chars: number): number => Math.max(1, Math.round(chars / 4));
 
-const GRID_COLS = 24;
-const GRID_ROWS = 8;
+const GRID_COLS = 20;
+const GRID_ROWS = 10;
 const GRID_CELLS = GRID_COLS * GRID_ROWS;
 const BLOCK = '█';
 const FREE = '·';
+const BUFFER_COLOR = '\x1b[93m'; // bright yellow — the compaction reserve
 // ANSI SGR colours — mu's TUI text utils are ANSI-aware so these render in the terminal;
 // the companion strips them (plain text), keeping the labelled breakdown readable.
 const RESET = '\x1b[0m';
 const DIM = '\x1b[2m';
 const paint = (s: string, color: string): string => `${color}${s}${RESET}`;
+const fmtTok = (n: number): string => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+const pctStr = (n: number, w: number): string => {
+  if (w <= 0) return '';
+  const p = (n / w) * 100;
+  return p > 0 && p < 0.1 ? '<0.1%' : `${p.toFixed(1)}%`;
+};
 const fillColor = (pct: number): string => (pct >= 80 ? '\x1b[31m' : pct >= 50 ? '\x1b[33m' : '\x1b[32m');
 
 /** Extract a `<tag>…</tag>` block (with tags), or '' when absent. */
@@ -146,24 +153,44 @@ export const createContextCommand = (): Command => ({
     const exact = measured.every((m) => m.exact);
     const total = cats.reduce((s, c) => s + c.n, 0);
     const window = (await ctx.session?.contextWindow?.()) ?? 0;
-    const mark = (n: number): string => (exact ? `${n}` : `~${n}`);
-
-    const lines = [`context — tokens (${exact ? 'exact, model tokenizer' : 'estimated ≈ chars/4'}):`];
-    for (const c of cats) lines.push(`  ${paint(BLOCK, c.color)} ${c.label.padEnd(13)} ${mark(c.n)}`);
+    const buffer = window > 0 ? Math.min(Math.round(window * 0.2), Math.max(0, window - total)) : 0;
+    const free = Math.max(0, window - total - buffer);
+    const mark = (n: number): string => (exact ? fmtTok(n) : `~${fmtTok(n)}`);
     const pctNum = window ? Math.round((total / window) * 100) : 0;
-    const pct = window ? ` / ${window} ${paint(`(${pctNum}%)`, fillColor(pctNum))}` : '';
-    lines.push(`  ${' '.repeat(15)}── ${mark(total)}${pct}`);
+
+    // Legend rows (categories, then buffer + free), Claude Code / oh-my-pi style.
+    const rows = cats.map((c) => ({ marker: paint(BLOCK, c.color), label: c.label, n: c.n }));
+    if (window > 0) {
+      rows.push({ marker: paint(BLOCK, BUFFER_COLOR), label: 'buffer', n: buffer });
+      rows.push({ marker: paint(FREE, DIM), label: 'free', n: free });
+    }
+    const legend = rows.map((r) => `${r.marker} ${r.label.padEnd(13)} ${mark(r.n).padStart(7)}  ${pctStr(r.n, window).padStart(6)}`);
+
+    const header = window
+      ? `context · ${mark(total)} / ${fmtTok(window)} ${paint(`(${pctStr(total, window)})`, fillColor(pctNum))}`
+      : `context · ${mark(total)} tokens (no model context window)`;
+    const lines = [header, ''];
 
     if (window > 0) {
+      // Build the grid: category cells, then free, with the compaction buffer at the very end.
       const cellTokens = Math.max(1, window / GRID_CELLS);
+      const ratio = (n: number): number => (n <= 0 ? 0 : Math.max(1, Math.round(n / cellTokens)));
       const cells: string[] = [];
-      for (const c of cats) {
-        for (let i = 0; i < Math.round(c.n / cellTokens) && cells.length < GRID_CELLS; i++) cells.push(paint(BLOCK, c.color));
-      }
-      while (cells.length < GRID_CELLS) cells.push(paint(FREE, DIM));
+      for (const c of cats) for (let i = 0; i < ratio(c.n) && cells.length < GRID_CELLS; i++) cells.push(paint(BLOCK, c.color));
+      const bufCells = Math.min(ratio(buffer), Math.max(0, GRID_CELLS - cells.length));
+      const freeCells = Math.max(0, GRID_CELLS - cells.length - bufCells);
+      for (let i = 0; i < freeCells; i++) cells.push(paint(FREE, DIM));
+      for (let i = 0; i < bufCells; i++) cells.push(paint(BLOCK, BUFFER_COLOR));
       cells.length = GRID_CELLS;
-      lines.push('');
-      for (let r = 0; r < GRID_ROWS; r++) lines.push(`  ${cells.slice(r * GRID_COLS, (r + 1) * GRID_COLS).join('')}`);
+
+      // Side-by-side: 20×10 grid on the left, the legend on the right.
+      const rowsCount = Math.max(GRID_ROWS, legend.length);
+      for (let r = 0; r < rowsCount; r++) {
+        const gridRow = r < GRID_ROWS ? cells.slice(r * GRID_COLS, (r + 1) * GRID_COLS).join('') : ' '.repeat(GRID_COLS);
+        lines.push(`  ${gridRow}  ${legend[r] ?? ''}`.trimEnd());
+      }
+    } else {
+      for (const l of legend) lines.push(`  ${l.trimEnd()}`);
     }
 
     return { ok: true, output: lines.join('\n') };

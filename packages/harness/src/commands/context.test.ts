@@ -23,19 +23,21 @@ Deno.test('context splits system/context/tools + messages by role with exact tok
   });
   const out = String((await createContextCommand().run('', { session })).output);
 
-  assertStringIncludes(out, 'exact, model tokenizer');
+  assertStringIncludes(out, 'context ·'); // header
   assertStringIncludes(out, 'system');
   assertStringIncludes(out, 'context'); // the <env> block is its own category
   assertStringIncludes(out, 'tools');
   assertStringIncludes(out, 'you'); // user messages split out by role
+  assertStringIncludes(out, 'buffer'); // compaction reserve category
+  assertStringIncludes(out, 'free');
   assertStringIncludes(out, '%'); // window fill
   assertStringIncludes(out, '·'); // heatmap free cells (only rendered with a window)
 });
 
-Deno.test('context falls back to a chars/4 estimate without a tokenizer (no grid without a window)', async () => {
+Deno.test('context falls back to a chars/4 estimate (marked ~) and renders no grid without a window', async () => {
   const out = String((await createContextCommand().run('', { session: sessionWith({}) })).output);
-  assertStringIncludes(out, 'estimated');
-  assertEquals(out.includes('·'), false); // no contextWindow → no heatmap
+  assertStringIncludes(out, '~'); // estimate marker on the token counts
+  assertEquals(out.includes('free'), false); // no contextWindow → no buffer/free rows, no heatmap
 });
 
 Deno.test('context is graceful with no live session', async () => {
