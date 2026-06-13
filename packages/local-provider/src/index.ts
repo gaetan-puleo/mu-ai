@@ -278,16 +278,21 @@ export const createLocalProvider = (config: LocalProviderConfig = {}): Provider 
       if (extras) Object.assign(requestOptions, extras);
 
       if (!ctxByModel.has(model)) {
-        const ctx = await backend.contextWindow({ baseUrl: info.baseUrl, apiKey: config.apiKey, model })
-          .catch(() => undefined);
-        ctxByModel.set(model, ctx);
-        // Reuse modalities already probed by capabilities() (on model select); otherwise read
-        // them from the same `/props` we just fetched for the context window.
-        const modalities = capsByModel.has(model)
-          ? capsByModel.get(model)
-          : await backend.modalities({ baseUrl: info.baseUrl, apiKey: config.apiKey, model }).catch(() => undefined);
-        capsByModel.set(model, modalities);
-        config.onModelInfo?.({ model, contextWindow: ctx, modalities });
+        config.onModelLoading?.(model, true);
+        try {
+          const ctx = await backend.contextWindow({ baseUrl: info.baseUrl, apiKey: config.apiKey, model })
+            .catch(() => undefined);
+          ctxByModel.set(model, ctx);
+          // Reuse modalities already probed by capabilities() (on model select); otherwise read
+          // them from the same `/props` we just fetched for the context window.
+          const modalities = capsByModel.has(model)
+            ? capsByModel.get(model)
+            : await backend.modalities({ baseUrl: info.baseUrl, apiKey: config.apiKey, model }).catch(() => undefined);
+          capsByModel.set(model, modalities);
+          config.onModelInfo?.({ model, contextWindow: ctx, modalities });
+        } finally {
+          config.onModelLoading?.(model, false);
+        }
       }
 
       yield* streamChunks(

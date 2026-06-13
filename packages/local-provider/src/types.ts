@@ -56,4 +56,10 @@ export interface LocalProviderConfig {
    * the host auto-set image/audio capabilities without a separate, model-loading probe.
    */
   onModelInfo?: (info: { model: string; contextWindow?: number; modalities?: ModelModalities }) => void;
+  /**
+   * Fired with `true` just before a model is loaded for the first time (the cold-start
+   * /props + first inference) and `false` once it's ready. Lets the host show a loader
+   * on the first message, not only on an explicit model switch.
+   */
+  onModelLoading?: (model: string, loading: boolean) => void;
 }
