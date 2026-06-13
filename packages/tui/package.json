@@ -1,6 +1,6 @@
 {
   "name": "mu-tui",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "private": true,
   "description": "Terminal UI engine for mu hosts: input parser, capability detector, layout/render core, components",
   "type": "module",

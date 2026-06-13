@@ -1,6 +1,6 @@
 {
   "name": "mu-ai-tools",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "private": true,
   "description": "Shared filesystem + shell tools (read, write, edit, bash, list) for mu hosts",
   "type": "module",
