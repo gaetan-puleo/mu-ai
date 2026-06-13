@@ -1,6 +1,6 @@
 {
   "name": "mu-webfetch",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "private": true,
   "description": "Webfetch tool for mu — fetches a URL and returns it as markdown by default.",
   "type": "module",
