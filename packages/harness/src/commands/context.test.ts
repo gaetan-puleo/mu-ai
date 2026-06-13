@@ -23,21 +23,21 @@ Deno.test('context splits system/context/tools + messages by role with exact tok
   });
   const out = String((await createContextCommand().run('', { session })).output);
 
-  assertStringIncludes(out, 'context ·'); // header
-  assertStringIncludes(out, 'system');
-  assertStringIncludes(out, 'context'); // the <env> block is its own category
-  assertStringIncludes(out, 'tools');
-  assertStringIncludes(out, 'you'); // user messages split out by role
-  assertStringIncludes(out, 'buffer'); // compaction reserve category
-  assertStringIncludes(out, 'free');
+  assertStringIncludes(out, 'Context Usage'); // header
+  assertStringIncludes(out, 'System prompt');
+  assertStringIncludes(out, 'Environment'); // the <env> block is its own category
+  assertStringIncludes(out, 'Tools');
+  assertStringIncludes(out, 'You'); // user messages split out by role
+  assertStringIncludes(out, 'Compaction buffer'); // compaction reserve category
+  assertStringIncludes(out, 'Free space');
   assertStringIncludes(out, '%'); // window fill
-  assertStringIncludes(out, '·'); // heatmap free cells (only rendered with a window)
+  assertStringIncludes(out, '⛶'); // grid free cells (only rendered with a window)
 });
 
 Deno.test('context falls back to a chars/4 estimate (marked ~) and renders no grid without a window', async () => {
   const out = String((await createContextCommand().run('', { session: sessionWith({}) })).output);
   assertStringIncludes(out, '~'); // estimate marker on the token counts
-  assertEquals(out.includes('free'), false); // no contextWindow → no buffer/free rows, no heatmap
+  assertEquals(out.includes('Free space'), false); // no contextWindow → no buffer/free rows, no grid
 });
 
 Deno.test('context is graceful with no live session', async () => {

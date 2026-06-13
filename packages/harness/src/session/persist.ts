@@ -13,6 +13,7 @@ export const persistTo = (store: SessionStore, session: AgentSession, persisted 
     get tools() {
       return session.tools;
     },
+    model: session.model,
     assembleRequest: session.assembleRequest?.bind(session),
     countTokens: session.countTokens?.bind(session),
     contextWindow: session.contextWindow?.bind(session),

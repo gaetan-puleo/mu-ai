@@ -168,6 +168,7 @@ export const createAgentSession = (config: AgentSessionConfig): AgentSession => 
 
   return {
     id,
+    model: config.model,
     tools,
     get messages() {
       return messages;

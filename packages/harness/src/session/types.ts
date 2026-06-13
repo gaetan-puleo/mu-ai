@@ -18,6 +18,7 @@ export interface AssembledRequest {
 
 export interface AgentSession {
   readonly id: string;
+  readonly model?: string;
   readonly messages: readonly Message[];
   readonly tools: readonly Tool[];
   /** Assemble the request from the CURRENT in-memory session — what the next turn would send. */

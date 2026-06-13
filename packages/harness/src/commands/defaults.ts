@@ -51,13 +51,16 @@ const estTokens = (chars: number): number => Math.max(1, Math.round(chars / 4));
 const GRID_COLS = 20;
 const GRID_ROWS = 10;
 const GRID_CELLS = GRID_COLS * GRID_ROWS;
-const BLOCK = '█';
-const FREE = '·';
+const GRID_WIDTH = GRID_COLS * 2 - 1; // glyphs joined by single spaces
+const USED = '⛁'; // a filled context cell (Claude Code's /context glyph)
+const FREEG = '⛶'; // a free cell
 const BUFFER_COLOR = '\x1b[93m'; // bright yellow — the compaction reserve
-// ANSI SGR colours — mu's TUI text utils are ANSI-aware so these render in the terminal;
+// ANSI SGR codes — mu's TUI text utils are ANSI-aware so these render in the terminal;
 // the companion strips them (plain text), keeping the labelled breakdown readable.
 const RESET = '\x1b[0m';
 const DIM = '\x1b[2m';
+const BOLD = '\x1b[1m';
+const ITALIC_DIM = '\x1b[2;3m';
 const paint = (s: string, color: string): string => `${color}${s}${RESET}`;
 const fmtTok = (n: number): string => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
 const pctStr = (n: number, w: number): string => {
@@ -65,7 +68,6 @@ const pctStr = (n: number, w: number): string => {
   const p = (n / w) * 100;
   return p > 0 && p < 0.1 ? '<0.1%' : `${p.toFixed(1)}%`;
 };
-const fillColor = (pct: number): string => (pct >= 80 ? '\x1b[31m' : pct >= 50 ? '\x1b[33m' : '\x1b[32m');
 
 /** Extract a `<tag>…</tag>` block (with tags), or '' when absent. */
 function tagBlock(s: string, tag: string): string {
@@ -137,16 +139,16 @@ export const createContextCommand = (): Command => ({
       return { n: estTokens(text.length), exact: false };
     };
 
-    // label, text, ANSI colour — one per category, in render order.
+    // label, text, ANSI colour — one per category, in render order (descriptive labels à la Claude Code).
     const SPEC: ReadonlyArray<[label: string, text: string, color: string]> = [
-      ['system', sys.agent, '\x1b[36m'], // cyan — the agent prompt
-      ['context', sys.env, '\x1b[33m'], // yellow — the <env> block
-      ['instructions', sys.instructions, '\x1b[34m'], // blue — AGENTS.md / CLAUDE.md
-      ['memory', sys.memory, '\x1b[35m'], // magenta — MEMORY.md
-      ['tools', `${toolSchemas}\n${sys.toolPrompts}`, '\x1b[31m'], // red — schemas + tool prompts
-      ['you', byRole('user'), '\x1b[32m'], // green — your messages
-      ['agent', byRole('assistant'), '\x1b[94m'], // bright blue — assistant replies
-      ['tool-out', byRole('tool'), '\x1b[90m'], // grey — tool results
+      ['System prompt', sys.agent, '\x1b[36m'], // cyan — the agent prompt
+      ['Environment', sys.env, '\x1b[33m'], // yellow — the <env> block
+      ['Instructions', sys.instructions, '\x1b[34m'], // blue — AGENTS.md / CLAUDE.md
+      ['Memory', sys.memory, '\x1b[35m'], // magenta — MEMORY.md
+      ['Tools', `${toolSchemas}\n${sys.toolPrompts}`, '\x1b[31m'], // red — schemas + tool prompts
+      ['You', byRole('user'), '\x1b[32m'], // green — your messages
+      ['Agent', byRole('assistant'), '\x1b[94m'], // bright blue — assistant replies
+      ['Tool results', byRole('tool'), '\x1b[90m'], // grey — tool results
     ];
     const measured = await Promise.all(SPEC.map(([, text]) => measure(text)));
     const cats = SPEC.map(([label, , color], i) => ({ label, n: measured[i].n, color })).filter((c) => c.n > 0);
@@ -156,41 +158,46 @@ export const createContextCommand = (): Command => ({
     const buffer = window > 0 ? Math.min(Math.round(window * 0.2), Math.max(0, window - total)) : 0;
     const free = Math.max(0, window - total - buffer);
     const mark = (n: number): string => (exact ? fmtTok(n) : `~${fmtTok(n)}`);
-    const pctNum = window ? Math.round((total / window) * 100) : 0;
+    const model = ctx.session?.model ?? '';
 
-    // Legend rows (categories, then buffer + free), Claude Code / oh-my-pi style.
-    const rows = cats.map((c) => ({ marker: paint(BLOCK, c.color), label: c.label, n: c.n }));
-    if (window > 0) {
-      rows.push({ marker: paint(BLOCK, BUFFER_COLOR), label: 'buffer', n: buffer });
-      rows.push({ marker: paint(FREE, DIM), label: 'free', n: free });
+    // Right-hand info column — model, totals, then per-category usage (Claude Code's /context).
+    const info: string[] = [];
+    if (model) {
+      info.push(model.split('/').pop() ?? model);
+      info.push(paint(model, DIM));
     }
-    const legend = rows.map((r) => `${r.marker} ${r.label.padEnd(13)} ${mark(r.n).padStart(7)}  ${pctStr(r.n, window).padStart(6)}`);
+    if (window > 0) info.push(paint(`${mark(total)}/${fmtTok(window)} tokens (${pctStr(total, window)})`, DIM));
+    info.push('');
+    info.push(paint('Estimated usage by category', ITALIC_DIM));
+    for (const c of cats) {
+      info.push(`${paint(USED, c.color)} ${c.label}: ${paint(`${mark(c.n)} tokens (${pctStr(c.n, window)})`, DIM)}`);
+    }
+    if (window > 0) {
+      info.push(`${paint(USED, BUFFER_COLOR)} Compaction buffer: ${paint(`${fmtTok(buffer)} tokens (${pctStr(buffer, window)})`, DIM)}`);
+      info.push(`${paint(FREEG, DIM)} Free space: ${paint(`${fmtTok(free)} (${pctStr(free, window)})`, DIM)}`);
+    }
 
-    const header = window
-      ? `context · ${mark(total)} / ${fmtTok(window)} ${paint(`(${pctStr(total, window)})`, fillColor(pctNum))}`
-      : `context · ${mark(total)} tokens (no model context window)`;
-    const lines = [header, ''];
+    const lines = [`${BOLD}Context Usage${RESET}`];
 
     if (window > 0) {
-      // Build the grid: category cells, then free, with the compaction buffer at the very end.
+      // Grid: category cells, then free, with the compaction buffer at the very end.
       const cellTokens = Math.max(1, window / GRID_CELLS);
       const ratio = (n: number): number => (n <= 0 ? 0 : Math.max(1, Math.round(n / cellTokens)));
       const cells: string[] = [];
-      for (const c of cats) for (let i = 0; i < ratio(c.n) && cells.length < GRID_CELLS; i++) cells.push(paint(BLOCK, c.color));
+      for (const c of cats) for (let i = 0; i < ratio(c.n) && cells.length < GRID_CELLS; i++) cells.push(paint(USED, c.color));
       const bufCells = Math.min(ratio(buffer), Math.max(0, GRID_CELLS - cells.length));
       const freeCells = Math.max(0, GRID_CELLS - cells.length - bufCells);
-      for (let i = 0; i < freeCells; i++) cells.push(paint(FREE, DIM));
-      for (let i = 0; i < bufCells; i++) cells.push(paint(BLOCK, BUFFER_COLOR));
+      for (let i = 0; i < freeCells; i++) cells.push(paint(FREEG, DIM));
+      for (let i = 0; i < bufCells; i++) cells.push(paint(USED, BUFFER_COLOR));
       cells.length = GRID_CELLS;
 
-      // Side-by-side: 20×10 grid on the left, the legend on the right.
-      const rowsCount = Math.max(GRID_ROWS, legend.length);
-      for (let r = 0; r < rowsCount; r++) {
-        const gridRow = r < GRID_ROWS ? cells.slice(r * GRID_COLS, (r + 1) * GRID_COLS).join('') : ' '.repeat(GRID_COLS);
-        lines.push(`  ${gridRow}  ${legend[r] ?? ''}`.trimEnd());
+      // Side-by-side: 20×10 grid (space-separated glyphs) on the left, info column on the right.
+      for (let r = 0; r < Math.max(GRID_ROWS, info.length); r++) {
+        const gridRow = r < GRID_ROWS ? cells.slice(r * GRID_COLS, (r + 1) * GRID_COLS).join(' ') : ' '.repeat(GRID_WIDTH);
+        lines.push(`${gridRow}  ${info[r] ?? ''}`.trimEnd());
       }
     } else {
-      for (const l of legend) lines.push(`  ${l.trimEnd()}`);
+      for (const l of info) lines.push(l.trimEnd());
     }
 
     return { ok: true, output: lines.join('\n') };

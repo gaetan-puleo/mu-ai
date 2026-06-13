@@ -45,6 +45,7 @@ const onFirstMessage = (session: AgentSession, fire: (input: { id: string; text:
     get tools() {
       return session.tools;
     },
+    model: session.model,
     assembleRequest: session.assembleRequest?.bind(session),
     countTokens: session.countTokens?.bind(session),
     contextWindow: session.contextWindow?.bind(session),
