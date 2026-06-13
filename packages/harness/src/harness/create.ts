@@ -30,6 +30,7 @@ import {
 import { createRunSkillTool, createSkillRegistry, createSkillTool, loadSkills, runSkill } from '../skills';
 import { createSubAgentRegistry, createSubAgentTool, runSubAgent } from '../subAgents';
 import { environmentBlock } from './environment';
+import { dirsForPath, loadInstructions } from './instructions';
 import { createModelRegistry } from './models';
 import type { Harness, HarnessOptions } from './types';
 
@@ -40,6 +41,19 @@ const TITLE_AGENT: Agent = {
     'Generate a concise title (3 to 6 words) for the conversation based on the user message. Reply with ONLY the title — no quotes, no trailing punctuation, no explanation.',
   tools: [],
 };
+
+/** Tool-input field names that carry filesystem paths — used to scope nested AGENTS.md. */
+const PATH_KEYS = new Set(['path', 'file', 'filename', 'file_path', 'filepath', 'dir', 'directory', 'cwd', 'paths', 'files']);
+function pathsFromInput(input: unknown): string[] {
+  if (!input || typeof input !== 'object') return [];
+  const out: string[] = [];
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (!PATH_KEYS.has(key.toLowerCase())) continue;
+    if (typeof value === 'string') out.push(value);
+    else if (Array.isArray(value)) for (const el of value) if (typeof el === 'string') out.push(el);
+  }
+  return out;
+}
 
 export const createHarness = async (options: HarnessOptions): Promise<Harness> => {
   const {
@@ -93,6 +107,24 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
   });
   const envHook: AgentSessionHooks = {
     prepareRequest: ({ system }) => ({ system: system ? `${system}\n\n${envBlock}` : envBlock }),
+  };
+
+  // Project/global instructions (AGENTS.md / CLAUDE.md). Scopes: GLOBAL (configDir) + LOCAL
+  // (cwd & ancestors) + on-demand NESTED (subdirs the agent touches). `accessedDirs` grows as
+  // tools reference paths; the hook re-loads each turn so nested AGENTS.md appear when relevant.
+  const accessedDirs = new Set<string>();
+  const trackPathsHook: AgentSessionHooks = {
+    beforeToolCall: ({ input }) => {
+      for (const p of pathsFromInput(input)) for (const d of dirsForPath(cwd, p)) accessedDirs.add(d);
+    },
+  };
+  const instructionsHook: AgentSessionHooks = {
+    prepareRequest: async ({ system }) => {
+      const block = await loadInstructions(cwd, config.configDir, { accessed: accessedDirs });
+      if (!block) return undefined;
+      const tagged = `<instructions>\n${block}\n</instructions>`;
+      return { system: system ? `${system}\n\n${tagged}` : tagged };
+    },
   };
 
   const pluginSkills = (sessionDefaults.plugins ?? []).flatMap((plugin) => plugin.skills ?? []);
@@ -154,7 +186,14 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
       store,
       persona(agent, {
         tools: sessionTools(agent),
-        hooks: mergeHooks([sessionDefaults.hooks, allowList(toolNames(agent)), approvalHook(() => agent), envHook]),
+        hooks: mergeHooks([
+          sessionDefaults.hooks,
+          allowList(toolNames(agent)),
+          approvalHook(() => agent),
+          envHook,
+          instructionsHook,
+          trackPathsHook,
+        ]),
       }),
     );
 
@@ -204,7 +243,13 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     revive: ({ id, model: ref, messages }) =>
       createAgentSession({
         ...sessionDefaults,
-        hooks: mergeHooks([sessionDefaults.hooks, approvalHook(() => approvals?.activeAgent()), envHook]),
+        hooks: mergeHooks([
+          sessionDefaults.hooks,
+          approvalHook(() => approvals?.activeAgent()),
+          envHook,
+          instructionsHook,
+          trackPathsHook,
+        ]),
         tools: sessionTools(undefined, [createSubAgentTool({ registry: agents, spawn, runs, parentId: id })]),
         ...models.resolve(ref),
         id,
