@@ -288,4 +288,5 @@ export const llamaSwap: Backend = {
   prepareChatRequest: prepareLlamaSwapChatRequest,
   contextWindow: llamaSwapContextWindow,
   modalities: llamaSwapModalities,
+  tokenize: tokenizeLlamaSwap,
 };

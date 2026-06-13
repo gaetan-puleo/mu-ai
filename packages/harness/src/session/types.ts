@@ -22,6 +22,8 @@ export interface AgentSession {
   readonly tools: readonly Tool[];
   /** Assemble the request from the CURRENT in-memory session — what the next turn would send. */
   assembleRequest?(): Promise<AssembledRequest>;
+  /** Exact token count of `text` via the model's own tokenizer, when the provider supports it. */
+  countTokens?(text: string): Promise<number | undefined>;
   send(input: string | ContentPart[]): Promise<void>;
   abort(): void;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;

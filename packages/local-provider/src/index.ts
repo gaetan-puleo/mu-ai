@@ -253,6 +253,14 @@ export const createLocalProvider = (config: LocalProviderConfig = {}): Provider 
       return modalities;
     },
 
+    async countTokens(text: string, modelRef: string): Promise<number | undefined> {
+      const model = modelRef || config.model;
+      if (!model) return undefined;
+      const { backend, info } = await ensureBackend();
+      return backend.tokenize({ baseUrl: info.baseUrl, apiKey: config.apiKey, model, content: text })
+        .catch(() => undefined);
+    },
+
     async *stream(req) {
       const model = req.model || config.model;
       if (!model) throw new LocalProviderError('No model specified', 'config_invalid');

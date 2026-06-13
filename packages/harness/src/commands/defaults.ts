@@ -56,29 +56,36 @@ const estTokens = (chars: number): number => Math.max(1, Math.round(chars / 4));
  */
 export const createContextCommand = (): Command => ({
   name: 'context',
-  description: 'Show the exact context for the current session (real system, tools, token estimate)',
+  description: 'Show the exact context for the current session (real system, tools, token count)',
   run: async (_args, ctx) => {
     const last = await ctx.session?.assembleRequest?.();
     if (!last) return { ok: true, output: 'No session in memory yet — start a conversation first.' };
-    const sysChars = last.system.length;
-    const toolsChars = last.tools.reduce(
-      (n, t) =>
-        n + JSON.stringify({ name: t.name, description: t.description, parameters: t.parameters }).length +
-        (t.prompt?.length ?? 0),
-      0,
-    );
+
+    const systemText = last.system;
+    const toolsText = last.tools
+      .map((t) => JSON.stringify({ name: t.name, description: t.description, parameters: t.parameters }) + (t.prompt ?? ''))
+      .join('\n');
     const body = last.messages.filter((m) => m.role !== 'system');
-    const msgChars = body.reduce((n, m) => n + JSON.stringify(m.content).length, 0);
-    const sysTok = estTokens(sysChars);
-    const toolsTok = estTokens(toolsChars);
-    const msgTok = estTokens(msgChars);
+    const messagesText = body.map((m) => JSON.stringify(m.content)).join('\n');
+
+    // Prefer the model's own tokenizer (llama.cpp /tokenize); fall back to a chars/4 estimate.
+    const count = ctx.session?.countTokens;
+    const [rSys, rTools, rMsgs] = count
+      ? await Promise.all([count(systemText), count(toolsText), count(messagesText)])
+      : [undefined, undefined, undefined];
+    const exact = rSys !== undefined && rTools !== undefined && rMsgs !== undefined;
+    const sys = rSys ?? estTokens(systemText.length);
+    const tools = rTools ?? estTokens(toolsText.length);
+    const msgs = rMsgs ?? estTokens(messagesText.length);
+    const mark = (n: number): string => (exact ? `${n}` : `~${n}`);
+
     const toolNames = last.tools.map((t) => t.name).join(', ') || '(none)';
     const output = [
-      'context sent to the model — estimated tokens (≈ chars/4):',
-      `  system    ~${sysTok}  (${sysChars} chars)`,
-      `  tools     ~${toolsTok}  (${last.tools.length}: ${toolNames})`,
-      `  messages  ~${msgTok}  (${body.length})`,
-      `  ── total  ~${sysTok + toolsTok + msgTok}`,
+      `context — tokens (${exact ? 'exact, model tokenizer' : 'estimated ≈ chars/4'}):`,
+      `  system    ${mark(sys)}`,
+      `  tools     ${mark(tools)}  (${last.tools.length}: ${toolNames})`,
+      `  messages  ${mark(msgs)}  (${body.length})`,
+      `  ── total  ${mark(sys + tools + msgs)}`,
       '',
       '── system prompt (exact) ──',
       last.system,

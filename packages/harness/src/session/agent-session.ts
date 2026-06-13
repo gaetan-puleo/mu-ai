@@ -103,6 +103,7 @@ export const createAgentSession = (config: AgentSessionConfig): AgentSession => 
       return messages;
     },
     assembleRequest,
+    countTokens: (text: string) => config.provider.countTokens?.(text, config.model) ?? Promise.resolve(undefined),
     send,
     abort: () => controller?.abort(),
     subscribe: emitter.subscribe,

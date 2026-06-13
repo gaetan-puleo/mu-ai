@@ -113,6 +113,30 @@ export async function llamaCppModalities(config: {
   return toModalities(props?.modalities);
 }
 
+export async function tokenizeLlamaCpp(config: {
+  baseUrl: string;
+  apiKey?: string;
+  content: string;
+}): Promise<number | undefined> {
+  if (!config.content) return 0;
+  const baseUrl = normalizeLlamaCppBaseUrl(config.baseUrl);
+  try {
+    const response = await fetch(`${baseUrl}/tokenize`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+      },
+      body: JSON.stringify({ content: config.content, add_special: false }),
+    });
+    if (!response.ok) return undefined;
+    const data = await response.json();
+    return Array.isArray(data?.tokens) ? data.tokens.length : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const llamaCpp: Backend = {
   kind: LLAMA_CPP_KIND,
   detect: detectLlamaCpp,
@@ -120,4 +144,5 @@ export const llamaCpp: Backend = {
   prepareChatRequest: prepareLlamaCppChatRequest,
   contextWindow: llamaCppContextWindow,
   modalities: llamaCppModalities,
+  tokenize: (c) => tokenizeLlamaCpp(c),
 };

@@ -14,6 +14,7 @@ export const persistTo = (store: SessionStore, session: AgentSession, persisted 
       return session.tools;
     },
     assembleRequest: session.assembleRequest?.bind(session),
+    countTokens: session.countTokens?.bind(session),
     send: async (input) => {
       await session.send(input);
       const all = session.messages;

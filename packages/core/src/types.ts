@@ -46,4 +46,6 @@ export interface Provider {
    * can't introspect modalities simply omit it.
    */
   capabilities?(model: string): Promise<ModelModalities | undefined>;
+  /** Exact token count of `text` via the model's own tokenizer, when the provider supports it. */
+  countTokens?(text: string, model: string): Promise<number | undefined>;
 }

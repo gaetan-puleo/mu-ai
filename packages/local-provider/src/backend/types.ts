@@ -18,4 +18,6 @@ export interface Backend {
   contextWindow(config: { baseUrl: string; apiKey?: string; model: string }): Promise<number | undefined>;
   /** Modalities reported by `/props` (already fetched for contextWindow — no extra round-trip). */
   modalities(config: { baseUrl: string; apiKey?: string; model: string }): Promise<ModelModalities | undefined>;
+  /** Exact token count of `content` via the model's own tokenizer (llama.cpp `/tokenize`). */
+  tokenize(config: { baseUrl: string; apiKey?: string; model: string; content: string }): Promise<number | undefined>;
 }

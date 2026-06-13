@@ -1,7 +1,7 @@
 import { assertEquals } from '@std/assert';
 import { detectBackend } from './index';
-import { llamaCppModalities } from './llama-cpp';
-import { llamaSwapModalities } from './llama-swap';
+import { llamaCppModalities, tokenizeLlamaCpp } from './llama-cpp';
+import { llamaSwapModalities, tokenizeLlamaSwap } from './llama-swap';
 
 const json = (body: unknown): Response =>
   new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -65,6 +65,22 @@ Deno.test('modalities are read from /props (llama-cpp + llama-swap)', async () =
       { vision: true, audio: false },
     );
   });
+});
+
+Deno.test('tokenize returns the model token count from /tokenize (llama-cpp + llama-swap)', async () => {
+  const fetchImpl = (url: string): Response =>
+    url.endsWith('/tokenize') ? json({ tokens: [1, 2, 3, 4, 5] }) : notFound();
+  await withFetch(fetchImpl, async () => {
+    assertEquals(await tokenizeLlamaCpp({ baseUrl: 'http://localhost:8080', content: 'hello world' }), 5);
+    assertEquals(
+      await tokenizeLlamaSwap({ baseUrl: 'http://localhost:8080', model: 'gemma', content: 'hello world' }),
+      5,
+    );
+  });
+});
+
+Deno.test('tokenize short-circuits empty content to 0 (no request)', async () => {
+  assertEquals(await tokenizeLlamaCpp({ baseUrl: 'http://localhost:8080', content: '' }), 0);
 });
 
 Deno.test('modalities undefined when /props omits the field (older llama.cpp)', async () => {
