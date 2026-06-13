@@ -2,7 +2,7 @@ import { type ContentPart, type Message, type Provider, run, type Tool } from 'm
 import { createEmitter } from '../common';
 import { type AgentSessionHooks, withHooks } from '../hooks';
 import { type Plugin, resolve } from '../plugin';
-import type { AgentSession, AgentSessionEvent } from './types';
+import type { AgentSession, AgentSessionEvent, AssembledRequest } from './types';
 
 export interface AgentSessionConfig {
   provider: Provider;
@@ -42,6 +42,7 @@ export const createAgentSession = (config: AgentSessionConfig): AgentSession => 
   let started = false;
   let running = false;
   let controller: AbortController | undefined;
+  let lastRequest: AssembledRequest | undefined;
 
   const send = async (input: string | ContentPart[]): Promise<void> => {
     if (running) throw new Error('AgentSession: busy (a turn is already running)');
@@ -69,6 +70,9 @@ export const createAgentSession = (config: AgentSessionConfig): AgentSession => 
       const withSystem = effectiveSystem ? [systemMessage(effectiveSystem), ...body] : body;
       const callMessages = prepared?.messages?.length ? [...withSystem, ...prepared.messages] : withSystem;
 
+      // Capture the exact assembled payload (before the call, so an errored turn is still inspectable).
+      lastRequest = { system: effectiveSystem, tools: callTools, messages: callMessages };
+
       const events = run({
         provider,
         model: config.model,
@@ -94,6 +98,9 @@ export const createAgentSession = (config: AgentSessionConfig): AgentSession => 
     tools,
     get messages() {
       return messages;
+    },
+    get lastRequest() {
+      return lastRequest;
     },
     send,
     abort: () => controller?.abort(),

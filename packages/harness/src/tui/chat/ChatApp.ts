@@ -1200,7 +1200,14 @@ export class ChatApp {
       this.showError('Export path must stay inside the project directory.');
       return;
     }
-    const system = all.filter((message) => message.role === 'system').map(textOf).join('\n\n');
+    // Prefer the EXACT assembled request the model saw (real system = base + hook injections
+    // + tool prompt blocks). Fall back to the stored messages only before the first turn.
+    const last = this.session?.lastRequest;
+    const system = last
+      ? last.system
+      : all.filter((message) => message.role === 'system').map(textOf).join('\n\n');
+    const requestTools = last?.tools ?? this.session?.tools ?? [];
+    const requestMessages = (last?.messages ?? all).filter((message) => message.role !== 'system');
     const payload = {
       exportedAt: new Date().toISOString(),
       session: {
@@ -1210,14 +1217,16 @@ export class ChatApp {
         model: this.host.modelRef(),
       },
       request: {
+        // true = the exact payload last sent; false = reconstructed (no turn has run yet).
+        assembled: last != null,
         system,
-        tools: (this.session?.tools ?? []).map((tool) => ({
+        tools: requestTools.map((tool) => ({
           name: tool.name,
           description: tool.description,
           parameters: tool.parameters,
           ...(tool.prompt ? { prompt: tool.prompt } : {}),
         })),
-        messages: all.filter((message) => message.role !== 'system'),
+        messages: requestMessages,
       },
     };
     try {
