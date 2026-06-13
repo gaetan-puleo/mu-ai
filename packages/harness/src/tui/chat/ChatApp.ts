@@ -190,6 +190,7 @@ export class ChatApp {
   private unsubscribeTheme: (() => void) | undefined;
   private unsubscribeSubAgents: (() => void) | undefined;
   private unsubscribeModelLoading: (() => void) | undefined;
+  private modelLoading = false;
   private readonly runUnsubs = new Set<() => void>();
   private readonly activeRuns = new Set<{ session: AgentSession; handle: SubAgentHandle; cancelled: boolean }>();
   private mentionAc: AbortController | undefined;
@@ -535,14 +536,19 @@ export class ChatApp {
     this.queue.length = 0;
     this.pendingShell.length = 0;
     this.running = false;
-    this.status.busy = false;
     this.status.context = '';
-    this.stopSpinner();
-    this.setStatus('ready');
+    // A model switch sets this session swap in motion AND kicks off a model load;
+    // don't stomp the "loading…" spinner the load just put up.
+    if (!this.modelLoading) {
+      this.status.busy = false;
+      this.stopSpinner();
+      this.setStatus('ready');
+    }
     this.tui.requestRender(true);
   }
 
   private onModelLoading(model: string, loading: boolean): void {
+    this.modelLoading = loading;
     const name = model.split('/').pop() ?? model;
     if (loading) {
       this.status.busy = true;
