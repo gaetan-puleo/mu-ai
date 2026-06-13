@@ -7,6 +7,7 @@ import { createAgentRegistry, grantArg, loadAgents, toolDecision, toolNames } fr
 import {
   createAgentsCommand,
   createCommandRegistry,
+  createCompactCommand,
   createContextCommand,
   createHelpCommand,
   createSessionsCommand,
@@ -32,6 +33,7 @@ import { createSubAgentRegistry, createSubAgentTool, runSubAgent } from '../subA
 import { environmentBlock } from './environment';
 import { dirsForPath, loadInstructions } from './instructions';
 import { createMemoryStore, createRememberTool } from './memory';
+import { createCompactionHook } from './compaction';
 import { createModelRegistry } from './models';
 import type { Harness, HarnessOptions } from './types';
 
@@ -140,6 +142,11 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     },
   };
 
+  // Auto-compaction: summarize old messages as the context fills (enabled unless turned off).
+  const compactionHook: AgentSessionHooks = options.compaction === false
+    ? {}
+    : createCompactionHook(options.compaction || {});
+
   const pluginSkills = (sessionDefaults.plugins ?? []).flatMap((plugin) => plugin.skills ?? []);
   const mergedSkills = async () => [
     ...hostSkills,
@@ -208,6 +215,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
           instructionsHook,
           memoryHook,
           trackPathsHook,
+          compactionHook,
         ]),
       }),
     );
@@ -265,6 +273,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
           instructionsHook,
           memoryHook,
           trackPathsHook,
+          compactionHook,
         ]),
         tools: sessionTools(undefined, [createSubAgentTool({ registry: agents, spawn, runs, parentId: id })]),
         ...models.resolve(ref),
@@ -278,6 +287,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     createSkillsCommand(skills),
     createSessionsCommand(sessions, { cwd }),
     createContextCommand(),
+    createCompactCommand(),
     ...(tasks ? [createTasksCommand(tasks)] : []),
   ]);
   commands.register(createHelpCommand(() => commands.list()));

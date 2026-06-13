@@ -170,6 +170,22 @@ export const createContextCommand = (): Command => ({
   },
 });
 
+/** Universal `/compact` — manually summarize older messages to free context now. */
+export const createCompactCommand = (): Command => ({
+  name: 'compact',
+  description: 'Summarize older messages to free up context now',
+  run: async (_args, ctx) => {
+    if (!ctx.session?.compact) return { ok: true, output: 'Compaction is not available on this session.' };
+    const before = ctx.session.messages?.length ?? 0;
+    await ctx.session.compact();
+    const after = ctx.session.messages?.length ?? 0;
+    return {
+      ok: true,
+      output: after < before ? `Compacted: ${before} → ${after} messages.` : 'Nothing to compact yet.',
+    };
+  },
+});
+
 export const createHelpCommand = (list: () => Command[]): Command => ({
   name: 'help',
   description: 'Show available commands',

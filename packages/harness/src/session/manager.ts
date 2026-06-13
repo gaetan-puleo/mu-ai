@@ -48,6 +48,7 @@ const onFirstMessage = (session: AgentSession, fire: (input: { id: string; text:
     assembleRequest: session.assembleRequest?.bind(session),
     countTokens: session.countTokens?.bind(session),
     contextWindow: session.contextWindow?.bind(session),
+    compact: session.compact?.bind(session),
     send: async (input) => {
       if (pending) {
         pending = false;

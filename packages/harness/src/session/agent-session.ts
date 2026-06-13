@@ -60,6 +60,64 @@ export const createAgentSession = (config: AgentSessionConfig): AgentSession => 
     return { system: effectiveSystem, tools: callTools, messages: callMessages };
   };
 
+  const msgText = (m: Message): string =>
+    m.content
+      .map((p) =>
+        p.type === 'text'
+          ? p.text
+          : p.type === 'tool_call'
+          ? `[call ${p.name} ${JSON.stringify(p.input)}]`
+          : p.type === 'tool_result'
+          ? p.content.map((c) => (c.type === 'text' ? c.text : '')).join('')
+          : ''
+      )
+      .join(' ')
+      .trim();
+
+  /** Ask the model to summarize a slice of the conversation (for compaction). */
+  const summarize = async (msgs: Message[]): Promise<string> => {
+    const transcript = msgs.map((m) => `${m.role}: ${msgText(m)}`).filter(Boolean).join('\n');
+    if (!transcript) return '';
+    let out = '';
+    try {
+      for await (
+        const ev of provider.stream({
+          model: config.model,
+          tools: [],
+          messages: [
+            {
+              role: 'system',
+              content: [{
+                type: 'text',
+                text:
+                  'Summarize the conversation below for continuity. Preserve decisions, facts, file paths, code changes, and open tasks. Be concise. Output only the summary.',
+              }],
+            },
+            { role: 'user', content: [{ type: 'text', text: transcript }] },
+          ],
+        })
+      ) {
+        if (ev.type === 'text') out += ev.text;
+      }
+    } catch {
+      return '';
+    }
+    return out.trim();
+  };
+
+  /** Replace older messages with a summary, keeping the system message + the last N. */
+  const compact = async (opts?: { keepLastTurns?: number }): Promise<void> => {
+    const keep = Math.max(1, opts?.keepLastTurns ?? 6);
+    const sysCount = messages[0]?.role === 'system' ? 1 : 0;
+    if (messages.length <= sysCount + keep + 1) return;
+    const middle = messages.slice(sysCount, messages.length - keep);
+    if (middle.length === 0) return;
+    const summary = await summarize(middle);
+    if (!summary) return;
+    const summaryMsg: Message = { role: 'user', content: [{ type: 'text', text: `<summary>\n${summary}\n</summary>` }] };
+    messages.splice(sysCount, middle.length, summaryMsg);
+  };
+
   const send = async (input: string | ContentPart[]): Promise<void> => {
     if (running) throw new Error('AgentSession: busy (a turn is already running)');
     running = true;
@@ -94,6 +152,18 @@ export const createAgentSession = (config: AgentSessionConfig): AgentSession => 
       controller = undefined;
     }
     emitter.emit(terminal);
+
+    // After a successful turn, let hooks compact/persist. Failures here never break the turn.
+    if (terminal.type === 'turn_end') {
+      await Promise.resolve(
+        hooks.afterTurn?.({
+          messages,
+          countTokens: (t) => config.provider.countTokens?.(t, config.model) ?? Promise.resolve(undefined),
+          contextWindow: () => config.provider.contextWindow?.(config.model) ?? Promise.resolve(undefined),
+          compact,
+        }),
+      ).catch(() => {});
+    }
   };
 
   return {
@@ -105,6 +175,7 @@ export const createAgentSession = (config: AgentSessionConfig): AgentSession => 
     assembleRequest,
     countTokens: (text: string) => config.provider.countTokens?.(text, config.model) ?? Promise.resolve(undefined),
     contextWindow: () => config.provider.contextWindow?.(config.model) ?? Promise.resolve(undefined),
+    compact,
     send,
     abort: () => controller?.abort(),
     subscribe: emitter.subscribe,

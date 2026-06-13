@@ -46,5 +46,11 @@ export const mergeHooks = (list: (AgentSessionHooks | undefined)[]): AgentSessio
     };
   }
 
+  if (hooks.some((h) => h.afterTurn)) {
+    merged.afterTurn = async (ctx) => {
+      for (const h of hooks) await h.afterTurn?.(ctx);
+    };
+  }
+
   return merged;
 };

@@ -8,6 +8,7 @@ import type { Scheduler, TaskStore } from '../scheduler';
 import type { AgentSessionConfig, SessionManager } from '../session';
 import type { Skill, SkillRegistry } from '../skills';
 import type { SubAgentRegistry, SubAgentResult } from '../subAgents';
+import type { CompactionOptions } from './compaction';
 import type { ModelRegistry } from './models';
 
 export type HarnessOptions =
@@ -25,6 +26,8 @@ export type HarnessOptions =
     cwd?: string;
     sourceUrl?: string;
     scheduler?: boolean;
+    /** Auto-compaction settings, or `false` to disable. Default: enabled at 80% of the window. */
+    compaction?: CompactionOptions | false;
     approvals?: {
       manager: ApprovalManager;
       activeAgent: () => Agent | undefined;

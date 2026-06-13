@@ -26,6 +26,8 @@ export interface AgentSession {
   countTokens?(text: string): Promise<number | undefined>;
   /** The active model's context window in tokens, when reportable. */
   contextWindow?(): Promise<number | undefined>;
+  /** Summarize older messages (keeping the system + last N) to free context. */
+  compact?(opts?: { keepLastTurns?: number }): Promise<void>;
   send(input: string | ContentPart[]): Promise<void>;
   abort(): void;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;
