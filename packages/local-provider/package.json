@@ -1,6 +1,6 @@
 {
   "name": "mu-local-provider",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "private": true,
   "description": "llama-swap provider for the mu runtime",
   "type": "module",
