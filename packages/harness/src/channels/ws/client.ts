@@ -80,6 +80,7 @@ export async function connectHarness(opts: ConnectHarnessOptions): Promise<Remot
 
   const approvalListeners = new Set<(req: PendingApproval) => void>();
   const subAgentListeners = new Set<(run: SubAgentRun) => void>();
+  const modelLoadingListeners = new Set<(model: string, loading: boolean) => void>();
 
   const forkWaiters = new Map<string, (r: { id: string; messages: Message[] }) => void>();
   const subagentWaiters = new Map<string, { resolve: (r: SubAgentResult) => void; reject: (e: Error) => void }>();
@@ -187,6 +188,9 @@ export async function connectHarness(opts: ConnectHarnessOptions): Promise<Remot
       case 'capabilities':
         features.vision = frame.vision;
         features.audio = frame.audio;
+        return;
+      case 'model_loading':
+        for (const l of [...modelLoadingListeners]) l(frame.model, frame.loading);
         return;
       case 'models:listed': {
         models = frame.models.map((m) => ({ id: m.id, ownedBy: m.ownedBy }));
@@ -348,6 +352,10 @@ export async function connectHarness(opts: ConnectHarnessOptions): Promise<Remot
     saveThinking: opts.saveThinking ?? (() => {}),
     history: opts.history,
     features,
+    subscribeModelLoading: (listener) => {
+      modelLoadingListeners.add(listener);
+      return () => modelLoadingListeners.delete(listener);
+    },
     banner: opts.banner,
     minimal: opts.minimal,
     commands: () => commands.map((c) => ({ name: c.command.replace(/^\//, ''), description: c.description })),

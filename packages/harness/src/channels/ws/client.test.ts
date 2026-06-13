@@ -100,6 +100,48 @@ Deno.test('connectHarness carries an image attachment through to the model (capa
   await Deno.remove(dir, { recursive: true });
 });
 
+Deno.test('connectHarness surfaces model_loading around a model switch (loads the model)', async () => {
+  const dir = await Deno.makeTempDir();
+  const approvals = createApprovalManager();
+  const probed: string[] = [];
+  const provider: Provider = {
+    async *stream() {},
+    capabilities(model: string) {
+      probed.push(model);
+      return Promise.resolve({ vision: true, audio: false });
+    },
+  };
+  const harness = await createHarness({
+    hostName: 'mu',
+    xdg: { configHome: dir, dataHome: dir, stateHome: dir },
+    providers: { local: provider },
+    model: 'local/a',
+    title: false,
+    approvals: { manager: approvals, activeAgent: () => undefined },
+  });
+
+  const channels = await runChannels({ harness, approvals, adapters: [webSocketAdapter({ port: PORT + 3 })] });
+  const remote = await connectHarness({ url: `ws://127.0.0.1:${PORT + 3}`, cwd: dir });
+
+  const events: boolean[] = [];
+  const done = new Promise<void>((resolve) => {
+    remote.host.subscribeModelLoading?.((_model, loading) => {
+      events.push(loading);
+      if (!loading) resolve();
+    });
+  });
+  remote.host.selectModel('local/b');
+  await done;
+
+  assertEquals(events, [true, false]); // loading start, then end
+  assertEquals(probed, ['b']); // the new model was actually probed (loaded)
+
+  await remote.close();
+  await channels.stop();
+  harness.close();
+  await Deno.remove(dir, { recursive: true });
+});
+
 Deno.test('connectHarness lists sessions created remotely', async () => {
   const dir = await Deno.makeTempDir();
   const approvals = createApprovalManager();

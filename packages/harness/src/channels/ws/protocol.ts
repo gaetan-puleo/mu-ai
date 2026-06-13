@@ -193,6 +193,7 @@ export type WireSchedulerEvent =
 export type WsOutbound =
   | { type: 'commands'; commands: WireCommand[] }
   | { type: 'capabilities'; vision: boolean; audio: boolean }
+  | { type: 'model_loading'; model: string; loading: boolean }
   | { type: 'agents'; agents: WireAgent[]; activeAgentId?: string | null }
   | { type: 'active_agent'; agentId: string | null; sessionId?: string; reason?: string }
   | { type: 'stream'; sessionId: string; text: string }

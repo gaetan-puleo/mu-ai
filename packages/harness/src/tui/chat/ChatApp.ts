@@ -92,6 +92,8 @@ export interface ChatHost {
   saveThinking(visible: boolean): void;
   history?: { load(): string[]; append(text: string): void };
   features?: ChatFeatures;
+  /** Subscribe to model load/unload state (cold-start). Optional — only WS-backed hosts emit it. */
+  subscribeModelLoading?(listener: (model: string, loading: boolean) => void): () => void;
   banner?: string;
   minimal?: boolean;
   commands?(): { name: string; description: string }[];
@@ -184,6 +186,7 @@ export class ChatApp {
   private unsubscribe: (() => void) | undefined;
   private unsubscribeTheme: (() => void) | undefined;
   private unsubscribeSubAgents: (() => void) | undefined;
+  private unsubscribeModelLoading: (() => void) | undefined;
   private readonly runUnsubs = new Set<() => void>();
   private readonly activeRuns = new Set<{ session: AgentSession; handle: SubAgentHandle; cancelled: boolean }>();
   private mentionAc: AbortController | undefined;
@@ -292,6 +295,8 @@ export class ChatApp {
       this.tui.requestRender(true);
     });
 
+    this.unsubscribeModelLoading = this.host.subscribeModelLoading?.((model, loading) => this.onModelLoading(model, loading));
+
     this.bindSession();
     if (this.feature('subAgents')) {
       this.unsubscribeSubAgents = this.host.subAgents.subscribe((run) => this.onSubAgentRun(run));
@@ -318,6 +323,7 @@ export class ChatApp {
     this.unsubscribeTheme?.();
     this.unsubscribeSubAgents?.();
     this.unsubscribeApproval?.();
+    this.unsubscribeModelLoading?.();
     this.clearRuns();
     this.stopSpinner();
     this.clearError();
@@ -531,6 +537,21 @@ export class ChatApp {
     this.stopSpinner();
     this.setStatus('ready');
     this.tui.requestRender(true);
+  }
+
+  private onModelLoading(model: string, loading: boolean): void {
+    const name = model.split('/').pop() ?? model;
+    if (loading) {
+      this.status.busy = true;
+      this.setStatus(`loading ${name}…`);
+      this.startSpinner();
+    } else if (!this.running) {
+      // Don't clobber an in-flight turn's status when the load finishes.
+      this.status.busy = false;
+      this.stopSpinner();
+      this.setStatus('ready');
+    }
+    this.tui.requestRender();
   }
 
   private handleEvent(event: AgentSessionEvent): void {
