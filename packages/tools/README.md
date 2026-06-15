@@ -1,7 +1,7 @@
 # mu-ai-tools
 
 Filesystem + shell tools for mu-core runtimes. `createMuTools()` returns a
-`Tools` map containing `read`, `write`, `edit`, `bash`, and `list`.
+`Tool[]` array containing the `read`, `write`, `edit`, `bash`, and `list` tools.
 
 Options:
 

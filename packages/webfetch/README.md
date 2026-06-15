@@ -54,17 +54,17 @@ loader will auto-install the package on first run.
 
 ## Permissioning per agent
 
-Permission rules match against the raw stringified JSON args
-(`PermissionRule.argsPattern`). Globs (`*`, `?`) are supported:
+Permissions are authored in an agent file's `tools:` frontmatter map, keyed by
+tool name (globs supported), with a per-tool decision:
 
 ```yaml
-permissions:
-  - tool: webfetch
-    argsPattern: '*"url":"https://github.com/*'
-    decision: allow
-  - tool: webfetch
-    decision: ask
+tools:
+  webfetch: allow # or `ask` / `deny`
 ```
+
+`webfetch` can only be granted at the whole-tool level — there is no
+argument-level (per-URL) scoping. Per-argument grants exist only for `skill`
+(by skill name) and `bash` (by command).
 
 ## Implementation notes
 

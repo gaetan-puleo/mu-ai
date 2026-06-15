@@ -21,6 +21,10 @@ All notable changes to mu packages. Versions are unified across all packages in 
 - **Voice requests over WS no longer hang on disconnect.** `transcribe()` / `unavailableReason()` are settled when the socket drops or a send is dropped (the WS client now reports send failure and a `close` event) instead of leaving the promise pending forever.
 - **Atomic session-log rewrite.** Compaction's in-place history rewrite now writes a temp file and renames it over the target, so a crash mid-write can't truncate or corrupt the whole session.
 
+## 0.17.0 – 0.32.0
+
+Not individually documented here — see the git history and GitHub release notes. Highlights across these versions: the universal `/context` view (Claude Code-style grid), `AGENTS.md`/`CLAUDE.md` instruction scopes, the memory system + `remember` tool, auto-compaction + `/compact`, and first-run channel setup with QR connect.
+
 ## 0.16.0
 
 ### Breaking

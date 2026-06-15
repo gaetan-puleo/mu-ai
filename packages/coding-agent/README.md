@@ -3,12 +3,12 @@
 Terminal coding assistant built on `mu-core` + `mu-harness` + `mu-tui`. Uses
 `mu-local-provider` (llama-swap) for inference and `mu-ai-tools` for
 filesystem + shell access. Sessions persist as JSONL under
-`$XDG_DATA_HOME/coding-agent/sessions/`; plugins, skills, agents,
-permissions load from `$XDG_CONFIG_HOME/coding-agent/`.
+`$XDG_DATA_HOME/mu/sessions/`; plugins, skills, agents,
+permissions load from `$XDG_CONFIG_HOME/mu/`.
 
-Run with `pnpm dev` (or `deno run -A --sloppy-imports bin/coding-agent.ts`).
-`coding-agent install <npm:spec | path.ts>` adds a plugin;
-`coding-agent -c` resumes the most recent session.
+Run with `deno task dev` (or `deno run -A --sloppy-imports bin/coding-agent.ts`).
+`mu install <npm:spec | jsr:spec | ./path.ts>` adds a plugin;
+`mu -c` resumes the most recent session.
 
 ---
 
@@ -46,8 +46,12 @@ mu -c     # resume the last session
 ```
 
 Type to chat. `@file`/`@agent` to mention, `!cmd` to run a shell command,
-`/` for commands (`/new`, `/model`, `/thinking`, `/quit`). `Tab` cycles the
-agent, `Esc Esc` cancels, `Ctrl+T` toggles the theme.
+`/` for commands (`/new`, `/sessions`, `/model`, `/thinking`, `/expand`,
+`/voice`, `/call`, `/context-export`, `/quit`). `/voice` dictates one clip into
+the composer and `/call` is hands-free realtime dictation — both need a
+microphone recorder (ffmpeg / arecord / parecord) and an audio-capable model,
+or `voiceModel` set to one. `Tab` cycles the agent, `Esc Esc` cancels,
+`Ctrl+T` toggles the theme.
 
 ## Packages
 
@@ -64,10 +68,10 @@ coding-agent/    # the `mu` CLI
 ## Develop
 
 ```bash
-den o install       # workspace deps into node_modules (manual mode)
-den o task dev      # run from source
-den o task test
-den o task check
+deno install       # workspace deps into node_modules (manual mode)
+deno task dev      # run from source
+deno task test
+deno task check
 ```
 
 ## License

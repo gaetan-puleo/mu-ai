@@ -30,7 +30,8 @@ mu -c     # resume the last session
 ```
 
 Type to chat. `@file`/`@agent` to mention, `!cmd` to run a shell command,
-`/` for commands (`/new`, `/model`, `/thinking`, `/voice`, `/call`, `/quit`).
+`/` for commands (`/new`, `/sessions`, `/model`, `/thinking`, `/expand`,
+`/voice`, `/call`, `/context-export`, `/quit`).
 `/voice` dictates one clip into the composer and `/call` is hands-free realtime
 dictation — both need a microphone recorder (ffmpeg / arecord / parecord) and an
 audio-capable model, or `voiceModel` set to one. `Tab` cycles the agent,

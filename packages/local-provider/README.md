@@ -5,14 +5,17 @@ servers. Speaks the OpenAI-compatible `/v1/chat/completions` API plus the
 llama.cpp extras llama-swap exposes (slot selection, `id_slot`/`cache_prompt`,
 `/props` for context-window info, `/tokenize` for accurate token counts).
 
-Use it by adding the plugin to the runtime's `plugins` list:
+Use it as a provider in the harness `providers` map:
 
 ```ts
-import { createLocalProviderPlugin } from 'mu-local-provider';
+import { createLocalProvider } from 'mu-local-provider';
+import { createHarness } from 'mu-harness';
 
-createRuntime({
-  plugins: [createLocalProviderPlugin({ baseUrl, model, apiKey })],
+const harness = await createHarness({
+  providers: { local: createLocalProvider({ baseUrl, model, apiKey }) },
+  model: 'local/<model>',
+  // …other harness options
 });
 ```
 
-See `LocalProviderConfig` for tunables (`getAbortSignal`, `openAIClient`).
+See `LocalProviderConfig` for tunables (`openAIClient`, `onModelInfo`, `onModelLoading`, `chatTemplateKwargs`).

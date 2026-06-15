@@ -25,10 +25,11 @@ await session.send('hello');
 - **Config** — `configDir`/`dataDir`/`stateDir` under the XDG homes, namespaced by `hostName`.
 - **Models** — a `ModelRegistry` over the host's `providers`; refs are `"provider/model"`, with a selectable default.
 - **Agents** — merged from host options, plugins, and `configDir/agents/*.md` (frontmatter personas, with `extends`).
-- **Skills** — merged from host options, plugins, `cwd/skills`, and `configDir/skills` (`SKILL.md` dirs); exposed via the `skill` and `create_skill` tools.
+- **Skills** — merged from host options, plugins, `cwd/skills`, and `configDir/skills` (`SKILL.md` dirs); exposed via the `skill` tool (and `run_skill` when the scheduler is on).
 - **Sub-agents** — a `subagent` tool plus a registry hosts can observe; sub-agent turns persist to the same session store.
+- **Voice** — a `VoiceTranscriber` (`harness.voice`) for speech-to-text, configured via the `voice: { model }` option (falls back to the selected model when it accepts audio).
 - **Sessions** — JSONL message store + a SQLite catalog, behind a `SessionManager` (`create` / `open` / `fork` / `list` / `delete`) with automatic background titling.
-- **Commands** — a registry with `/agents`, `/skills`, `/sessions`, `/help` (and `/tasks` when the scheduler is on).
+- **Commands** — a registry with `/agents`, `/skills`, `/sessions`, `/context`, `/compact`, `/help` (and `/tasks` when the scheduler is on), plus any slash commands skills opt into.
 - **Scheduler** _(opt-in via `scheduler: true`)_ — a `TaskStore` plus the `run_skill` and `schedule_task` tools, backed by a built-in croner engine (`scheduler/engine`).
 
 ## What hosts still own
@@ -41,5 +42,6 @@ await session.send('hello');
 
 `createAgentSession` and the session stores/catalog; the hooks layer
 (`mergeHooks`, `withHooks`); permissions (`allowList`, `requireApproval`);
-the plugin types and `definePlugin`; the channels managers; and `tui`
-(`createChatApp` / `runChat` and the overridable component kit + slots).
+the plugin types and `definePlugin`; the channels managers; voice
+(`createVoice`, `VOICE_UNAVAILABLE`, `VoiceTranscriber`); and `tui`
+(`runChat` and the `ChatApp` class + the overridable component kit + slots).
