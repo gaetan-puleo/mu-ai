@@ -1,6 +1,5 @@
 import type { ContentPart } from 'mu-core';
 import type { AgentSessionHooks } from '../hooks';
-import { requireApproval } from './approval';
 
 export type ApprovalAction = 'approve' | 'approve_always' | 'deny';
 export type ApprovalDecision = 'allow' | 'ask' | 'deny';
@@ -49,12 +48,6 @@ export const createApprovalManager = (options: ApprovalManagerOptions = {}): App
 
   const defaultNeeds = options.needsApproval ?? (({ name }) => (askTools ? askTools.has(name) : true));
 
-  const hooks = requireApproval({
-    needsApproval: (call) => defaultNeeds(call) && !alwaysAllow.has(keyOf(undefined, call.name)),
-    newId,
-    prompt: (call) => request(call.id, call.name, call.input, undefined),
-  });
-
   const hooksFor: ApprovalManager['hooksFor'] = ({ decide, agent }) => ({
     beforeToolCall: async (call) => {
       const decision = decide(call);
@@ -66,6 +59,10 @@ export const createApprovalManager = (options: ApprovalManagerOptions = {}): App
       return allow ? undefined : denied(call.name);
     },
   });
+
+  // Default hooks (no per-agent policy): ask for every tool that needs approval, allow the
+  // rest. Defined via hooksFor so the beforeToolCall flow lives in exactly one place.
+  const hooks = hooksFor({ decide: (call) => (defaultNeeds(call) ? 'ask' : 'allow') });
 
   return {
     hooks,

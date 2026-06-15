@@ -215,6 +215,10 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
       id: newId(),
     });
 
+  // Hooks every session gets regardless of how it was created (fresh spawn vs revived
+  // from disk). spawn/revive each prepend their own allow-list + approval hook to these.
+  const baseHooks = [envHook, instructionsHook, memoryHook, trackPathsHook, compactionHook];
+
   const spawn = (agent: Agent): AgentSession =>
     persistTo(
       store,
@@ -224,11 +228,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
           sessionDefaults.hooks,
           allowList(toolNames(agent)),
           approvalHook(() => agent),
-          envHook,
-          instructionsHook,
-          memoryHook,
-          trackPathsHook,
-          compactionHook,
+          ...baseHooks,
         ]),
       }),
     );
@@ -287,11 +287,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
         hooks: mergeHooks([
           sessionDefaults.hooks,
           approvalHook(() => approvals?.activeAgent()),
-          envHook,
-          instructionsHook,
-          memoryHook,
-          trackPathsHook,
-          compactionHook,
+          ...baseHooks,
         ]),
         tools: sessionTools(undefined, [createSubAgentTool({ registry: agents, spawn, runs, parentId: id })]),
         ...models.resolve(ref),

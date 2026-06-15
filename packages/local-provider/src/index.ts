@@ -11,14 +11,7 @@ import type {
 import { type Backend, detectBackend } from './backend';
 import { type LocalBackendInfo, type LocalModel, type LocalProviderConfig, LocalProviderError } from './types';
 
-export type {
-  LLMResponseContextProps,
-  LLMResponseContextSlot,
-  LocalBackendInfo,
-  LocalLLMResponseContext,
-  LocalModel,
-  LocalProviderConfig,
-} from './types';
+export type { LocalBackendInfo, LocalModel, LocalProviderConfig } from './types';
 export { LocalProviderError } from './types';
 export type { ModelModalities } from './backend';
 
@@ -287,12 +280,12 @@ export const createLocalProvider = (config: LocalProviderConfig = {}): Provider 
       const requestOptions:
         & ChatCompletionCreateParamsStreaming
         & { id_slot?: number; cache_prompt?: boolean; chat_template_kwargs?: Record<string, unknown> } = {
-        model,
-        messages: convertMessages(req.messages),
-        ...(tools.length > 0 ? { tools } : {}),
-        stream: true,
-        stream_options: { include_usage: true },
-      };
+          model,
+          messages: convertMessages(req.messages),
+          ...(tools.length > 0 ? { tools } : {}),
+          stream: true,
+          stream_options: { include_usage: true },
+        };
 
       // Extra chat-template kwargs: the provider-level default applies to the MAIN
       // model only (routed/voice models arrive with a different `model`); a per-turn

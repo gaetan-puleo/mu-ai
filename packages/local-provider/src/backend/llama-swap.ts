@@ -1,4 +1,4 @@
-import type { LocalBackendInfo, LocalLLMResponseContext, LocalModel } from '../types';
+import type { LocalBackendInfo, LocalModel } from '../types';
 import { type Backend, type ModelModalities, toModalities } from './types';
 
 export const LLAMA_SWAP_KIND = 'llama-swap' as const;
@@ -161,51 +161,6 @@ export async function prepareLlamaSwapChatRequest(config: {
     id_slot: slot.id,
     cache_prompt: true,
   };
-}
-
-export async function collectLlamaSwapContext(config: {
-  baseUrl: string;
-  apiKey?: string;
-  model: string;
-  selectedSlotId?: number;
-}): Promise<LocalLLMResponseContext | undefined> {
-  const [slots, props] = await Promise.all([
-    getLlamaSwapSlots(config).catch(() => undefined),
-    getLlamaSwapProps(config).catch(() => undefined),
-  ]);
-
-  if (!(slots || props)) {
-    return undefined;
-  }
-
-  const context: LocalLLMResponseContext = {};
-
-  if (props) {
-    context.props = {
-      n_ctx: props.default_generation_settings.n_ctx,
-      total_slots: props.total_slots,
-      model_path: props.model_path,
-      model_alias: props.model_alias,
-    };
-  }
-
-  if (slots?.length) {
-    const normalizedSlots = slots.map((slot) => ({
-      id: slot.id,
-      n_ctx: slot.n_ctx,
-      is_processing: slot.is_processing,
-    }));
-    context.slots = normalizedSlots;
-
-    if (config.selectedSlotId !== undefined) {
-      const current = normalizedSlots.find((s) => s.id === config.selectedSlotId);
-      if (current) {
-        context.currentSlot = current;
-      }
-    }
-  }
-
-  return context;
 }
 
 export async function tokenizeLlamaSwap(config: {

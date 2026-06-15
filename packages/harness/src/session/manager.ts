@@ -1,5 +1,6 @@
 import type { ContentPart, Message } from 'mu-core';
 import type { SessionCatalog, SessionRecord } from './catalog';
+import { decorateSession } from './decorate';
 import { persistTo } from './persist';
 import type { SessionStore, StoredSession } from './store';
 import type { AgentSession } from './types';
@@ -35,31 +36,13 @@ const inputText = (input: string | ContentPart[]): string =>
 
 const onFirstMessage = (session: AgentSession, fire: (input: { id: string; text: string }) => void): AgentSession => {
   let pending = !session.messages.some((message) => message.role === 'user');
-  return {
-    get id() {
-      return session.id;
-    },
-    get messages() {
-      return session.messages;
-    },
-    get tools() {
-      return session.tools;
-    },
-    model: session.model,
-    assembleRequest: session.assembleRequest?.bind(session),
-    countTokens: session.countTokens?.bind(session),
-    contextWindow: session.contextWindow?.bind(session),
-    compact: session.compact?.bind(session),
-    send: async (input) => {
-      if (pending) {
-        pending = false;
-        fire({ id: session.id, text: inputText(input) });
-      }
-      await session.send(input);
-    },
-    abort: session.abort,
-    subscribe: session.subscribe,
-  };
+  return decorateSession(session, async (input) => {
+    if (pending) {
+      pending = false;
+      fire({ id: session.id, text: inputText(input) });
+    }
+    await session.send(input);
+  });
 };
 
 export const createSessionManager = (
