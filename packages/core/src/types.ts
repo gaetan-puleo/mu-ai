@@ -39,7 +39,18 @@ export interface ModelModalities {
 }
 
 export interface Provider {
-  stream(req: { model: string; messages: Message[]; tools: Tool[]; signal?: AbortSignal }): AsyncIterable<StreamEvent>;
+  stream(
+    req: {
+      model: string;
+      messages: Message[];
+      tools: Tool[];
+      signal?: AbortSignal;
+      /** Per-turn extra chat-template kwargs (e.g. `{ enable_thinking: false }`). A
+       * provider wrapper can set this for a single turn; merged over any provider-level
+       * default. Providers that don't support it ignore it. */
+      chatTemplateKwargs?: Record<string, unknown>;
+    },
+  ): AsyncIterable<StreamEvent>;
   /**
    * Probe a model's input modalities. MAY load the model (e.g. a llama.cpp `/props`
    * fetch) — call it on model selection, not on every turn. Optional: providers that

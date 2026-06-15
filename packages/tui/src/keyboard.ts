@@ -11,9 +11,9 @@ const SGR_MOUSE_RE = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/;
 // deno-lint-ignore no-control-regex
 const CSI_TILDE_RE = /^\x1b\[([0-9;]*)~$/;
 // deno-lint-ignore no-control-regex
-const CSI_KEY_RE = /^\x1b\[([0-9;]*)([A-HIOPR])$/;
+const CSI_KEY_RE = /^\x1b\[([0-9;]*)([A-HIOP])$/;
 // deno-lint-ignore no-control-regex
-const SS3_RE = /^\x1bO([A-DFHPQS])$/;
+const SS3_RE = /^\x1bO([A-DFHPQRS])$/;
 // deno-lint-ignore no-control-regex
 const ALT_PREFIX_RE = /^\x1b(.+)$/;
 // deno-lint-ignore no-control-regex
@@ -28,7 +28,6 @@ const CSI_KEY_MAP: Record<string, string> = {
   F: 'end',
   P: 'f1',
   Q: 'f2',
-  R: 'f3',
   1: 'home',
   2: 'insert',
   3: 'delete',

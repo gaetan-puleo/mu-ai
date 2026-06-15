@@ -62,4 +62,11 @@ export interface LocalProviderConfig {
    * on the first message, not only on an explicit model switch.
    */
   onModelLoading?: (model: string, loading: boolean) => void;
+  /**
+   * Extra `chat_template_kwargs` sent with the MAIN model's chat requests (matched
+   * by `model === config.model`, so routed/voice models are untouched). Forwarded
+   * verbatim in the request body — e.g. `{ enable_thinking: false }` to turn off a
+   * Qwen3 reasoning template.
+   */
+  chatTemplateKwargs?: Record<string, unknown>;
 }

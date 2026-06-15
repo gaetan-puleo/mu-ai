@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from '@std/assert';
-import { image, type ContentPart, type Message, type Provider } from 'mu-core';
+import { type ContentPart, image, type Message, type Provider } from 'mu-core';
 import { createHarness } from '../../harness/create';
 import { createApprovalManager } from '../../permissions';
 import { runChannels } from '../adapter';
@@ -166,6 +166,32 @@ Deno.test('connectHarness lists sessions created remotely', async () => {
 
   const sessions = await remote.host.listSessions();
   assertEquals(sessions.some((s) => s.id === session.id), true);
+
+  await remote.close();
+  await channels.stop();
+  harness.close();
+  await Deno.remove(dir, { recursive: true });
+});
+
+Deno.test('connectHarness transcribes voice over WebSocket via a configured voice model', async () => {
+  const dir = await Deno.makeTempDir();
+  const approvals = createApprovalManager();
+  const harness = await createHarness({
+    hostName: 'mu',
+    xdg: { configHome: dir, dataHome: dir, stateHome: dir },
+    providers: { local: scripted([[{ type: 'text', text: 'hello from audio' }]]) },
+    model: 'local/m',
+    voice: { model: 'voice-model' },
+    title: false,
+    approvals: { manager: approvals, activeAgent: () => undefined },
+  });
+
+  const channels = await runChannels({ harness, approvals, adapters: [webSocketAdapter({ port: PORT + 4 })] });
+  const remote = await connectHarness({ url: `ws://127.0.0.1:${PORT + 4}`, cwd: dir });
+
+  assertEquals(await remote.host.voice!.unavailableReason!(), undefined);
+  const text = await remote.host.voice!.transcribe(new Uint8Array([1, 2, 3, 4]), 'audio/wav');
+  assertEquals(text, 'hello from audio');
 
   await remote.close();
   await channels.stop();

@@ -35,6 +35,7 @@ import { dirsForPath, loadInstructions } from './instructions';
 import { createMemoryStore, createRememberTool } from './memory';
 import { createCompactionHook } from './compaction';
 import { createModelRegistry } from './models';
+import { createVoice } from './voice';
 import type { Harness, HarnessOptions } from './types';
 
 const TITLE_AGENT: Agent = {
@@ -46,14 +47,25 @@ const TITLE_AGENT: Agent = {
 };
 
 /** Tool-input field names that carry filesystem paths — used to scope nested AGENTS.md. */
-const PATH_KEYS = new Set(['path', 'file', 'filename', 'file_path', 'filepath', 'dir', 'directory', 'cwd', 'paths', 'files']);
+const PATH_KEYS = new Set([
+  'path',
+  'file',
+  'filename',
+  'file_path',
+  'filepath',
+  'dir',
+  'directory',
+  'cwd',
+  'paths',
+  'files',
+]);
 function pathsFromInput(input: unknown): string[] {
   if (!input || typeof input !== 'object') return [];
   const out: string[] = [];
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
     if (!PATH_KEYS.has(key.toLowerCase())) continue;
     if (typeof value === 'string') out.push(value);
-    else if (Array.isArray(value)) for (const el of value) if (typeof el === 'string') out.push(el);
+    else if (Array.isArray(value)) { for (const el of value) if (typeof el === 'string') out.push(el); }
   }
   return out;
 }
@@ -77,6 +89,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
   const cwd = options.cwd ?? process.cwd();
   const config = createHarnessConfig({ hostName, xdg });
   const models = createModelRegistry({ providers, default: model });
+  const voice = createVoice(models, options.voice);
   const pluginsDir = join(config.configDir, 'plugins');
   const agentsDir = agentDirs?.config ?? join(config.configDir, 'agents');
   const localAgentsDir = agentDirs?.local ?? join(cwd, 'agents');
@@ -256,6 +269,11 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
     newId,
     cwd,
     title: title === false ? undefined : ({ id, text }) => {
+      // Internal/hidden sessions (id prefixed with `__`, e.g. a voice STT scratch
+      // session) are machinery, not conversations: don't spend a title-model turn
+      // on them — it both wastes a call and interleaves the main model into an
+      // otherwise single-model flow.
+      if (id.startsWith('__')) return;
       void runTitler({
         id,
         text,
@@ -314,6 +332,7 @@ export const createHarness = async (options: HarnessOptions): Promise<Harness> =
   return {
     config,
     models,
+    voice,
     plugins,
     sessions,
     agents,

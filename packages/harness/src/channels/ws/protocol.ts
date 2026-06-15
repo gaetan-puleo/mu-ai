@@ -24,7 +24,9 @@ export type WsInbound =
   | { type: 'sessions:delete'; sessionId: string }
   | { type: 'sessions:rename'; sessionId: string; title: string }
   | { type: 'sessions:fork'; requestId: string; sessionId: string; upToIndex: number }
-  | { type: 'sessions:get'; sessionId: string };
+  | { type: 'sessions:get'; sessionId: string }
+  | { type: 'voice:check'; requestId: string }
+  | { type: 'voice:transcribe'; requestId: string; mime: string; data: string };
 
 const APPROVAL_ACTIONS = new Set<ApprovalAction>(['approve', 'approve_always', 'deny']);
 
@@ -52,7 +54,12 @@ export function parseInbound(raw: unknown): WsInbound | { error: string } {
     case 'chat': {
       if (typeof o.text !== 'string') return { error: 'chat requires text:string' };
       const attachments = parseAttachments(o.attachments);
-      return { type: 'chat', sessionId: optionalString(o.sessionId), text: o.text, ...(attachments ? { attachments } : {}) };
+      return {
+        type: 'chat',
+        sessionId: optionalString(o.sessionId),
+        text: o.text,
+        ...(attachments ? { attachments } : {}),
+      };
     }
     case 'command': {
       if (typeof o.text !== 'string') return { error: 'command requires text:string' };
@@ -118,6 +125,18 @@ export function parseInbound(raw: unknown): WsInbound | { error: string } {
     case 'sessions:get': {
       if (typeof o.sessionId !== 'string' || !o.sessionId) return { error: 'sessions:get requires sessionId' };
       return { type: 'sessions:get', sessionId: o.sessionId };
+    }
+    case 'voice:check': {
+      const requestId = typeof o.requestId === 'string' ? o.requestId : '';
+      if (!requestId) return { error: 'voice:check requires requestId' };
+      return { type: 'voice:check', requestId };
+    }
+    case 'voice:transcribe': {
+      const requestId = typeof o.requestId === 'string' ? o.requestId : '';
+      if (!requestId) return { error: 'voice:transcribe requires requestId' };
+      if (typeof o.mime !== 'string' || !o.mime) return { error: 'voice:transcribe requires mime:string' };
+      if (typeof o.data !== 'string' || !o.data) return { error: 'voice:transcribe requires data:string (base64)' };
+      return { type: 'voice:transcribe', requestId, mime: o.mime, data: o.data };
     }
     default:
       return { error: `unknown message type: ${type || '<empty>'}` };
@@ -205,6 +224,9 @@ export type WsOutbound =
   | { type: 'models:listed'; models: WireModel[]; selected: string }
   | { type: 'subagent:result'; requestId: string; agent: string; text: string }
   | { type: 'subagent:error'; requestId: string; message: string }
+  | { type: 'voice:availability'; requestId: string; reason?: string }
+  | { type: 'voice:result'; requestId: string; text: string }
+  | { type: 'voice:error'; requestId: string; message: string }
   | { type: 'sessions:listed'; sessions: SessionSummaryWire[] }
   | { type: 'sessions:changed'; sessionId: string; kind: WireSessionChangeKind }
   | { type: 'sessions:history'; sessionId: string; session: PersistedSessionWire | null }

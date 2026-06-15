@@ -141,7 +141,6 @@ async function* streamChunks(
   contextWindow: number | undefined,
 ): AsyncIterable<StreamEvent> {
   const buffers = new Map<string, { key: string; id: string; name: string; args: string; emitted: boolean }>();
-  let finishReason: string | undefined;
   let syntheticKeyCounter = 0;
   let usage: Usage | undefined;
 
@@ -199,17 +198,17 @@ async function* streamChunks(
         };
       }
 
-      if (choice?.finish_reason) finishReason = choice.finish_reason;
       if (choice?.finish_reason === 'tool_calls') yield* flush();
     }
   } catch (err) {
-    hostSignal?.removeEventListener('abort', onHostAbort);
     if (hostSignal?.aborted) throw new Error('Local provider stream aborted by host');
     throw err;
+  } finally {
+    hostSignal?.removeEventListener('abort', onHostAbort);
+    controller.abort();
   }
-  hostSignal?.removeEventListener('abort', onHostAbort);
 
-  if (finishReason === undefined || finishReason === 'tool_calls') yield* flush();
+  yield* flush();
 
   if (usage || contextWindow !== undefined) {
     yield { type: 'usage', usage: { ...usage, ...(contextWindow !== undefined ? { contextWindow } : {}) } };
@@ -268,7 +267,7 @@ export const createLocalProvider = (config: LocalProviderConfig = {}): Provider 
       const { backend, info } = await ensureBackend();
       const ctx = await backend.contextWindow({ baseUrl: info.baseUrl, apiKey: config.apiKey, model })
         .catch(() => undefined);
-      ctxByModel.set(model, ctx);
+      if (ctx !== undefined) ctxByModel.set(model, ctx);
       return ctx;
     },
 
@@ -285,13 +284,27 @@ export const createLocalProvider = (config: LocalProviderConfig = {}): Provider 
       });
 
       const tools = convertTools(req.tools);
-      const requestOptions: ChatCompletionCreateParamsStreaming & { id_slot?: number; cache_prompt?: boolean } = {
+      const requestOptions:
+        & ChatCompletionCreateParamsStreaming
+        & { id_slot?: number; cache_prompt?: boolean; chat_template_kwargs?: Record<string, unknown> } = {
         model,
         messages: convertMessages(req.messages),
         ...(tools.length > 0 ? { tools } : {}),
         stream: true,
         stream_options: { include_usage: true },
       };
+
+      // Extra chat-template kwargs: the provider-level default applies to the MAIN
+      // model only (routed/voice models arrive with a different `model`); a per-turn
+      // value on the request (set by a wrapper, e.g. arya's voice routing) is merged
+      // ON TOP, winning on key collisions. This honors core/types.ts's contract
+      // ("merged over any provider-level default") so a multi-key provider default
+      // isn't silently dropped when a wrapper sets one per-turn key.
+      const baseKwargs = config.chatTemplateKwargs && model === config.model ? config.chatTemplateKwargs : undefined;
+      const turnKwargs = baseKwargs || req.chatTemplateKwargs
+        ? { ...(baseKwargs ?? {}), ...(req.chatTemplateKwargs ?? {}) }
+        : undefined;
+      if (turnKwargs) requestOptions.chat_template_kwargs = turnKwargs;
 
       const extras = await backend.prepareChatRequest({ baseUrl: info.baseUrl, apiKey: config.apiKey, model });
       if (extras) Object.assign(requestOptions, extras);
@@ -301,7 +314,7 @@ export const createLocalProvider = (config: LocalProviderConfig = {}): Provider 
         try {
           const ctx = await backend.contextWindow({ baseUrl: info.baseUrl, apiKey: config.apiKey, model })
             .catch(() => undefined);
-          ctxByModel.set(model, ctx);
+          if (ctx !== undefined) ctxByModel.set(model, ctx);
           // Reuse modalities already probed by capabilities() (on model select); otherwise read
           // them from the same `/props` we just fetched for the context window.
           const modalities = capsByModel.has(model)

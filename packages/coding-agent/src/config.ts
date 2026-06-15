@@ -44,6 +44,9 @@ export interface CodingAgentConfig {
   provider?: string;
   primaryAgents?: string[];
   capabilities?: ModelCapabilities;
+  /** Speech-to-text model for `/voice`. When unset, `/voice` uses the currently
+   * selected chat model if it supports audio; otherwise it reports unavailable. */
+  voiceModel?: string;
 }
 
 export interface CodingAgentState {
@@ -82,8 +85,12 @@ export function loadConfig(): CodingAgentConfig {
   if (typeof obj.baseUrl === 'string') out.baseUrl = obj.baseUrl;
   if (typeof obj.apiKey === 'string') out.apiKey = obj.apiKey;
   if (typeof obj.provider === 'string') out.provider = obj.provider;
+  if (typeof obj.voiceModel === 'string') out.voiceModel = obj.voiceModel;
   if (Array.isArray(obj.plugins) && obj.plugins.every((p) => typeof p === 'string')) {
     out.plugins = obj.plugins as string[];
+  }
+  if (Array.isArray(obj.primaryAgents) && obj.primaryAgents.every((p) => typeof p === 'string')) {
+    out.primaryAgents = obj.primaryAgents as string[];
   }
   if (typeof obj.capabilities === 'object' && obj.capabilities !== null) {
     const caps = obj.capabilities as Record<string, unknown>;

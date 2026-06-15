@@ -138,7 +138,11 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
       const allowed = attachments.filter((a) => (a.kind === 'image' ? caps.vision : caps.audio));
       if (allowed.length < attachments.length) {
         const kinds = [...new Set(attachments.filter((a) => !allowed.includes(a)).map((a) => a.kind))].join('/');
-        push({ type: 'error', sessionId, message: `the active model has no ${kinds} capability — attachment(s) dropped` });
+        push({
+          type: 'error',
+          sessionId,
+          message: `the active model has no ${kinds} capability — attachment(s) dropped`,
+        });
       }
       if (allowed.length === 0) return body;
       const parts = attachmentsToParts(allowed);
@@ -275,6 +279,26 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
             sessionId: msg.sessionId,
             messages: await service.rawMessages(msg.sessionId),
           });
+          return;
+        }
+        case 'voice:check': {
+          const reason = await harness.voice.unavailableReason().catch((err) =>
+            err instanceof Error ? err.message : String(err)
+          );
+          send(client.ws, { type: 'voice:availability', requestId: msg.requestId, reason: reason ?? undefined });
+          return;
+        }
+        case 'voice:transcribe': {
+          try {
+            const text = await harness.voice.transcribe(new Uint8Array(Buffer.from(msg.data, 'base64')), msg.mime);
+            send(client.ws, { type: 'voice:result', requestId: msg.requestId, text });
+          } catch (err) {
+            send(client.ws, {
+              type: 'voice:error',
+              requestId: msg.requestId,
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }
           return;
         }
       }

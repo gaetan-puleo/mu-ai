@@ -1,8 +1,10 @@
+import type { Message } from 'mu-core';
 import type { SessionStore } from './store';
 import type { AgentSession } from './types';
 
 export const persistTo = (store: SessionStore, session: AgentSession, persisted = 0): AgentSession => {
   let count = persisted;
+  let last: Message | undefined = count > 0 ? session.messages[count - 1] : undefined;
   return {
     get id() {
       return session.id;
@@ -21,10 +23,14 @@ export const persistTo = (store: SessionStore, session: AgentSession, persisted 
     send: async (input) => {
       await session.send(input);
       const all = session.messages;
-      if (all.length > count) {
+      const intact = count === 0 || all[count - 1] === last;
+      if (!intact) {
+        await store.rewrite(session.id, all);
+      } else if (all.length > count) {
         await store.append(session.id, all.slice(count));
-        count = all.length;
       }
+      count = all.length;
+      last = all.length > 0 ? all[all.length - 1] : undefined;
     },
     abort: session.abort,
     subscribe: session.subscribe,

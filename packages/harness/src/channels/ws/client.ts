@@ -87,6 +87,24 @@ export async function connectHarness(opts: ConnectHarnessOptions): Promise<Remot
   const listWaiters: ((sessions: SessionRecord[]) => void)[] = [];
   const modelWaiters: ((models: ModelInfo[]) => void)[] = [];
   const rawWaiters = new Map<string, (messages: Message[]) => void>();
+  const voiceWaiters = new Map<string, { resolve: (text: string) => void; reject: (e: Error) => void }>();
+  const voiceCheckWaiters = new Map<string, (reason: string | undefined) => void>();
+
+  // Settle every request-keyed voice waiter so transcribe()/unavailableReason()
+  // never hang when the socket drops (or the server tears the connection down,
+  // e.g. an oversized frame). voice:check resolves with a reason string (its
+  // contract is `string | undefined`) so the caller shows an error rather than
+  // throwing; voice:transcribe rejects.
+  const failVoiceWaiters = (message: string): void => {
+    const err = new Error(message);
+    for (const w of voiceWaiters.values()) w.reject(err);
+    voiceWaiters.clear();
+    for (const resolve of voiceCheckWaiters.values()) resolve(message);
+    voiceCheckWaiters.clear();
+    for (const w of subagentWaiters.values()) w.reject(err);
+    subagentWaiters.clear();
+  };
+  client.onClose(() => failVoiceWaiters('connection lost'));
 
   const agentsReady = deferred<void>();
 
@@ -206,7 +224,8 @@ export async function connectHarness(opts: ConnectHarnessOptions): Promise<Remot
           cwd: opts.cwd,
           createdAt: s.createdAt,
         }));
-        listWaiters.shift()?.(records);
+        const waiters = listWaiters.splice(0);
+        for (const w of waiters) w(records);
         return;
       }
       case 'sessions:raw':
@@ -223,6 +242,18 @@ export async function connectHarness(opts: ConnectHarnessOptions): Promise<Remot
       case 'subagent:error':
         subagentWaiters.get(frame.requestId)?.reject(new Error(frame.message));
         subagentWaiters.delete(frame.requestId);
+        return;
+      case 'voice:availability':
+        voiceCheckWaiters.get(frame.requestId)?.(frame.reason);
+        voiceCheckWaiters.delete(frame.requestId);
+        return;
+      case 'voice:result':
+        voiceWaiters.get(frame.requestId)?.resolve(frame.text);
+        voiceWaiters.delete(frame.requestId);
+        return;
+      case 'voice:error':
+        voiceWaiters.get(frame.requestId)?.reject(new Error(frame.message));
+        voiceWaiters.delete(frame.requestId);
         return;
       case 'approval_request': {
         const req: PendingApproval = { id: frame.requestId, name: frame.toolName, input: parseArgs(frame.args) };
@@ -355,6 +386,32 @@ export async function connectHarness(opts: ConnectHarnessOptions): Promise<Remot
     subscribeModelLoading: (listener) => {
       modelLoadingListeners.add(listener);
       return () => modelLoadingListeners.delete(listener);
+    },
+    voice: {
+      unavailableReason: () =>
+        new Promise<string | undefined>((resolve) => {
+          const requestId = crypto.randomUUID();
+          voiceCheckWaiters.set(requestId, resolve);
+          if (!client.send({ type: 'voice:check', requestId })) {
+            voiceCheckWaiters.delete(requestId);
+            resolve('voice unavailable: not connected');
+          }
+        }),
+      transcribe: (data, mime) =>
+        new Promise<string>((resolve, reject) => {
+          const requestId = crypto.randomUUID();
+          voiceWaiters.set(requestId, { resolve, reject });
+          const sent = client.send({
+            type: 'voice:transcribe',
+            requestId,
+            mime,
+            data: Buffer.from(data).toString('base64'),
+          });
+          if (!sent) {
+            voiceWaiters.delete(requestId);
+            reject(new Error('not connected'));
+          }
+        }),
     },
     banner: opts.banner,
     minimal: opts.minimal,

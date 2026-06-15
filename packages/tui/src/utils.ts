@@ -208,8 +208,9 @@ function wrapSegment(segment: string, width: number): string[] {
 
     if (/^\s+$/.test(tok)) {
       if (state.col === 0) {
-        state.current += tok;
-        state.col += w;
+        const take = Math.min(w, width);
+        state.current += tok.slice(0, take);
+        state.col += take;
       } else if (state.col + w <= width) {
         state.current += tok;
         state.col += w;

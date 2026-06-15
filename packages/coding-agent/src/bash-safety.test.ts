@@ -37,6 +37,28 @@ describe('isReadOnlyBash', () => {
     expect(ok('find . | xargs rm')).toBe(false);
   });
 
+  it('rejects read-only tools that mutate via flags or actions', () => {
+    expect(ok('find . -delete')).toBe(false);
+    expect(ok('find . -name "*.log" -exec rm {} +')).toBe(false);
+    expect(ok('find . -execdir rm {} +')).toBe(false);
+    expect(ok('find . -fprint0 out.txt')).toBe(false);
+    expect(ok('find . -fprint out.txt')).toBe(false);
+    expect(ok('sort -o out.txt in.txt')).toBe(false);
+    expect(ok('sort -oout.txt in.txt')).toBe(false);
+    expect(ok('sort --output=out.txt in.txt')).toBe(false);
+    expect(ok('jq -i . file.json')).toBe(false);
+    expect(ok('yq --inplace . file.yaml')).toBe(false);
+    expect(ok('find . -name "*.ts" | head')).toBe(true);
+    expect(ok('sort file.txt')).toBe(true);
+    expect(ok('sort -rn file.txt')).toBe(true);
+  });
+
+  it('does not treat env as read-only since it can run any command', () => {
+    expect(ok('env rm -rf x')).toBe(false);
+    expect(ok('env FOO=bar deno task test')).toBe(false);
+    expect(ok('printenv PATH')).toBe(true);
+  });
+
   it('rejects empty or non-string input', () => {
     expect(ok('')).toBe(false);
     expect(isReadOnlyBash({})).toBe(false);

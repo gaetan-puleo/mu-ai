@@ -46,3 +46,26 @@ describe('parseInput kitty functional keys', () => {
     }
   });
 });
+
+describe('parseInput function keys vs cursor-position reports', () => {
+  it('treats a CSI cursor-position report as a terminal response, not f3', () => {
+    const event = parseInput('\x1b[24;80R');
+    expect(event?.type).toBe('terminalResponse');
+  });
+
+  it('decodes f3 from its SS3 form', () => {
+    const event = parseInput('\x1bOR');
+    expect(event?.type).toBe('key');
+    if (event?.type !== 'key') return;
+    expect(event.key).toBe('f3');
+  });
+
+  it('still decodes f1/f2/f4 from their SS3 forms', () => {
+    for (const [raw, key] of Object.entries({ '\x1bOP': 'f1', '\x1bOQ': 'f2', '\x1bOS': 'f4' })) {
+      const event = parseInput(raw);
+      expect(event?.type).toBe('key');
+      if (event?.type !== 'key') continue;
+      expect(event.key).toBe(key);
+    }
+  });
+});

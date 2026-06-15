@@ -25,7 +25,6 @@ const READ_ONLY = new Set([
   'hostname',
   'uname',
   'date',
-  'env',
   'printenv',
   'sort',
   'uniq',
@@ -94,6 +93,25 @@ export const EXPLORER_BASH = new Set([
   'man',
 ]);
 
+const FIND_MUTATING = /^-(delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/;
+
+// `-o` is sort's only short flag containing the letter `o`, so any short-flag
+// cluster that contains it carries an output target — `-o FILE`, the glued
+// `-oFILE`, or a bundle like `-bo FILE`. A false positive here only downgrades
+// allow→ask (safe); a false negative would auto-allow a file write (unsafe).
+const SORT_OUTPUT = /^-[a-z]*o/i;
+
+const writesViaFlag = (head: string, rest: string[]): boolean => {
+  if (head === 'find') return rest.some((t) => FIND_MUTATING.test(t));
+  if (head === 'sort') {
+    return rest.some((t) =>
+      (SORT_OUTPUT.test(t) && !t.startsWith('--')) || t === '--output' || t.startsWith('--output=')
+    );
+  }
+  if (head === 'yq' || head === 'jq') return rest.some((t) => t === '-i' || t === '--in-place' || t === '--inplace');
+  return false;
+};
+
 const segmentIsReadOnly = (segment: string, allowed: Set<string>): boolean => {
   const tokens = segment.trim().split(/\s+/).filter(Boolean);
   let i = 0;
@@ -104,6 +122,7 @@ const segmentIsReadOnly = (segment: string, allowed: Set<string>): boolean => {
     const sub = tokens[i + 1];
     return sub !== undefined && GIT_READ_ONLY.has(sub);
   }
+  if (writesViaFlag(head, tokens.slice(i + 1))) return false;
   return allowed.has(head);
 };
 

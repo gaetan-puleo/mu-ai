@@ -18,7 +18,16 @@ export interface StatusState {
   spinnerTick: number;
   context: string;
   minimal?: boolean;
+  recording?: { seconds: number; tick: number };
 }
+
+const REC_RED = '\x1b[38;2;239;68;68m';
+
+const recordingIndicator = (rec: { seconds: number; tick: number }, muted: string): string => {
+  const dot = rec.tick % 2 === 0 ? '●' : '○';
+  const time = `${Math.floor(rec.seconds / 60)}:${String(rec.seconds % 60).padStart(2, '0')}`;
+  return `${REC_RED}${dot} REC ${time}${RESET} ${muted}⏎ transcribe · esc cancel${RESET}`;
+};
 
 export function statusFromEvent(event: AgentSessionEvent): string | undefined {
   switch (event.type) {
@@ -48,7 +57,11 @@ export function statusComponent(state: StatusState, theme: Theme): Component {
       if (s.width <= 0) return;
       const muted = styleToAnsi(theme.styles.muted);
       const spinner = `${muted}${spinnerFrame(state.spinnerTick)}${RESET}`;
-      const left = state.busy ? (state.label ? `${spinner} ${muted}${state.label}${RESET}` : spinner) : '';
+      const left = state.recording
+        ? recordingIndicator(state.recording, muted)
+        : state.busy
+        ? (state.label ? `${spinner} ${muted}${state.label}${RESET}` : spinner)
+        : '';
       const right = state.minimal ? '' : (state.context ? `${muted}${state.context}${RESET}` : '');
       if (!left && !right) {
         s.text(0, 0, '');

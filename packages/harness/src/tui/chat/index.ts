@@ -4,6 +4,7 @@ export * from './editor';
 export * from './picker';
 export * from './status';
 export * from './transcript';
+export * from './voice';
 export { ChatApp } from './ChatApp';
 export type { ChatFeatures, ChatHost, ModelInfo } from './ChatApp';
 export type { ChatCommand, CommandHost } from './commands';

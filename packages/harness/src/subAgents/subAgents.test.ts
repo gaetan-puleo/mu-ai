@@ -40,6 +40,7 @@ Deno.test('runSubAgent: parent abort cancels the subagent (no blocking)', async 
     spawn: () => createAgentSession({ provider: blockUntilAbort, model: 'mock' }),
     signal: ac.signal,
   });
+  await new Promise((resolve) => setTimeout(resolve, 0));
   ac.abort();
   assertEquals(await pending, { agent: 'reviewer', text: 'cancelled' });
 });

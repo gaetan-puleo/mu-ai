@@ -40,10 +40,24 @@ Deno.test('parseInbound: sessions:fork requires requestId + int upToIndex', () =
     { type: 'sessions:fork', requestId: 'r1', sessionId: 's1', upToIndex: 3 },
   );
   assertEquals(err({ type: 'sessions:fork', sessionId: 's1', upToIndex: 3 }).includes('requestId'), true);
-  assertEquals(err({ type: 'sessions:fork', requestId: 'r1', sessionId: 's1', upToIndex: -1 }).includes('upToIndex'), true);
+  assertEquals(
+    err({ type: 'sessions:fork', requestId: 'r1', sessionId: 's1', upToIndex: -1 }).includes('upToIndex'),
+    true,
+  );
 });
 
 Deno.test('parseInbound: unknown type is an error', () => {
   assertEquals(err({ type: 'nope' }).includes('unknown message type'), true);
   assertEquals(err(null).includes('not an object'), true);
+});
+
+Deno.test('parseInbound: voice check/transcribe', () => {
+  assertEquals(ok({ type: 'voice:check', requestId: 'r1' }), { type: 'voice:check', requestId: 'r1' });
+  assertEquals(err({ type: 'voice:check' }).includes('requestId'), true);
+  assertEquals(
+    ok({ type: 'voice:transcribe', requestId: 'r1', mime: 'audio/wav', data: 'AAA=' }),
+    { type: 'voice:transcribe', requestId: 'r1', mime: 'audio/wav', data: 'AAA=' },
+  );
+  assertEquals(err({ type: 'voice:transcribe', requestId: 'r1', mime: 'audio/wav' }).includes('data'), true);
+  assertEquals(err({ type: 'voice:transcribe', requestId: 'r1', data: 'AAA=' }).includes('mime'), true);
 });

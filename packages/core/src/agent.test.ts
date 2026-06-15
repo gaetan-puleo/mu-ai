@@ -46,6 +46,7 @@ Deno.test('merges streamed text deltas', async () => {
 
 Deno.test('yields an error event when the provider throws', async () => {
   const provider = {
+    // deno-lint-ignore require-yield -- intentionally throws before yielding to test the error path
     async *stream() {
       throw new Error('provider failed');
     },

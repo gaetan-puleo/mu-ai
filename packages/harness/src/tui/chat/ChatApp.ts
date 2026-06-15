@@ -21,6 +21,16 @@ import {
   visibleWidth,
 } from 'mu-tui';
 import { buildCommands, type ChatCommand, type CommandHost, filterCommands } from './commands';
+import {
+  createRealtimeDictation,
+  detectRecorder,
+  detectStreamingRecorder,
+  type RealtimeDictation,
+  startRecording,
+  startStreamingRecording,
+  type StreamingRecording,
+  type VoiceRecording,
+} from './voice';
 import { MultilineEditor } from './editor';
 import { activeMention, type Candidate, collectCandidates, mentionRanges, rank } from './picker';
 import { formatTokens, statusComponent, statusFromEvent, type StatusState } from './status';
@@ -92,6 +102,10 @@ export interface ChatHost {
   saveThinking(visible: boolean): void;
   history?: { load(): string[]; append(text: string): void };
   features?: ChatFeatures;
+  voice?: {
+    transcribe(audio: Uint8Array, mime: string): Promise<string>;
+    unavailableReason?(): Promise<string | undefined>;
+  };
   /** Subscribe to model load/unload state (cold-start). Optional — only WS-backed hosts emit it. */
   subscribeModelLoading?(listener: (model: string, loading: boolean) => void): () => void;
   banner?: string;
@@ -229,6 +243,15 @@ export class ChatApp {
   private unsubscribeApproval: (() => void) | undefined;
   private errorText: string | undefined;
   private errorTimer: ReturnType<typeof setTimeout> | undefined;
+  private recording: VoiceRecording | undefined;
+  private recordTimer: ReturnType<typeof setInterval> | undefined;
+  private recordStarting = false;
+  private callRec: StreamingRecording | undefined;
+  private callDict: RealtimeDictation | undefined;
+  private callStarting = false;
+  private callTranscript = '';
+  private callStart = 0;
+  private callTimer: ReturnType<typeof setInterval> | undefined;
   private stopped = false;
 
   constructor(private readonly host: ChatHost) {
@@ -280,6 +303,7 @@ export class ChatApp {
     this.commands = buildCommands(this.commandHost()).filter((c) => {
       if ((c.name === 'sessions' || c.name === 'new') && !this.feature('sessionPicker')) return false;
       if (c.name === 'model' && !this.feature('modelPicker')) return false;
+      if ((c.name === 'voice' || c.name === 'call') && !this.host.voice) return false;
       return true;
     });
 
@@ -302,7 +326,9 @@ export class ChatApp {
       this.tui.requestRender(true);
     });
 
-    this.unsubscribeModelLoading = this.host.subscribeModelLoading?.((model, loading) => this.onModelLoading(model, loading));
+    this.unsubscribeModelLoading = this.host.subscribeModelLoading?.((model, loading) =>
+      this.onModelLoading(model, loading)
+    );
 
     this.bindSession();
     if (this.feature('subAgents')) {
@@ -333,6 +359,14 @@ export class ChatApp {
     this.unsubscribeModelLoading?.();
     this.clearRuns();
     this.stopSpinner();
+    this.stopRecordTimer();
+    void this.recording?.cancel();
+    this.recording = undefined;
+    this.stopCallTimer();
+    this.callDict?.cancel();
+    void this.callRec?.stop();
+    this.callDict = undefined;
+    this.callRec = undefined;
     this.clearError();
     this.session?.abort();
     this.tui.stop();
@@ -350,6 +384,8 @@ export class ChatApp {
       toggleThinking: () => this.toggleThinking(),
       exportContext: (args) => void this.exportContext(args),
       listSessions: () => void this.openSessionPicker(),
+      voice: () => void this.toggleVoice(),
+      call: () => void this.toggleCall(),
       quit: () => void this.stop().then(() => this.host.onExit(0)),
     };
   }
@@ -688,6 +724,244 @@ export class ChatApp {
     this.addAttachment('image', img.mime, img.data);
   }
 
+  private toggleVoice(): void {
+    if (this.recording) {
+      void this.finishVoice();
+      return;
+    }
+    void this.startVoice();
+  }
+
+  private async startVoice(): Promise<void> {
+    // `recordStarting` is a synchronous re-entry guard: `this.recording` is only
+    // assigned after several awaits, so a second toggle within that window would
+    // otherwise pass the `this.recording` check and spawn a second recorder,
+    // orphaning the first (leaked mic process + temp dir).
+    if (this.recording || this.recordStarting || !this.host.voice) return;
+    if (this.running) {
+      this.showError('Cannot record while a response is running.');
+      return;
+    }
+    this.recordStarting = true;
+    try {
+      const reason = await this.host.voice.unavailableReason?.();
+      if (reason) {
+        this.showError(reason);
+        return;
+      }
+      const recorder = await detectRecorder();
+      if (!recorder) {
+        this.showError('No microphone recorder found — install ffmpeg, arecord, or parecord.');
+        return;
+      }
+      let rec: VoiceRecording;
+      try {
+        rec = await startRecording({ recorder, now: () => Date.now() });
+      } catch (err) {
+        this.showError(`Could not start recording: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+      // If a teardown ran while we were awaiting, don't leave an orphaned recorder.
+      if (this.stopped) {
+        void rec.cancel();
+        return;
+      }
+      this.recording = rec;
+      let tick = 0;
+      this.status.recording = { seconds: 0, tick: 0 };
+      this.recordTimer = setInterval(() => {
+        tick += 1;
+        this.status.recording = { seconds: this.recording?.elapsed() ?? 0, tick };
+        this.tui.requestRender();
+      }, 500);
+      this.tui.requestRender();
+    } finally {
+      this.recordStarting = false;
+    }
+  }
+
+  private stopRecordTimer(): void {
+    if (this.recordTimer) clearInterval(this.recordTimer);
+    this.recordTimer = undefined;
+    this.status.recording = undefined;
+  }
+
+  private async finishVoice(): Promise<void> {
+    const rec = this.recording;
+    if (!rec || !this.host.voice) return;
+    this.recording = undefined;
+    this.stopRecordTimer();
+    this.startSpinner();
+    this.setStatus('transcribing…');
+    this.tui.requestRender();
+    try {
+      const wav = await rec.stop();
+      const text = (await this.host.voice.transcribe(wav, 'audio/wav')).trim();
+      this.stopSpinner();
+      if (!text) {
+        this.setStatus('nothing transcribed');
+        this.tui.requestRender();
+        return;
+      }
+      const current = this.editor.getValue();
+      const next = current ? `${current.replace(/\s+$/, '')} ${text}` : text;
+      this.editor.setValue(next);
+      this.editor.setCursor(next.length);
+      this.onInputChange(next);
+      this.setStatus('ready');
+    } catch (err) {
+      this.stopSpinner();
+      this.showError(`Transcription failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    this.tui.requestRender();
+  }
+
+  private cancelVoice(): void {
+    const rec = this.recording;
+    if (!rec) return;
+    this.recording = undefined;
+    this.stopRecordTimer();
+    void rec.cancel();
+    this.setStatus('voice cancelled');
+    this.tui.requestRender();
+  }
+
+  private callActive(): boolean {
+    return this.callDict !== undefined;
+  }
+
+  private toggleCall(): void {
+    if (this.callActive()) {
+      void this.finishCall();
+      return;
+    }
+    void this.startCall();
+  }
+
+  private async startCall(): Promise<void> {
+    // `callStarting` mirrors startVoice's synchronous re-entry guard (callDict is
+    // only assigned after awaits, so the callActive() check alone is racy).
+    if (this.callActive() || this.callStarting || !this.host.voice) return;
+    if (this.running) {
+      this.showError('Cannot record while a response is running.');
+      return;
+    }
+    this.callStarting = true;
+    try {
+      const reason = await this.host.voice.unavailableReason?.();
+      if (reason) {
+        this.showError(reason);
+        return;
+      }
+      const recorder = await detectStreamingRecorder();
+      if (!recorder) {
+        this.showError('No microphone recorder found — install ffmpeg, arecord, or parecord.');
+        return;
+      }
+      if (this.stopped) return;
+      const dict = createRealtimeDictation({
+        transcribe: (wav) => this.host.voice!.transcribe(wav, 'audio/wav'),
+        onPartial: (text) => {
+          if (this.callDict !== dict) return;
+          this.callTranscript = text;
+          this.tui.requestRender();
+        },
+      });
+      let rec: StreamingRecording;
+      try {
+        rec = startStreamingRecording(
+          recorder,
+          (pcm) => dict.push(pcm),
+          // Async spawn failure (handled below for the synchronous case too): surface
+          // it and tear the call down cleanly instead of crashing the TUI.
+          (err) => {
+            if (this.callDict !== dict) return;
+            dict.cancel();
+            this.callDict = undefined;
+            this.callRec = undefined;
+            this.callTranscript = '';
+            this.stopCallTimer();
+            this.showError(`Could not start recording: ${err.message}`);
+            this.tui.requestRender();
+          },
+        );
+      } catch (err) {
+        dict.cancel();
+        this.showError(`Could not start recording: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+      // Teardown ran mid-await → don't leave an orphaned recorder running.
+      if (this.stopped) {
+        void rec.stop();
+        dict.cancel();
+        return;
+      }
+      this.callTranscript = '';
+      this.callStart = Date.now();
+      this.callDict = dict;
+      this.callRec = rec;
+      this.callTimer = setInterval(() => this.tui.requestRender(), 500);
+      this.tui.requestRender();
+    } finally {
+      this.callStarting = false;
+    }
+  }
+
+  private stopCallTimer(): void {
+    if (this.callTimer) clearInterval(this.callTimer);
+    this.callTimer = undefined;
+  }
+
+  private async finishCall(): Promise<void> {
+    // Clear call state synchronously BEFORE any await, mirroring finishVoice(): this
+    // flips callActive() to false immediately so a second Enter while the final
+    // transcription is in flight falls through (the re-entrant call's `if (!dict)
+    // return` triggers) instead of firing a duplicate transcription pass and
+    // double-inserting the text. createRealtimeDictation.finish() is also idempotent
+    // as defense-in-depth.
+    const dict = this.callDict;
+    const rec = this.callRec;
+    if (!dict) return;
+    this.callDict = undefined;
+    this.callRec = undefined;
+    this.callTranscript = '';
+    this.stopCallTimer();
+    this.startSpinner();
+    this.setStatus('transcribing…');
+    this.tui.requestRender();
+    try {
+      await rec?.stop();
+      const text = (await dict.finish()).trim();
+      this.stopSpinner();
+      if (text) {
+        const current = this.editor.getValue();
+        const next = current ? `${current.replace(/\s+$/, '')} ${text}` : text;
+        this.editor.setValue(next);
+        this.editor.setCursor(next.length);
+        this.onInputChange(next);
+        this.setStatus('ready');
+      } else {
+        this.setStatus('nothing transcribed');
+      }
+    } catch (err) {
+      this.stopSpinner();
+      this.showError(`Transcription failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    this.tui.requestRender();
+  }
+
+  private cancelCall(): void {
+    if (!this.callDict) return;
+    this.callDict.cancel();
+    void this.callRec?.stop();
+    this.callDict = undefined;
+    this.callRec = undefined;
+    this.callTranscript = '';
+    this.stopCallTimer();
+    this.setStatus('call cancelled');
+    this.tui.requestRender();
+  }
+
   private async attachFromFile(path: string, ext: string): Promise<void> {
     const kind: 'image' | 'audio' = IMAGE_MIME[ext] ? 'image' : 'audio';
     const mime = IMAGE_MIME[ext] ?? AUDIO_MIME[ext];
@@ -834,6 +1108,30 @@ export class ChatApp {
       if (key === 'right' || (key === 'tab' && !event.shift)) return this.moveApproval(1);
       if (key === 'enter') return this.resolveApproval(APPROVAL_OPTIONS[this.approvalCursor % count].value);
       if (key === 'escape' || key === 'esc') return this.resolveApproval('deny');
+      return true;
+    }
+
+    if (this.recording) {
+      if (key === 'enter') {
+        void this.finishVoice();
+        return true;
+      }
+      if (key === 'escape' || key === 'esc') {
+        this.cancelVoice();
+        return true;
+      }
+      return true;
+    }
+
+    if (this.callActive()) {
+      if (key === 'enter') {
+        void this.finishCall();
+        return true;
+      }
+      if (key === 'escape' || key === 'esc') {
+        this.cancelCall();
+        return true;
+      }
       return true;
     }
 
@@ -1206,9 +1504,7 @@ export class ChatApp {
     // Assemble the EXACT request from the live session (real system = base + hook injections
     // + tool prompt blocks). Fall back to the stored messages if the session can't assemble.
     const last = await this.session?.assembleRequest?.();
-    const system = last
-      ? last.system
-      : all.filter((message) => message.role === 'system').map(textOf).join('\n\n');
+    const system = last ? last.system : all.filter((message) => message.role === 'system').map(textOf).join('\n\n');
     const requestTools = last?.tools ?? this.session?.tools ?? [];
     const requestMessages = (last?.messages ?? all).filter((message) => message.role !== 'system');
     const payload = {
@@ -1388,8 +1684,53 @@ export class ChatApp {
   }
 
   private inputPanel(): Component {
-    const inner = this.approvalView() ?? this.editorInner();
+    const inner = this.approvalView() ?? this.callView() ?? this.editorInner();
     return box(inner, { background: this.theme().colors.surface, padding: 1 });
+  }
+
+  private callView(): Component | undefined {
+    if (!this.callActive()) return undefined;
+    const theme = this.theme();
+    const muted = styleToAnsi(theme.styles.muted);
+    const body = styleToAnsi(theme.styles.body);
+    const RED = '\x1b[38;2;239;68;68m';
+    const secs = Math.max(0, Math.floor((Date.now() - this.callStart) / 1000));
+    const time = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+    const transcript = this.callTranscript;
+    return {
+      render: (s) => {
+        if (s.width <= 0 || s.height <= 0) return;
+        const dot = secs % 2 === 0 ? '●' : '○';
+        s.text(0, 0, `${RED}${dot} LIVE ${time}${RESET}  ${muted}⏎ insert · esc cancel${RESET}`);
+        const words = transcript ? transcript.split(/\s+/).filter(Boolean) : [];
+        const rows = Math.min(4, Math.max(1, s.height - 1));
+        if (words.length === 0) {
+          s.text(0, 1, `${muted}listening…${RESET}`);
+          return;
+        }
+        const dimFrom = Math.max(0, words.length - 10);
+        // Greedy word-wrap; the last 10 words render dim (provisional, still self-correcting).
+        const lines: string[] = [];
+        let line = '';
+        let lineW = 0;
+        for (let i = 0; i < words.length; i++) {
+          const w = words[i];
+          const piece = i >= dimFrom ? `${muted}${w}${RESET}` : `${body}${w}${RESET}`;
+          const add = lineW === 0 ? visibleWidth(w) : visibleWidth(w) + 1;
+          if (lineW > 0 && lineW + add > s.width) {
+            lines.push(line);
+            line = piece;
+            lineW = visibleWidth(w);
+          } else {
+            line = lineW === 0 ? piece : `${line} ${piece}`;
+            lineW += add;
+          }
+        }
+        if (line) lines.push(line);
+        const shown = lines.slice(-rows);
+        for (let r = 0; r < shown.length; r++) s.text(0, 1 + r, shown[r]);
+      },
+    };
   }
 
   private editorInner(): Component {

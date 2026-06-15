@@ -186,6 +186,12 @@ describe('text utilities', () => {
     }
   });
 
+  it('never returns a line wider than width, even with leading whitespace', () => {
+    for (const line of wrapText('     indented', 4)) {
+      expect(visibleWidth(line)).toBeLessThanOrEqual(4);
+    }
+  });
+
   it('truncates and slices after leading ANSI codes', () => {
     const styled = '\x1b[31mHello World\x1b[0m';
     expect(stripAnsi(truncateToWidth(styled, 8))).toBe('Hello W…');

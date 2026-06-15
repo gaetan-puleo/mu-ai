@@ -11,6 +11,8 @@ export interface CommandHost {
   toggleThinking(): void;
   exportContext(args: string): void | Promise<void>;
   listSessions(): void;
+  voice(): void;
+  call(): void;
   quit(): void;
 }
 
@@ -19,6 +21,16 @@ export function buildCommands(host: CommandHost): ChatCommand[] {
     { name: 'new', description: 'start a new session', run: () => host.newSession() },
     { name: 'sessions', description: 'open a session from this directory', run: () => host.listSessions() },
     { name: 'model', description: 'switch the active model', run: () => host.openModelPicker() },
+    {
+      name: 'voice',
+      description: 'dictate a message — record speech and transcribe it into the prompt',
+      run: () => host.voice(),
+    },
+    {
+      name: 'call',
+      description: 'realtime dictation — stream speech and transcribe live, correcting as you speak',
+      run: () => host.call(),
+    },
     { name: 'thinking', description: 'expand/collapse reasoning blocks', run: () => host.toggleThinking() },
     { name: 'expand', description: 'toggle output block expansion', run: () => host.toggleExpand() },
     {

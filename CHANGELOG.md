@@ -2,6 +2,25 @@
 
 All notable changes to mu packages. Versions are unified across all packages in this repo.
 
+## 0.33.0
+
+### Added
+
+- **Voice input in the chat TUI.** `/voice` (push-to-talk: record a clip, transcribe it into the composer) and `/call` (hands-free realtime dictation that re-transcribes as you speak). Speech-to-text runs through a new `harness.voice` transcriber (`createVoice`) against an audio-capable model — configured via `voiceModel`, falling back to the selected chat model when it accepts audio (otherwise `/voice` reports it's unavailable rather than recording). Over a WS channel it is exposed as `voice:check` / `voice:transcribe` frames; in-process it calls the provider directly. Recorders are auto-detected (ffmpeg / arecord / parecord / pw-record).
+- **`Provider.stream` accepts `chatTemplateKwargs`** — per-turn extra `chat_template_kwargs` (e.g. `{ enable_thinking: false }` to disable a Qwen3 reasoning template). The local provider applies its provider-level `chatTemplateKwargs` default to the main model only and **merges** the per-turn value on top (per-turn keys win on collision).
+- **Session logs round-trip binary attachments.** Image/audio `Uint8Array` data is tagged + base64-encoded on write and rebuilt on read, so reloading/resuming a session that contains attachments no longer corrupts the bytes.
+- **`coding-agent` honours `primaryAgents` from `config.json`** (previously declared but never loaded) and ships a built-in read-only `reviewer` agent.
+
+### Fixed
+
+- **bash-safety: file-writing flags no longer slip through as read-only.** `sort -oFILE` (value glued to the short flag) and `find … -fprint0 FILE` were classified read-only and auto-approved; both are now treated as writes (so they prompt for approval).
+- **`/call` could double-transcribe.** A second Enter while the final transcription was in flight re-entered the finisher and ran a duplicate pass (doubling model load and inserting the text twice). Call state is now cleared synchronously, and the realtime dictation's `finish()` is idempotent.
+- **A failed call recorder no longer crashes the TUI.** The streaming recorder attaches an `error` listener — an unhandled spawn-failure `error` event previously tore down the whole process — and surfaces the failure as a normal "could not start recording" message.
+- **`/voice` and `/call` are gated on a running turn**, so starting dictation mid-response no longer desyncs the status spinner.
+- **Recorder start is race-safe.** A synchronous sentinel stops a rapid double toggle from spawning two recorders (which leaked a mic process + temp dir), and a teardown during startup cancels the just-spawned recorder.
+- **Voice requests over WS no longer hang on disconnect.** `transcribe()` / `unavailableReason()` are settled when the socket drops or a send is dropped (the WS client now reports send failure and a `close` event) instead of leaving the promise pending forever.
+- **Atomic session-log rewrite.** Compaction's in-place history rewrite now writes a temp file and renames it over the target, so a crash mid-write can't truncate or corrupt the whole session.
+
 ## 0.16.0
 
 ### Breaking

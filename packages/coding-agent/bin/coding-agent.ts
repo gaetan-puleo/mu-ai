@@ -18,6 +18,7 @@ import { createLocalProvider, listLocalModels } from 'mu-local-provider';
 import { createMuTools } from 'mu-ai-tools';
 import { getConfigPath, loadConfig, loadState, xdgDirs } from '../src/config';
 import { builtinAgents } from '../src/agents';
+import { builtinSkills } from '../src/skills';
 import { installPlugin, loadPlugins, uninstallPlugin } from '../src/plugins';
 import { BASE_SYSTEM_PROMPT } from '../src/systemPrompt';
 import { runApp } from '../src/main';
@@ -115,8 +116,10 @@ async function run(): Promise<void> {
     tools: createMuTools({ getCwd: () => cwd }),
     plugins,
     agents: [...projectAgents, ...builtinAgents],
+    skills: builtinSkills,
     system: BASE_SYSTEM_PROMPT,
     sourceUrl: 'https://github.com/gaetan-puleo/mu-ai/tree/main/packages/coding-agent',
+    voice: { model: config.voiceModel },
     hooks: primaryHook,
     approvals: {
       manager: approvals,
@@ -152,6 +155,7 @@ async function run(): Promise<void> {
     providerConfig,
     state,
     capabilities: config.capabilities,
+    voice: harness.voice,
     agent: {
       ref: () => currentAgent().name,
       color: () => currentAgent().color,

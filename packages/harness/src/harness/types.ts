@@ -10,6 +10,7 @@ import type { Skill, SkillRegistry } from '../skills';
 import type { SubAgentRegistry, SubAgentResult } from '../subAgents';
 import type { CompactionOptions } from './compaction';
 import type { ModelRegistry } from './models';
+import type { VoiceTranscriber } from './voice';
 
 export type HarnessOptions =
   & HarnessConfigOptions
@@ -26,6 +27,8 @@ export type HarnessOptions =
     cwd?: string;
     sourceUrl?: string;
     scheduler?: boolean;
+    /** Speech-to-text for `/voice`. `model` is sent recorded audio; falls back to the selected model when unset. */
+    voice?: { model?: string };
     /** Auto-compaction settings, or `false` to disable. Default: enabled at 80% of the window. */
     compaction?: CompactionOptions | false;
     approvals?: {
@@ -38,6 +41,7 @@ export type HarnessOptions =
 export interface Harness {
   readonly config: HarnessConfig;
   readonly models: ModelRegistry;
+  readonly voice: VoiceTranscriber;
   readonly plugins: PluginStore;
   readonly sessions: SessionManager;
   readonly agents: AgentRegistry;
