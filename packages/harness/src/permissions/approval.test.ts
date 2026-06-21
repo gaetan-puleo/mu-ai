@@ -1,16 +1,16 @@
-import { assertEquals } from '@std/assert';
+import { expect, test } from 'vitest';
 import type { ApprovalCall } from './approval';
 import { requireApproval } from './approval';
 
 const call = { name: 'bash', input: { cmd: 'rm' } };
 const fixedId = () => 'appr-1';
 
-Deno.test('requireApproval: prompt approves => lets it through (void)', async () => {
+test('requireApproval: prompt approves => lets it through (void)', async () => {
   const hook = requireApproval({ needsApproval: () => true, prompt: () => true, newId: fixedId });
-  assertEquals(await hook.beforeToolCall?.(call), undefined);
+  expect(await hook.beforeToolCall?.(call)).toEqual(undefined);
 });
 
-Deno.test('requireApproval: the prompt receives an id + name + input', async () => {
+test('requireApproval: the prompt receives an id + name + input', async () => {
   let seen: ApprovalCall | undefined;
   const hook = requireApproval({
     needsApproval: () => true,
@@ -21,15 +21,15 @@ Deno.test('requireApproval: the prompt receives an id + name + input', async () 
     },
   });
   await hook.beforeToolCall?.(call);
-  assertEquals(seen, { id: 'appr-1', name: 'bash', input: { cmd: 'rm' } });
+  expect(seen).toEqual({ id: 'appr-1', name: 'bash', input: { cmd: 'rm' } });
 });
 
-Deno.test('requireApproval: prompt rejects => blocks with a result', async () => {
+test('requireApproval: prompt rejects => blocks with a result', async () => {
   const hook = requireApproval({ needsApproval: () => true, prompt: () => Promise.resolve(false), newId: fixedId });
-  assertEquals(await hook.beforeToolCall?.(call), [{ type: 'text', text: 'Denied: bash' }]);
+  expect(await hook.beforeToolCall?.(call)).toEqual([{ type: 'text', text: 'Denied: bash' }]);
 });
 
-Deno.test('requireApproval: not applicable => asks nothing (no id generated)', async () => {
+test('requireApproval: not applicable => asks nothing (no id generated)', async () => {
   let asked = false;
   const hook = requireApproval({
     needsApproval: () => false,
@@ -38,16 +38,16 @@ Deno.test('requireApproval: not applicable => asks nothing (no id generated)', a
       return true;
     },
   });
-  assertEquals(await hook.beforeToolCall?.(call), undefined);
-  assertEquals(asked, false);
+  expect(await hook.beforeToolCall?.(call)).toEqual(undefined);
+  expect(asked).toEqual(false);
 });
 
-Deno.test('requireApproval: onDeny receives the id and customizes the denial', async () => {
+test('requireApproval: onDeny receives the id and customizes the denial', async () => {
   const hook = requireApproval({
     needsApproval: () => true,
     newId: fixedId,
     prompt: () => false,
     onDeny: (c) => [{ type: 'text', text: `refuse ${c.name} (${c.id})` }],
   });
-  assertEquals(await hook.beforeToolCall?.(call), [{ type: 'text', text: 'refuse bash (appr-1)' }]);
+  expect(await hook.beforeToolCall?.(call)).toEqual([{ type: 'text', text: 'refuse bash (appr-1)' }]);
 });

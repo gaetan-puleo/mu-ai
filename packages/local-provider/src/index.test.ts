@@ -1,4 +1,4 @@
-import { assertEquals } from '@std/assert';
+import { expect, test } from 'vitest';
 import type { ContentPart, Message } from 'mu-core';
 import { convertMessages, convertTools, createLocalProvider } from './index';
 
@@ -18,7 +18,7 @@ const withFetch = async (handler: (url: string) => Response | undefined, body: (
   }
 };
 
-Deno.test('contextWindow does not cache a failed probe; retries then caches the success', async () => {
+test('contextWindow does not cache a failed probe; retries then caches the success', async () => {
   let propsCalls = 0;
   await withFetch((url) => {
     if (url.endsWith('/v1/models')) {
@@ -30,14 +30,14 @@ Deno.test('contextWindow does not cache a failed probe; retries then caches the 
     return undefined;
   }, async () => {
     const provider = createLocalProvider({ kind: 'llama-swap', baseUrl: 'http://x' });
-    assertEquals(await provider.contextWindow!('m'), undefined);
-    assertEquals(await provider.contextWindow!('m'), 4096);
-    assertEquals(await provider.contextWindow!('m'), 4096);
-    assertEquals(propsCalls, 2);
+    expect(await provider.contextWindow!('m')).toEqual(undefined);
+    expect(await provider.contextWindow!('m')).toEqual(4096);
+    expect(await provider.contextWindow!('m')).toEqual(4096);
+    expect(propsCalls).toEqual(2);
   });
 });
 
-Deno.test('stream flushes buffered tool calls even when finish_reason is "stop"', async () => {
+test('stream flushes buffered tool calls even when finish_reason is "stop"', async () => {
   class FakeClient {
     chat = {
       completions: {
@@ -60,17 +60,16 @@ Deno.test('stream flushes buffered tool calls even when finish_reason is "stop"'
     if (url.includes('/props')) return new Response(propsBody(8192));
     return undefined;
   }, async () => {
-    // deno-lint-ignore no-explicit-any
     const provider = createLocalProvider({ kind: 'llama-swap', baseUrl: 'http://x', openAIClient: FakeClient as any });
     const events: ContentPart[] = [];
     for await (const ev of provider.stream({ model: 'm', messages: [], tools: [] })) {
       if (ev.type === 'tool_call') events.push(ev);
     }
-    assertEquals(events, [{ type: 'tool_call', id: 'c1', name: 'search', input: { q: 'x' } }]);
+    expect(events).toEqual([{ type: 'tool_call', id: 'c1', name: 'search', input: { q: 'x' } }]);
   });
 });
 
-Deno.test('chat_template_kwargs: per-turn kwargs merge over (and override) the provider default', async () => {
+test('chat_template_kwargs: per-turn kwargs merge over (and override) the provider default', async () => {
   const captured: Record<string, unknown>[] = [];
   class FakeClient {
     chat = {
@@ -94,7 +93,6 @@ Deno.test('chat_template_kwargs: per-turn kwargs merge over (and override) the p
       baseUrl: 'http://x',
       model: 'm',
       chatTemplateKwargs: { enable_thinking: true, keep_me: 1 },
-      // deno-lint-ignore no-explicit-any
       openAIClient: FakeClient as any,
     });
     const drain = async (req: Parameters<typeof provider.stream>[0]) => {
@@ -102,24 +100,24 @@ Deno.test('chat_template_kwargs: per-turn kwargs merge over (and override) the p
     };
     // Main model, no per-turn override → provider-level default applies verbatim.
     await drain({ model: 'm', messages: [], tools: [] });
-    assertEquals(captured[0].chat_template_kwargs, { enable_thinking: true, keep_me: 1 });
+    expect(captured[0].chat_template_kwargs).toEqual({ enable_thinking: true, keep_me: 1 });
     // Main model + per-turn override → merged on top: per-turn key wins, provider key survives.
     await drain({ model: 'm', messages: [], tools: [], chatTemplateKwargs: { enable_thinking: false } });
-    assertEquals(captured[1].chat_template_kwargs, { enable_thinking: false, keep_me: 1 });
+    expect(captured[1].chat_template_kwargs).toEqual({ enable_thinking: false, keep_me: 1 });
     // A routed/voice model (model !== config.model) gets NO provider-level default.
     await drain({ model: 'voice', messages: [], tools: [] });
-    assertEquals(captured[2].chat_template_kwargs, undefined);
+    expect(captured[2].chat_template_kwargs).toEqual(undefined);
   });
 });
 
-Deno.test('convertMessages: tool_result becomes a tool role message', () => {
+test('convertMessages: tool_result becomes a tool role message', () => {
   const messages: Message[] = [
     { role: 'user', content: [{ type: 'tool_result', id: 'c1', content: [{ type: 'text', text: 'ok' }] }] },
   ];
-  assertEquals(convertMessages(messages), [{ role: 'tool', tool_call_id: 'c1', content: 'ok' }]);
+  expect(convertMessages(messages)).toEqual([{ role: 'tool', tool_call_id: 'c1', content: 'ok' }]);
 });
 
-Deno.test('convertMessages: assistant with tool_call', () => {
+test('convertMessages: assistant with tool_call', () => {
   const messages: Message[] = [
     {
       role: 'assistant',
@@ -129,7 +127,7 @@ Deno.test('convertMessages: assistant with tool_call', () => {
       ],
     },
   ];
-  assertEquals(convertMessages(messages), [
+  expect(convertMessages(messages)).toEqual([
     {
       role: 'assistant',
       content: 'je cherche',
@@ -138,7 +136,7 @@ Deno.test('convertMessages: assistant with tool_call', () => {
   ]);
 });
 
-Deno.test('convertMessages: user multimodal text + image', () => {
+test('convertMessages: user multimodal text + image', () => {
   const messages: Message[] = [
     {
       role: 'user',
@@ -150,7 +148,7 @@ Deno.test('convertMessages: user multimodal text + image', () => {
     },
   ];
   const out = convertMessages(messages);
-  assertEquals(out, [
+  expect(out).toEqual([
     {
       role: 'user',
       content: [
@@ -161,14 +159,15 @@ Deno.test('convertMessages: user multimodal text + image', () => {
   ]);
 });
 
-Deno.test('convertMessages: user with text only stays a string', () => {
+test('convertMessages: user with text only stays a string', () => {
   const messages: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'salut' }] }];
-  assertEquals(convertMessages(messages), [{ role: 'user', content: 'salut' }]);
+  expect(convertMessages(messages)).toEqual([{ role: 'user', content: 'salut' }]);
 });
 
-Deno.test('convertTools: Tool -> OpenAI function', () => {
-  assertEquals(
+test('convertTools: Tool -> OpenAI function', () => {
+  expect(
     convertTools([{ name: 'search', description: 'cherche', parameters: { type: 'object' }, run: async () => [] }]),
+  ).toEqual(
     [{ type: 'function', function: { name: 'search', description: 'cherche', parameters: { type: 'object' } } }],
   );
 });

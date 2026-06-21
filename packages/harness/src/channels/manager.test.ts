@@ -1,4 +1,4 @@
-import { assertEquals } from '@std/assert';
+import { expect, test } from 'vitest';
 import type { ContentPart, Provider } from 'mu-core';
 import { createAgentSession } from '../session';
 import { createChannelManager } from './manager';
@@ -12,7 +12,7 @@ const scripted = (turns: ContentPart[][]): Provider => {
   };
 };
 
-Deno.test('open does not create a session, send creates it (lazy)', async () => {
+test('open does not create a session, send creates it (lazy)', async () => {
   let created = 0;
   const manager = createChannelManager({
     createSession: () => {
@@ -24,16 +24,16 @@ Deno.test('open does not create a session, send creates it (lazy)', async () => 
   const a = manager.open({ title: 'A' });
   manager.open({ title: 'B' });
   manager.open({ title: 'C' });
-  assertEquals(created, 0);
-  assertEquals(a.started, false);
+  expect(created).toEqual(0);
+  expect(a.started).toEqual(false);
 
   await a.send('coucou');
-  assertEquals(created, 1);
-  assertEquals(a.started, true);
-  assertEquals(a.messages.at(-1), { role: 'assistant', content: [{ type: 'text', text: 'hi' }] });
+  expect(created).toEqual(1);
+  expect(a.started).toEqual(true);
+  expect(a.messages.at(-1)).toEqual({ role: 'assistant', content: [{ type: 'text', text: 'hi' }] });
 });
 
-Deno.test('a distinct session per channel', async () => {
+test('a distinct session per channel', async () => {
   let created = 0;
   const manager = createChannelManager({
     createSession: () => {
@@ -48,12 +48,12 @@ Deno.test('a distinct session per channel', async () => {
   await a.send('x');
   await b.send('y');
 
-  assertEquals(created, 2);
-  assertEquals(a.messages.length, 2);
-  assertEquals(b.messages.length, 2);
+  expect(created).toEqual(2);
+  expect(a.messages.length).toEqual(2);
+  expect(b.messages.length).toEqual(2);
 });
 
-Deno.test('subscribe multiplexes events tagged by channelId', async () => {
+test('subscribe multiplexes events tagged by channelId', async () => {
   const manager = createChannelManager({
     createSession: () => createAgentSession({ provider: scripted([[{ type: 'text', text: 'ok' }]]), model: 'mock' }),
   });
@@ -64,12 +64,12 @@ Deno.test('subscribe multiplexes events tagged by channelId', async () => {
   const a = manager.open({ id: 'a', title: 'A' });
   await a.send('x');
 
-  assertEquals(events[0], 'a:channel_open');
-  assertEquals(events.includes('a:turn_start'), true);
-  assertEquals(events.includes('a:turn_end'), true);
+  expect(events[0]).toEqual('a:channel_open');
+  expect(events.includes('a:turn_start')).toEqual(true);
+  expect(events.includes('a:turn_end')).toEqual(true);
 });
 
-Deno.test('close removes the channel and emits channel_close', () => {
+test('close removes the channel and emits channel_close', () => {
   const manager = createChannelManager({
     createSession: () => createAgentSession({ provider: scripted([[]]), model: 'mock' }),
   });
@@ -77,8 +77,8 @@ Deno.test('close removes the channel and emits channel_close', () => {
   manager.subscribe((event) => events.push(event.type));
 
   const a = manager.open({ id: 'a' });
-  assertEquals(manager.list().length, 1);
+  expect(manager.list().length).toEqual(1);
   manager.close(a.id);
-  assertEquals(manager.get('a'), undefined);
-  assertEquals(events.includes('channel_close'), true);
+  expect(manager.get('a')).toEqual(undefined);
+  expect(events.includes('channel_close')).toEqual(true);
 });

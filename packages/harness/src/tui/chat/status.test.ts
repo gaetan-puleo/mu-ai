@@ -1,10 +1,8 @@
-import { expect } from '@std/expect';
-import { describe, it } from '@std/testing/bdd';
+import { describe, expect, it } from 'vitest';
 import type { Component, Surface } from 'mu-tui';
 import { statusComponent, type StatusState } from './status';
 import { themesByName } from './theme';
 
-// deno-lint-ignore no-control-regex
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '');
 
 const renderLine = (component: Component, width = 80): string => {

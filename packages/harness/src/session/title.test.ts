@@ -1,17 +1,17 @@
-import { assertEquals } from '@std/assert';
+import { expect, test } from 'vitest';
 import { cleanTitle, runTitler, titleFallback } from './title';
 
-Deno.test('titleFallback: collapses whitespace and truncates', () => {
-  assertEquals(titleFallback('  hello   world  '), 'hello world');
-  assertEquals(titleFallback('x'.repeat(80), 10), `${'x'.repeat(9)}…`);
+test('titleFallback: collapses whitespace and truncates', () => {
+  expect(titleFallback('  hello   world  ')).toEqual('hello world');
+  expect(titleFallback('x'.repeat(80), 10)).toEqual(`${'x'.repeat(9)}…`);
 });
 
-Deno.test('cleanTitle: strip think, first non-empty line, quotes, truncate', () => {
-  assertEquals(cleanTitle('<think>hmm</think>\n  "Fix the bug"  '), 'Fix the bug');
-  assertEquals(cleanTitle('\n\nReal Title\nignored'), 'Real Title');
+test('cleanTitle: strip think, first non-empty line, quotes, truncate', () => {
+  expect(cleanTitle('<think>hmm</think>\n  "Fix the bug"  ')).toEqual('Fix the bug');
+  expect(cleanTitle('\n\nReal Title\nignored')).toEqual('Real Title');
 });
 
-Deno.test('runTitler: sets the fallback then the generated title', async () => {
+test('runTitler: sets the fallback then the generated title', async () => {
   const writes: string[] = [];
   await runTitler({
     id: 's1',
@@ -21,10 +21,10 @@ Deno.test('runTitler: sets the fallback then the generated title', async () => {
     },
     generate: () => Promise.resolve('Debug du serveur'),
   });
-  assertEquals(writes, ['aide moi a debugger le serveur', 'Debug du serveur']);
+  expect(writes).toEqual(['aide moi a debugger le serveur', 'Debug du serveur']);
 });
 
-Deno.test('runTitler: if generate fails, keeps the fallback', async () => {
+test('runTitler: if generate fails, keeps the fallback', async () => {
   const writes: string[] = [];
   await runTitler({
     id: 's1',
@@ -34,5 +34,5 @@ Deno.test('runTitler: if generate fails, keeps the fallback', async () => {
     },
     generate: () => Promise.reject(new Error('no internet')),
   });
-  assertEquals(writes, ['hello world']);
+  expect(writes).toEqual(['hello world']);
 });

@@ -1,5 +1,4 @@
-import { expect } from '@std/expect';
-import { describe, it } from '@std/testing/bdd';
+import { describe, expect, it } from 'vitest';
 
 import { NO_MODIFIERS } from './events';
 import type { InputEvent, MouseInputEvent } from './events';

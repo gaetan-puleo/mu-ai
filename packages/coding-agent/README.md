@@ -6,8 +6,8 @@ filesystem + shell access. Sessions persist as JSONL under
 `$XDG_DATA_HOME/mu/sessions/`; plugins, skills, agents,
 permissions load from `$XDG_CONFIG_HOME/mu/`.
 
-Run with `deno task dev` (or `deno run -A --sloppy-imports bin/coding-agent.ts`).
-`mu install <npm:spec | jsr:spec | ./path.ts>` adds a plugin;
+Run from source with `pnpm dev` (tsx).
+`mu install <npm:spec | ./path.ts>` adds a plugin;
 `mu -c` resumes the most recent session.
 
 ---
@@ -24,7 +24,7 @@ Minimal terminal AI coding agent for local models (llama-swap / llama.cpp).
 curl -fsSL https://raw.githubusercontent.com/gaetan-puleo/mu-ai/main/install.sh | sh
 ```
 
-Installs the standalone `mu` binary to `~/.local/bin` (no Deno/Node needed).
+Installs the standalone `mu` binary to `~/.local/bin` (no Node needed).
 On Windows, grab `mu-windows-x64.exe` from the [releases page](https://github.com/gaetan-puleo/mu-ai/releases/latest).
 
 ## Configure
@@ -68,10 +68,11 @@ coding-agent/    # the `mu` CLI
 ## Develop
 
 ```bash
-deno install       # workspace deps into node_modules (manual mode)
-deno task dev      # run from source
-deno task test
-deno task check
+pnpm install       # workspace deps
+pnpm dev           # run the mu CLI from source (tsx)
+pnpm test          # vitest
+pnpm check         # type-check (tsc)
+pnpm -r build      # build all packages (tsup)
 ```
 
 ## License

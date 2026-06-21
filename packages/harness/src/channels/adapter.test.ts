@@ -1,4 +1,4 @@
-import { assertEquals, assertStrictEquals } from '@std/assert';
+import { expect, test } from 'vitest';
 import type { Provider } from 'mu-core';
 import { createAgentSession } from '../session';
 import { createApprovalManager } from '../permissions';
@@ -14,7 +14,7 @@ const stubHarness = (): Harness =>
     sessions: { create: () => createAgentSession({ provider: idle(), model: 'mock' }) },
   }) as unknown as Harness;
 
-Deno.test('runChannels starts each adapter with a shared manager + approvals', async () => {
+test('runChannels starts each adapter with a shared manager + approvals', async () => {
   const approvals = createApprovalManager();
   const harness = stubHarness();
   const calls: string[] = [];
@@ -23,8 +23,8 @@ Deno.test('runChannels starts each adapter with a shared manager + approvals', a
     name: 'mem',
     start: (ctx) => {
       calls.push('start');
-      assertStrictEquals(ctx.approvals, approvals);
-      assertStrictEquals(ctx.harness, harness);
+      expect(ctx.approvals).toBe(approvals);
+      expect(ctx.harness).toBe(harness);
       ctx.manager.open({ id: 'a', title: 'A' });
       return Promise.resolve({
         stop: () => {
@@ -36,15 +36,15 @@ Deno.test('runChannels starts each adapter with a shared manager + approvals', a
   };
 
   const host = await runChannels({ harness, approvals, adapters: [adapter] });
-  assertEquals(calls, ['start']);
-  assertEquals(host.manager.get('a')?.title, 'A');
+  expect(calls).toEqual(['start']);
+  expect(host.manager.get('a')?.title).toEqual('A');
 
   await host.stop();
-  assertEquals(calls, ['start', 'stop']);
-  assertEquals(host.manager.get('a'), undefined);
+  expect(calls).toEqual(['start', 'stop']);
+  expect(host.manager.get('a')).toEqual(undefined);
 });
 
-Deno.test('runChannels stops adapters in reverse order', async () => {
+test('runChannels stops adapters in reverse order', async () => {
   const approvals = createApprovalManager();
   const order: string[] = [];
   const make = (name: string): ChannelAdapter => ({
@@ -60,5 +60,5 @@ Deno.test('runChannels stops adapters in reverse order', async () => {
 
   const host = await runChannels({ harness: stubHarness(), approvals, adapters: [make('a'), make('b')] });
   await host.stop();
-  assertEquals(order, ['b', 'a']);
+  expect(order).toEqual(['b', 'a']);
 });

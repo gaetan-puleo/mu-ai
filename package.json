@@ -1,14 +1,25 @@
 {
   "name": "mu-workspace",
   "private": true,
-  "workspaces": [
-    "packages/*"
-  ],
+  "packageManager": "pnpm@11.8.0",
+  "type": "module",
   "scripts": {
-    "knip": "knip",
-    "sg": "sg"
+    "dev": "tsx packages/coding-agent/bin/coding-agent.ts",
+    "start": "tsx packages/coding-agent/bin/coding-agent.ts",
+    "build": "pnpm -r run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "pnpm -r exec tsc --noEmit",
+    "compile": "node scripts/compile.mjs",
+    "knip": "knip"
   },
   "devDependencies": {
-    "knip": "^6.4.1"
+    "@types/node": "^22.10.0",
+    "@yao-pkg/pkg": "^6.20.0",
+    "knip": "^6.4.1",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
   }
 }

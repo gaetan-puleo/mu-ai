@@ -1,10 +1,5 @@
 node_modules/
 dist/
-npm/
+bundle/
 .mu/
-bun.lock
 *.tsbuildinfo
-.dnt-import-map.json
-
-# compiled binary
-/mu

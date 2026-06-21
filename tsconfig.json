@@ -10,31 +10,7 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "declaration": true,
-    "composite": true,
-    "types": [
-      "node"
-    ]
-  },
-  "files": [],
-  "references": [
-    {
-      "path": "packages/core"
-    },
-    {
-      "path": "packages/local-provider"
-    },
-    {
-      "path": "packages/tools"
-    },
-    {
-      "path": "packages/webfetch"
-    },
-    {
-      "path": "packages/coding-agent"
-    },
-    {
-      "path": "packages/tui"
-    }
-  ]
+    "noEmit": true,
+    "types": ["node"]
+  }
 }

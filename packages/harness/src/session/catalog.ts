@@ -1,6 +1,11 @@
 import { mkdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+
+// Load via createRequire so the `node:sqlite` string literal survives bundling:
+// esbuild/vite don't recognise this recent builtin and otherwise rewrite the
+// import to a bare `sqlite` require that fails at runtime.
+const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 
 export interface SessionRecord {
   id: string;

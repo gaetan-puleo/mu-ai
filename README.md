@@ -8,8 +8,10 @@ Minimal terminal AI coding agent for local models (llama-swap / llama.cpp).
 curl -fsSL https://raw.githubusercontent.com/gaetan-puleo/mu-ai/main/install.sh | sh
 ```
 
-Installs the standalone `mu` binary to `~/.local/bin` (no Deno/Node needed).
+Installs the standalone `mu` binary to `~/.local/bin` (no Node needed).
 On Windows, grab `mu-windows-x64.exe` from the [releases page](https://github.com/gaetan-puleo/mu-ai/releases/latest).
+
+Or, if you have Node >= 24: `npm install -g mu-coding` (also published to npm).
 
 ## Configure
 
@@ -51,11 +53,14 @@ coding-agent/    # the `mu` CLI
 
 ## Develop
 
+pnpm workspace (Node >= 22):
+
 ```bash
-deno install       # workspace deps into node_modules (manual mode)
-deno task dev      # run from source
-deno task test
-deno task check
+pnpm install       # install workspace deps
+pnpm dev           # run the mu CLI from source (tsx)
+pnpm test          # vitest, all packages
+pnpm check         # type-check (tsc) all packages
+pnpm -r build      # build every package to dist/ (tsup)
 ```
 
 ## License

@@ -1,10 +1,10 @@
-import { assertEquals } from '@std/assert';
+import { expect, test } from 'vitest';
 import type { ModelModalities, Provider } from 'mu-core';
 import { createModelRegistry } from './models';
 
 const noopStream: Provider['stream'] = async function* () {};
 
-Deno.test('models.capabilities delegates to the resolved provider (model name without provider prefix)', async () => {
+test('models.capabilities delegates to the resolved provider (model name without provider prefix)', async () => {
   let seen = '';
   const vision: Provider = {
     stream: noopStream,
@@ -15,13 +15,13 @@ Deno.test('models.capabilities delegates to the resolved provider (model name wi
   };
   const registry = createModelRegistry({ providers: { local: vision }, default: 'local/gemma' });
 
-  assertEquals(await registry.capabilities('local/gemma'), { vision: true, audio: false });
-  assertEquals(seen, 'gemma'); // provider receives the bare model, not "local/gemma"
-  assertEquals(await registry.capabilities(), { vision: true, audio: false }); // defaults to selected
+  expect(await registry.capabilities('local/gemma')).toEqual({ vision: true, audio: false });
+  expect(seen).toEqual('gemma'); // provider receives the bare model, not "local/gemma"
+  expect(await registry.capabilities()).toEqual({ vision: true, audio: false }); // defaults to selected
 });
 
-Deno.test('models.capabilities is undefined for providers that cannot introspect', async () => {
+test('models.capabilities is undefined for providers that cannot introspect', async () => {
   const plain: Provider = { stream: noopStream };
   const registry = createModelRegistry({ providers: { local: plain }, default: 'local/m' });
-  assertEquals(await registry.capabilities('local/m'), undefined);
+  expect(await registry.capabilities('local/m')).toEqual(undefined);
 });

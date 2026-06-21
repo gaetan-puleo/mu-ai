@@ -1,11 +1,11 @@
-import { assertEquals, assertRejects } from '@std/assert';
+import { expect, test } from 'vitest';
 import type { Message } from 'mu-core';
 import { createAgentRegistry } from '../agents';
 import type { AgentSession } from '../session';
 import { createSkillRegistry } from './registry';
 import { createRunSkillTool, runSkill } from './run';
 
-Deno.test('runSkill composes the agent + skill prompt as system and returns the response', async () => {
+test('runSkill composes the agent + skill prompt as system and returns the response', async () => {
   let capturedSystem = '';
   const skills = createSkillRegistry([{ name: 'commit', description: 'd', prompt: 'SKILL-BODY' }]);
   const agents = createAgentRegistry([{ name: 'rev', description: '', prompt: 'AGENT-BODY', tools: ['read'] }]);
@@ -36,24 +36,22 @@ Deno.test('runSkill composes the agent + skill prompt as system and returns the 
     agent: 'rev',
   });
 
-  assertEquals(out, 'done:ship it');
-  assertEquals(capturedSystem, 'AGENT-BODY\n\nSKILL-BODY');
+  expect(out).toEqual('done:ship it');
+  expect(capturedSystem).toEqual('AGENT-BODY\n\nSKILL-BODY');
 });
 
-Deno.test('runSkill requires a known agent', async () => {
+test('runSkill requires a known agent', async () => {
   const skills = createSkillRegistry([{ name: 'commit', description: 'd', prompt: 'BODY' }]);
   const agents = createAgentRegistry([]);
   const spawn = (() => {
     throw new Error('should not spawn');
   }) as never;
-  await assertRejects(
-    () => runSkill({ skills, agents, spawn }, { skill: 'commit', task: 't', agent: 'ghost' }),
-    Error,
-    'unknown agent "ghost"',
-  );
+  await expect(
+    runSkill({ skills, agents, spawn }, { skill: 'commit', task: 't', agent: 'ghost' }),
+  ).rejects.toThrow('unknown agent "ghost"');
 });
 
-Deno.test('run_skill tool: missing agent => error', async () => {
+test('run_skill tool: missing agent => error', async () => {
   const skills = createSkillRegistry([{ name: 'commit', description: 'd', prompt: 'BODY' }]);
   const agents = createAgentRegistry([]);
   const tool = createRunSkillTool({
@@ -63,19 +61,19 @@ Deno.test('run_skill tool: missing agent => error', async () => {
       throw new Error('should not spawn');
     }) as never,
   });
-  assertEquals(await tool.run({ skill: 'commit', task: 't' }, {}), [{
+  expect(await tool.run({ skill: 'commit', task: 't' }, {})).toEqual([{
     type: 'text',
     text: 'Error: run_skill requires `skill`, `task`, and `agent`.',
   }]);
 });
 
-Deno.test('skills select filters the view', () => {
+test('skills select filters the view', () => {
   const reg = createSkillRegistry([
     { name: 'a', description: '', prompt: 'A' },
     { name: 'b', description: '', prompt: 'B' },
   ]);
   const only = reg.select(['a']);
-  assertEquals(only.list().map((s) => s.name), ['a']);
-  assertEquals(only.get('b'), undefined);
-  assertEquals(reg.get('b')?.prompt, 'B');
+  expect(only.list().map((s) => s.name)).toEqual(['a']);
+  expect(only.get('b')).toEqual(undefined);
+  expect(reg.get('b')?.prompt).toEqual('B');
 });

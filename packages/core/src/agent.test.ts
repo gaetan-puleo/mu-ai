@@ -1,4 +1,4 @@
-import { assertEquals } from '@std/assert';
+import { expect, test } from 'vitest';
 import { createAgent } from './agent';
 import { image } from './types';
 import type { ContentPart, Message, Provider, Tool } from './types';
@@ -12,7 +12,7 @@ const scripted = (turns: ContentPart[][]): Provider => {
   };
 };
 
-Deno.test('loops on a tool_call and returns the final message', async () => {
+test('loops on a tool_call and returns the final message', async () => {
   const provider = scripted([
     [{ type: 'tool_call', id: '1', name: 'snap', input: {} }],
     [{ type: 'text', text: 'voici' }],
@@ -28,25 +28,24 @@ Deno.test('loops on a tool_call and returns the final message', async () => {
   const agent = createAgent({ provider, model: 'mock', tools: [snap] });
   const { message, messages } = await agent.run('photo ?');
 
-  assertEquals(message.content, [{ type: 'text', text: 'voici' }]);
+  expect(message.content).toEqual([{ type: 'text', text: 'voici' }]);
   const tool = messages.find((m) => m.role === 'tool' && m.content[0]?.type === 'tool_result');
-  assertEquals(tool?.content[0], {
+  expect(tool?.content[0]).toEqual({
     type: 'tool_result',
     id: '1',
     content: [{ type: 'image', mime: 'image/png', data: new Uint8Array([1, 2, 3]) }],
   });
 });
 
-Deno.test('merges streamed text deltas', async () => {
+test('merges streamed text deltas', async () => {
   const provider = scripted([[{ type: 'text', text: 'bon' }, { type: 'text', text: 'jour' }]]);
   const agent = createAgent({ provider, model: 'mock' });
   const { message } = await agent.run('salut');
-  assertEquals(message.content, [{ type: 'text', text: 'bonjour' }]);
+  expect(message.content).toEqual([{ type: 'text', text: 'bonjour' }]);
 });
 
-Deno.test('yields an error event when the provider throws', async () => {
+test('yields an error event when the provider throws', async () => {
   const provider = {
-    // deno-lint-ignore require-yield -- intentionally throws before yielding to test the error path
     async *stream() {
       throw new Error('provider failed');
     },
@@ -57,14 +56,14 @@ Deno.test('yields an error event when the provider throws', async () => {
     events.push(event);
   }
   const doneEvent = events.at(-1) as { type: 'done'; messages: Message[] };
-  assertEquals(doneEvent.type, 'done');
-  assertEquals(doneEvent.messages.length, 1);
-  assertEquals(doneEvent.messages[0], { role: 'user', content: [{ type: 'text', text: 'hello' }] });
+  expect(doneEvent.type).toEqual('done');
+  expect(doneEvent.messages.length).toEqual(1);
+  expect(doneEvent.messages[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'hello' }] });
   const errorEvent = events.find((e) => (e as { type: string }).type === 'error');
-  assertEquals((errorEvent as { type: 'error'; error: Error }).error.message, 'provider failed');
+  expect((errorEvent as { type: 'error'; error: Error }).error.message).toEqual('provider failed');
 });
 
-Deno.test('aborts cleanly when the signal is already aborted', async () => {
+test('aborts cleanly when the signal is already aborted', async () => {
   const provider: Provider = {
     async *stream() {
       yield { type: 'text', text: 'should not reach' };
@@ -78,7 +77,7 @@ Deno.test('aborts cleanly when the signal is already aborted', async () => {
     events.push(event);
   }
   const doneEvent = events.at(-1) as { type: 'done'; messages: Message[] };
-  assertEquals(doneEvent.type, 'done');
-  assertEquals(doneEvent.messages.length, 1);
-  assertEquals(doneEvent.messages[0], { role: 'user', content: [{ type: 'text', text: 'hello' }] });
+  expect(doneEvent.type).toEqual('done');
+  expect(doneEvent.messages.length).toEqual(1);
+  expect(doneEvent.messages[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'hello' }] });
 });

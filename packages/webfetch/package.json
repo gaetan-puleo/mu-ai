@@ -1,7 +1,6 @@
 {
   "name": "mu-webfetch",
   "version": "0.33.0",
-  "private": true,
   "description": "Webfetch tool for mu — fetches a URL and returns it as markdown by default.",
   "type": "module",
   "main": "./src/plugin.ts",
@@ -10,9 +9,21 @@
     ".": "./src/plugin.ts"
   },
   "files": [
-    "src",
-    "README.md"
+    "dist"
   ],
+  "scripts": {
+    "build": "tsup src/plugin.ts --format esm --dts --clean"
+  },
+  "publishConfig": {
+    "main": "./dist/plugin.js",
+    "types": "./dist/plugin.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/plugin.d.ts",
+        "default": "./dist/plugin.js"
+      }
+    }
+  },
   "dependencies": {
     "mu-core": "workspace:*",
     "mu-harness": "workspace:*",

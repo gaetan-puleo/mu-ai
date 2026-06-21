@@ -1,4 +1,4 @@
-import { assertEquals } from '@std/assert';
+import { expect, test } from 'vitest';
 import type { Message } from 'mu-core';
 import type { AgentSession, AssembledRequest } from './types';
 import { persistTo } from './persist';
@@ -11,7 +11,7 @@ const textOf = (m: Message): string => m.content.map((p) => (p.type === 'text' ?
 
 // Regression guard: session decorators must forward `assembleRequest`, or /context and
 // /context-export silently lose the real assembled prompt (they did — this is why).
-Deno.test('persistTo forwards assembleRequest from the wrapped session', async () => {
+test('persistTo forwards assembleRequest from the wrapped session', async () => {
   const req: AssembledRequest = { system: 'S', tools: [], messages: [] };
   const inner = {
     id: 'x',
@@ -24,10 +24,10 @@ Deno.test('persistTo forwards assembleRequest from the wrapped session', async (
   } as unknown as AgentSession;
 
   const wrapped = persistTo(noopStore, inner);
-  assertEquals(await wrapped.assembleRequest!(), req);
+  expect(await wrapped.assembleRequest!()).toEqual(req);
 });
 
-Deno.test('persistTo rewrites the log when compaction rewrites history in place', async () => {
+test('persistTo rewrites the log when compaction rewrites history in place', async () => {
   const writes: { kind: 'append' | 'rewrite'; messages: string[] }[] = [];
   const store = {
     append: async (_id: string, m: Message[]) => void writes.push({ kind: 'append', messages: m.map(textOf) }),
@@ -58,6 +58,6 @@ Deno.test('persistTo rewrites the log when compaction rewrites history in place'
   await wrapped.send('c');
   await wrapped.send('d');
 
-  assertEquals(writes.map((w) => w.kind), ['append', 'append', 'append', 'rewrite']);
-  assertEquals(writes[3].messages, ['summary', 'm4']);
+  expect(writes.map((w) => w.kind)).toEqual(['append', 'append', 'append', 'rewrite']);
+  expect(writes[3].messages).toEqual(['summary', 'm4']);
 });

@@ -1,4 +1,4 @@
-import { parse as parseYaml } from '@std/yaml';
+import { parse as parseYaml } from 'yaml';
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 

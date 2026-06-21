@@ -1,4 +1,7 @@
-import { assertEquals, assertStringIncludes, assertThrows } from '@std/assert';
+import { expect, test } from 'vitest';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ContentPart, Provider } from 'mu-core';
 import type { Agent } from '../agents';
 import type { Skill } from '../skills';
@@ -15,7 +18,7 @@ const scripted = (turns: ContentPart[][]): Provider => {
 };
 
 const makeHarness = async (extra: Partial<HarnessOptions> = {}) => {
-  const dir = await Deno.makeTempDir();
+  const dir = await mkdtemp(join(tmpdir(), 'mu-test-'));
   const harness = await createHarness({
     hostName: 'mu',
     xdg: { configHome: dir, dataHome: dir, stateHome: dir },
@@ -26,36 +29,36 @@ const makeHarness = async (extra: Partial<HarnessOptions> = {}) => {
   });
   const cleanup = async () => {
     harness.close();
-    await Deno.remove(dir, { recursive: true });
+    await rm(dir, { recursive: true, force: true });
   };
   return { dir, harness, cleanup };
 };
 
-Deno.test('createHarness exposes config + sub-objects', async () => {
+test('createHarness exposes config + sub-objects', async () => {
   const { dir, harness, cleanup } = await makeHarness();
-  assertEquals(harness.config, {
+  expect(harness.config).toEqual({
     hostName: 'mu',
     configDir: `${dir}/mu`,
     dataDir: `${dir}/mu`,
     stateDir: `${dir}/mu`,
   });
-  assertEquals(harness.models.selected, 'local/m');
+  expect(harness.models.selected).toEqual('local/m');
   await cleanup();
 });
 
-Deno.test('models.select validates format and provider', async () => {
+test('models.select validates format and provider', async () => {
   const { harness, cleanup } = await makeHarness({
     providers: { local: scripted([]), anthropic: scripted([]) },
     model: 'local/llama',
   });
   harness.models.select('anthropic/claude');
-  assertEquals(harness.models.selected, 'anthropic/claude');
-  assertThrows(() => harness.models.select('local'), Error, 'model must be "provider/model"');
-  assertThrows(() => harness.models.select('nope/x'), Error, 'unknown provider "nope"');
+  expect(harness.models.selected).toEqual('anthropic/claude');
+  expect(() => harness.models.select('local')).toThrow('model must be "provider/model"');
+  expect(() => harness.models.select('nope/x')).toThrow('unknown provider "nope"');
   await cleanup();
 });
 
-Deno.test('sessions: create persists, list, open re-reads, delete removes', async () => {
+test('sessions: create persists, list, open re-reads, delete removes', async () => {
   const { harness, cleanup } = await makeHarness({
     providers: { local: scripted([[{ type: 'text', text: 'bonjour' }]]) },
   });
@@ -63,32 +66,32 @@ Deno.test('sessions: create persists, list, open re-reads, delete removes', asyn
   const session = harness.sessions.create();
   await session.send('salut');
 
-  assertEquals((await harness.sessions.list()).map((r) => r.id), [session.id]);
+  expect((await harness.sessions.list()).map((r) => r.id)).toEqual([session.id]);
 
   const reopened = await harness.sessions.open(session.id);
-  assertEquals(reopened.messages.at(-1), { role: 'assistant', content: [{ type: 'text', text: 'bonjour' }] });
+  expect(reopened.messages.at(-1)).toEqual({ role: 'assistant', content: [{ type: 'text', text: 'bonjour' }] });
 
   await harness.sessions.delete(session.id);
-  assertEquals(await harness.sessions.list(), []);
+  expect(await harness.sessions.list()).toEqual([]);
 
   await cleanup();
 });
 
-Deno.test('sessions: list filters by cwd', async () => {
+test('sessions: list filters by cwd', async () => {
   const { harness, cleanup } = await makeHarness();
 
   harness.sessions.create({ cwd: '/proj/a' });
   harness.sessions.create({ cwd: '/proj/a' });
   harness.sessions.create({ cwd: '/proj/b' });
 
-  assertEquals((await harness.sessions.list({ cwd: '/proj/a' })).length, 2);
-  assertEquals((await harness.sessions.list({ cwd: '/proj/b' })).length, 1);
-  assertEquals((await harness.sessions.list()).length, 3);
+  expect((await harness.sessions.list({ cwd: '/proj/a' })).length).toEqual(2);
+  expect((await harness.sessions.list({ cwd: '/proj/b' })).length).toEqual(1);
+  expect((await harness.sessions.list()).length).toEqual(3);
 
   await cleanup();
 });
 
-Deno.test('sessions: fork cuts at a message and inherits the cwd', async () => {
+test('sessions: fork cuts at a message and inherits the cwd', async () => {
   const { harness, cleanup } = await makeHarness({ providers: { local: scripted([[{ type: 'text', text: 'r1' }]]) } });
 
   const session = harness.sessions.create({ cwd: '/proj/z' });
@@ -96,42 +99,42 @@ Deno.test('sessions: fork cuts at a message and inherits the cwd', async () => {
   await session.send('msg-1');
 
   const forked = await harness.sessions.fork(session.id, 0);
-  assertEquals(forked.id !== session.id, true);
-  assertEquals(forked.messages.length, 1);
-  assertEquals(forked.messages[0], { role: 'user', content: [{ type: 'text', text: 'msg-0' }] });
-  assertEquals((await harness.sessions.get(forked.id))?.cwd, '/proj/z');
+  expect(forked.id !== session.id).toEqual(true);
+  expect(forked.messages.length).toEqual(1);
+  expect(forked.messages[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'msg-0' }] });
+  expect((await harness.sessions.get(forked.id))?.cwd).toEqual('/proj/z');
 
   await cleanup();
 });
 
-Deno.test('plugins: write/list/remove under pluginsDir', async () => {
+test('plugins: write/list/remove under pluginsDir', async () => {
   const { dir, harness, cleanup } = await makeHarness();
   const path = await harness.plugins.write('demo.ts', 'export default {};');
-  assertEquals(path, `${dir}/mu/plugins/demo.ts`);
-  assertEquals(await harness.plugins.list(), ['demo.ts']);
+  expect(path).toEqual(`${dir}/mu/plugins/demo.ts`);
+  expect(await harness.plugins.list()).toEqual(['demo.ts']);
   await harness.plugins.remove('demo.ts');
-  assertEquals(await harness.plugins.list(), []);
+  expect(await harness.plugins.list()).toEqual([]);
   await cleanup();
 });
 
-Deno.test('agents: the registry is wired from the host options', async () => {
+test('agents: the registry is wired from the host options', async () => {
   const reviewer: Agent = { name: 'reviewer', description: 'reviews', prompt: 'You review.' };
   const { harness, cleanup } = await makeHarness({ agents: [reviewer] });
-  assertEquals(harness.agents.get('reviewer')?.prompt, 'You review.');
-  assertEquals(harness.agents.list().map((a) => a.name), ['reviewer']);
+  expect(harness.agents.get('reviewer')?.prompt).toEqual('You review.');
+  expect(harness.agents.list().map((a) => a.name)).toEqual(['reviewer']);
   await cleanup();
 });
 
-Deno.test('agents: createHarness loads sub-agents from a configured agentDirs.local', async () => {
-  const localDir = await Deno.makeTempDir();
-  await Deno.writeTextFile(`${localDir}/helper.md`, '---\nname: helper\ndescription: helps\n---\nYou help.');
+test('agents: createHarness loads sub-agents from a configured agentDirs.local', async () => {
+  const localDir = await mkdtemp(join(tmpdir(), 'mu-test-'));
+  await writeFile(`${localDir}/helper.md`, '---\nname: helper\ndescription: helps\n---\nYou help.');
   const { harness, cleanup } = await makeHarness({ agentDirs: { local: localDir } });
-  assertEquals(harness.agents.get('helper')?.prompt, 'You help.');
+  expect(harness.agents.get('helper')?.prompt).toEqual('You help.');
   await cleanup();
-  await Deno.remove(localDir, { recursive: true });
+  await rm(localDir, { recursive: true, force: true });
 });
 
-Deno.test('skill commands: opt-in `command` registers a runnable slash command; others get none', async () => {
+test('skill commands: opt-in `command` registers a runnable slash command; others get none', async () => {
   const arya: Agent = { name: 'arya', description: '', prompt: 'You are arya.' };
   const withCmd: Skill = { name: 'greet', description: 'Greets', prompt: 'Say hello.', command: 'greet' };
   const noCmd: Skill = { name: 'plain', description: 'Plain', prompt: 'Nothing.' };
@@ -142,48 +145,48 @@ Deno.test('skill commands: opt-in `command` registers a runnable slash command; 
   });
 
   // Registered for the opt-in skill only.
-  assertEquals(harness.commands.get('greet')?.name, 'greet');
-  assertEquals(harness.commands.get('plain'), undefined);
+  expect(harness.commands.get('greet')?.name).toEqual('greet');
+  expect(harness.commands.get('plain')).toEqual(undefined);
 
   // Invoking it runs the skill and returns its output.
   const result = await harness.commands.run('/greet say hi', {});
-  assertEquals(result.ok, true);
-  assertStringIncludes(String(result.output), 'Hello!');
+  expect(result.ok).toEqual(true);
+  expect(String(result.output)).toContain('Hello!');
 
   // Survives a hot-reload (host skills persist; the command is re-synced).
   await harness.reloadDefinitions();
-  assertEquals(harness.commands.get('greet')?.name, 'greet');
+  expect(harness.commands.get('greet')?.name).toEqual('greet');
 
   await cleanup();
 });
 
-Deno.test('reloadDefinitions: create/edit/delete agents on disk; defaultAgents is the fallback', async () => {
-  const localDir = await Deno.makeTempDir();
+test('reloadDefinitions: create/edit/delete agents on disk; defaultAgents is the fallback', async () => {
+  const localDir = await mkdtemp(join(tmpdir(), 'mu-test-'));
   const fallback: Agent = { name: 'arya', description: 'built-in', prompt: 'BUILTIN' };
   const { harness, cleanup } = await makeHarness({ agentDirs: { local: localDir }, defaultAgents: [fallback] });
 
   // Fallback present when nothing is on disk.
-  assertEquals(harness.agents.get('arya')?.prompt, 'BUILTIN');
+  expect(harness.agents.get('arya')?.prompt).toEqual('BUILTIN');
 
   // Create on disk + reload → visible.
-  await Deno.writeTextFile(`${localDir}/helper.md`, '---\nname: helper\ndescription: h\n---\nYou help.');
+  await writeFile(`${localDir}/helper.md`, '---\nname: helper\ndescription: h\n---\nYou help.');
   await harness.reloadDefinitions();
-  assertEquals(harness.agents.get('helper')?.prompt, 'You help.');
+  expect(harness.agents.get('helper')?.prompt).toEqual('You help.');
 
   // A disk agent overrides the default fallback by name.
-  await Deno.writeTextFile(`${localDir}/arya.md`, '---\nname: arya\ndescription: custom\n---\nCUSTOM');
+  await writeFile(`${localDir}/arya.md`, '---\nname: arya\ndescription: custom\n---\nCUSTOM');
   await harness.reloadDefinitions();
-  assertEquals(harness.agents.get('arya')?.prompt, 'CUSTOM');
+  expect(harness.agents.get('arya')?.prompt).toEqual('CUSTOM');
 
   // Delete both → override gives way to the fallback, helper disappears.
-  await Deno.remove(`${localDir}/arya.md`);
-  await Deno.remove(`${localDir}/helper.md`);
+  await rm(`${localDir}/arya.md`, { force: true });
+  await rm(`${localDir}/helper.md`, { force: true });
   await harness.reloadDefinitions();
-  assertEquals(harness.agents.get('arya')?.prompt, 'BUILTIN');
-  assertEquals(harness.agents.get('helper'), undefined);
+  expect(harness.agents.get('arya')?.prompt).toEqual('BUILTIN');
+  expect(harness.agents.get('helper')).toEqual(undefined);
 
   await cleanup();
-  await Deno.remove(localDir, { recursive: true });
+  await rm(localDir, { recursive: true, force: true });
 });
 
 const waitForTitle = async (harness: Harness, id: string) => {
@@ -195,7 +198,7 @@ const waitForTitle = async (harness: Harness, id: string) => {
   return (await harness.sessions.get(id))?.title;
 };
 
-Deno.test('title: internal sub-agent titles the session on the 1st message (dedicated provider)', async () => {
+test('title: internal sub-agent titles the session on the 1st message (dedicated provider)', async () => {
   const { harness, cleanup } = await makeHarness({
     providers: {
       local: scripted([[{ type: 'text', text: 'reponse' }]]),
@@ -207,34 +210,34 @@ Deno.test('title: internal sub-agent titles the session on the 1st message (dedi
 
   const session = harness.sessions.create();
   await session.send('first message here');
-  assertEquals(await waitForTitle(harness, session.id), 'Titre Genere');
+  expect(await waitForTitle(harness, session.id)).toEqual('Titre Genere');
 
   await cleanup();
 });
 
-Deno.test('title: disabled (title:false) => no title', async () => {
+test('title: disabled (title:false) => no title', async () => {
   const { harness, cleanup } = await makeHarness({
     providers: { local: scripted([[{ type: 'text', text: 'reponse' }]]) },
   });
   const session = harness.sessions.create();
   await session.send('first message here');
   await new Promise((resolve) => setTimeout(resolve, 5));
-  assertEquals((await harness.sessions.get(session.id))?.title, undefined);
+  expect((await harness.sessions.get(session.id))?.title).toEqual(undefined);
   await cleanup();
 });
 
-Deno.test('scheduler: disabled by default (no scheduler/tasks, no tools)', async () => {
+test('scheduler: disabled by default (no scheduler/tasks, no tools)', async () => {
   const { harness, cleanup } = await makeHarness({
     providers: { local: scripted([[{ type: 'tool_call', id: '1', name: 'run_skill', input: {} }]]) },
     skills: [{ name: 'commit', description: 'd', prompt: 'BODY' }],
   });
-  assertEquals(harness.scheduler, undefined);
-  assertEquals(harness.tasks, undefined);
-  assertEquals(harness.commands.get('tasks'), undefined);
+  expect(harness.scheduler).toEqual(undefined);
+  expect(harness.tasks).toEqual(undefined);
+  expect(harness.commands.get('tasks')).toEqual(undefined);
   await cleanup();
 });
 
-Deno.test('scheduler: enabled exposes tasks/scheduler and runs a task via runNow', async () => {
+test('scheduler: enabled exposes tasks/scheduler and runs a task via runNow', async () => {
   const { harness, cleanup } = await makeHarness({
     providers: { local: scripted([[{ type: 'text', text: 'ok' }]]) },
     skills: [{ name: 'commit', description: 'd', prompt: 'BODY' }],
@@ -242,7 +245,7 @@ Deno.test('scheduler: enabled exposes tasks/scheduler and runs a task via runNow
     scheduler: true,
   });
 
-  assertEquals(harness.commands.get('tasks')?.name, 'tasks');
+  expect(harness.commands.get('tasks')?.name).toEqual('tasks');
   const task = await harness.tasks!.create({
     skill: 'commit',
     prompt: 'go',
@@ -251,11 +254,11 @@ Deno.test('scheduler: enabled exposes tasks/scheduler and runs a task via runNow
   });
   await harness.scheduler!.runNow(task.id);
 
-  assertEquals((await harness.tasks!.get(task.id))?.lastResult, { ok: true, output: 'ok' });
+  expect((await harness.tasks!.get(task.id))?.lastResult).toEqual({ ok: true, output: 'ok' });
   await cleanup();
 });
 
-Deno.test('subagent: end-to-end delegation via the tool injected into the parent', async () => {
+test('subagent: end-to-end delegation via the tool injected into the parent', async () => {
   const reviewer: Agent = { name: 'reviewer', description: 'reviews', prompt: 'You review.' };
   const { dir, harness, cleanup } = await makeHarness({
     providers: {
@@ -272,26 +275,26 @@ Deno.test('subagent: end-to-end delegation via the tool injected into the parent
   await session.send('delegue');
 
   const toolResult = session.messages.find((m) => m.role === 'tool' && m.content[0]?.type === 'tool_result');
-  assertEquals(toolResult?.content[0], { type: 'tool_result', id: '1', content: [{ type: 'text', text: 'reviewed' }] });
-  assertEquals(session.messages.at(-1), { role: 'assistant', content: [{ type: 'text', text: 'done' }] });
+  expect(toolResult?.content[0]).toEqual({ type: 'tool_result', id: '1', content: [{ type: 'text', text: 'reviewed' }] });
+  expect(session.messages.at(-1)).toEqual({ role: 'assistant', content: [{ type: 'text', text: 'done' }] });
 
   const run = harness.subAgents.byParent(session.id)[0];
-  assertEquals(run?.agent, 'reviewer');
+  expect(run?.agent).toEqual('reviewer');
 
   const files: string[] = [];
-  for await (const entry of Deno.readDir(`${dir}/mu/sessions`)) files.push(entry.name);
-  assertEquals(files.sort(), [`${run.runId}.jsonl`, `${session.id}.jsonl`].sort());
+  for (const entry of await readdir(`${dir}/mu/sessions`, { withFileTypes: true })) files.push(entry.name);
+  expect(files.sort()).toEqual([`${run.runId}.jsonl`, `${session.id}.jsonl`].sort());
 
-  assertEquals((await harness.sessions.list()).map((r) => r.id), [session.id]);
-  assertEquals((await harness.sessions.list({ parentId: session.id })).map((r) => r.id), [run.runId]);
+  expect((await harness.sessions.list()).map((r) => r.id)).toEqual([session.id]);
+  expect((await harness.sessions.list({ parentId: session.id })).map((r) => r.id)).toEqual([run.runId]);
 
   const subHistory = await harness.sessions.read(run.runId);
-  assertEquals(subHistory?.messages.at(-1), { role: 'assistant', content: [{ type: 'text', text: 'reviewed' }] });
+  expect(subHistory?.messages.at(-1)).toEqual({ role: 'assistant', content: [{ type: 'text', text: 'reviewed' }] });
 
   await cleanup();
 });
 
-Deno.test('dispatchSubAgent: host-initiated run registers under the parent and returns the answer', async () => {
+test('dispatchSubAgent: host-initiated run registers under the parent and returns the answer', async () => {
   const reviewer: Agent = { name: 'reviewer', description: 'reviews', prompt: 'You review.' };
   const { harness, cleanup } = await makeHarness({
     providers: { local: scripted([[{ type: 'text', text: 'reviewed' }]]) },
@@ -299,15 +302,15 @@ Deno.test('dispatchSubAgent: host-initiated run registers under the parent and r
   });
 
   const result = await harness.dispatchSubAgent('reviewer', 'audit this', 'parent-1');
-  assertEquals(result, { agent: 'reviewer', text: 'reviewed' });
+  expect(result).toEqual({ agent: 'reviewer', text: 'reviewed' });
 
   const run = harness.subAgents.byParent('parent-1')[0];
-  assertEquals(run?.agent, 'reviewer');
+  expect(run?.agent).toEqual('reviewer');
 
   await cleanup();
 });
 
-Deno.test('dispatchSubAgent: throws on an unknown agent', async () => {
+test('dispatchSubAgent: throws on an unknown agent', async () => {
   const { harness, cleanup } = await makeHarness();
   let message = '';
   try {
@@ -315,6 +318,6 @@ Deno.test('dispatchSubAgent: throws on an unknown agent', async () => {
   } catch (error) {
     message = error instanceof Error ? error.message : String(error);
   }
-  assertEquals(message, 'unknown sub-agent "ghost"');
+  expect(message).toEqual('unknown sub-agent "ghost"');
   await cleanup();
 });

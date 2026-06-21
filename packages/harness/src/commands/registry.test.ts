@@ -1,10 +1,10 @@
-import { expect } from '@std/expect';
+import { expect, test } from 'vitest';
 import { createCommandRegistry } from './registry';
 import type { Command } from './types';
 
 const noop: Command = { name: 'noop', description: 'does nothing', run: () => ({ ok: true }) };
 
-Deno.test('registers and runs a command', async () => {
+test('registers and runs a command', async () => {
   const registry = createCommandRegistry([noop]);
   const echo: Command = { name: 'echo', description: 'echoes args', run: (args) => ({ ok: true, output: args }) };
   registry.register(echo);
@@ -12,31 +12,31 @@ Deno.test('registers and runs a command', async () => {
   expect(result).toEqual({ ok: true, output: 'hello world' });
 });
 
-Deno.test('resolves aliases', async () => {
+test('resolves aliases', async () => {
   const registry = createCommandRegistry();
   registry.register({ name: 'quit', description: 'exit', aliases: ['q'], run: () => ({ ok: true, output: 'bye' }) });
   expect((await registry.run('/q')).output).toBe('bye');
 });
 
-Deno.test('an unknown command returns an error result', async () => {
+test('an unknown command returns an error result', async () => {
   const registry = createCommandRegistry();
   const result = await registry.run('/nope');
   expect(result.ok).toBe(false);
 });
 
-Deno.test("an input that isn't a command returns an error result", async () => {
+test("an input that isn't a command returns an error result", async () => {
   const registry = createCommandRegistry();
   expect((await registry.run('hello')).ok).toBe(false);
 });
 
-Deno.test('a duplicate registration throws unless override', () => {
+test('a duplicate registration throws unless override', () => {
   const registry = createCommandRegistry([noop]);
   expect(() => registry.register(noop)).toThrow();
   expect(() => registry.register({ ...noop, description: 'new' }, { override: true })).not.toThrow();
   expect(registry.get('noop')?.description).toBe('new');
 });
 
-Deno.test('passes the context to the command', async () => {
+test('passes the context to the command', async () => {
   const registry = createCommandRegistry();
   registry.register({
     name: 'whoami',
@@ -46,7 +46,7 @@ Deno.test('passes the context to the command', async () => {
   expect((await registry.run('/whoami', { sessionId: 's1' })).output).toBe('s1');
 });
 
-Deno.test('run surfaces thrown errors as a result', async () => {
+test('run surfaces thrown errors as a result', async () => {
   const registry = createCommandRegistry();
   registry.register({
     name: 'boom',
@@ -59,7 +59,7 @@ Deno.test('run surfaces thrown errors as a result', async () => {
   expect(result).toEqual({ ok: false, error: 'kaboom' });
 });
 
-Deno.test('unregister removes the command and its aliases', async () => {
+test('unregister removes the command and its aliases', async () => {
   const registry = createCommandRegistry();
   registry.register({ name: 'quit', description: 'exit', aliases: ['q'], run: () => ({ ok: true }) });
   registry.unregister('quit');
