@@ -38,7 +38,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Install ldid (ad-hoc signs the macOS binaries so Gatekeeper allows them)
-        run: sudo apt-get update && sudo apt-get install -y ldid
+        run: |
+          sudo curl -fsSL https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid_linux_x86_64 -o /usr/local/bin/ldid
+          sudo chmod +x /usr/local/bin/ldid
       - name: Cross-compile standalone binaries
         run: pnpm compile
       - name: Attach binaries to the GitHub release
