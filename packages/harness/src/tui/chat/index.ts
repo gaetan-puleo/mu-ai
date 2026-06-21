@@ -8,3 +8,10 @@ export * from './voice';
 export { ChatApp } from './ChatApp';
 export type { ChatFeatures, ChatHost, ModelInfo } from './ChatApp';
 export type { ChatCommand, CommandHost } from './commands';
+export {
+  type AgentControl,
+  inProcessChatHost,
+  type InProcessChatHostOptions,
+  ttyAdapter,
+  type TtyAdapterOptions,
+} from './tty';

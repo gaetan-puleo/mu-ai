@@ -3,6 +3,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import type { Command } from '../../commands';
 import type { AgentSessionEvent } from '../../session';
 import type { ChannelAdapter, ChannelAdapterContext, ChannelAdapterHandle } from '../adapter';
+import { probeModelCapabilities } from '../../harness/model-loading';
 import { type ContentPart, text as textPart } from 'mu-core';
 import { createSessionService } from './session-service';
 import { observeSubAgent } from './sub-agent';
@@ -216,17 +217,14 @@ export function webSocketAdapter(opts: WebSocketAdapterOptions): WebSocketAdapte
           if (frame) push(frame);
           // Detecting the new model's modalities loads it (a /props round-trip can be a
           // 10-30s cold start) — surface that as a loading state to every channel.
-          push({ type: 'model_loading', model: msg.ref, loading: true });
-          try {
-            const modalities = await harness.models.capabilities(msg.ref).catch(() => undefined);
-            if (modalities) {
+          await probeModelCapabilities(harness.models, msg.ref, {
+            onLoading: (model, loading) => push({ type: 'model_loading', model, loading }),
+            onCapabilities: (modalities) => {
               caps.vision = modalities.vision;
               caps.audio = modalities.audio;
               push({ type: 'capabilities', vision: caps.vision, audio: caps.audio });
-            }
-          } finally {
-            push({ type: 'model_loading', model: msg.ref, loading: false });
-          }
+            },
+          });
           return;
         }
         case 'subagent:dispatch': {
