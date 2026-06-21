@@ -1,10 +1,11 @@
-import { assertEquals } from '@std/assert';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { expect, test } from 'vitest';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { dirsForPath, loadInstructions } from './instructions';
 
-Deno.test('loadInstructions merges global + local (cwd) + nested accessed subdir scopes', async () => {
-  const root = await Deno.makeTempDir();
+test('loadInstructions merges global + local (cwd) + nested accessed subdir scopes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mu-test-'));
   const cfg = join(root, 'config');
   const proj = join(root, 'proj');
   const sub = join(proj, 'pkg', 'a');
@@ -16,20 +17,20 @@ Deno.test('loadInstructions merges global + local (cwd) + nested accessed subdir
 
   // Without accessing the subdir: only global + project.
   const base = (await loadInstructions(proj, cfg)) ?? '';
-  assertEquals(base.includes('GLOBAL RULES'), true);
-  assertEquals(base.includes('PROJECT RULES'), true);
-  assertEquals(base.includes('NESTED PKG RULES'), false);
+  expect(base.includes('GLOBAL RULES')).toEqual(true);
+  expect(base.includes('PROJECT RULES')).toEqual(true);
+  expect(base.includes('NESTED PKG RULES')).toEqual(false);
 
   // After "touching" a file under pkg/a, its AGENTS.md is included and lands LAST (most specific).
   const accessed = dirsForPath(proj, 'pkg/a/file.ts');
   const withNested = (await loadInstructions(proj, cfg, { accessed })) ?? '';
-  assertEquals(withNested.includes('NESTED PKG RULES'), true);
-  assertEquals(withNested.lastIndexOf('NESTED PKG RULES') > withNested.indexOf('PROJECT RULES'), true);
+  expect(withNested.includes('NESTED PKG RULES')).toEqual(true);
+  expect(withNested.lastIndexOf('NESTED PKG RULES') > withNested.indexOf('PROJECT RULES')).toEqual(true);
 
-  await Deno.remove(root, { recursive: true });
+  await rm(root, { recursive: true, force: true });
 });
 
-Deno.test('dirsForPath returns the dir chain up to cwd, and nothing for outside paths', () => {
-  assertEquals(dirsForPath('/x/proj', 'a/b/c.ts'), ['/x/proj/a/b', '/x/proj/a', '/x/proj']);
-  assertEquals(dirsForPath('/x/proj', '../outside.ts'), []);
+test('dirsForPath returns the dir chain up to cwd, and nothing for outside paths', () => {
+  expect(dirsForPath('/x/proj', 'a/b/c.ts')).toEqual(['/x/proj/a/b', '/x/proj/a', '/x/proj']);
+  expect(dirsForPath('/x/proj', '../outside.ts')).toEqual([]);
 });

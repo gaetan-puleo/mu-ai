@@ -1,7 +1,7 @@
-import { assertEquals } from '@std/assert';
+import { expect, test } from 'vitest';
 import { createHarnessConfig } from './resolve';
 
-Deno.test('createHarnessConfig namespaces each XDG base by hostName', () => {
+test('createHarnessConfig namespaces each XDG base by hostName', () => {
   const config = createHarnessConfig({
     hostName: 'mu',
     xdg: {
@@ -11,7 +11,7 @@ Deno.test('createHarnessConfig namespaces each XDG base by hostName', () => {
     },
   });
 
-  assertEquals(config, {
+  expect(config).toEqual({
     hostName: 'mu',
     configDir: '/home/u/.config/mu',
     dataDir: '/home/u/.local/share/mu',

@@ -1,22 +1,13 @@
 import { type InputEvent, type KeyInputEvent, type Modifiers, type MouseInputEvent, NO_MODIFIERS } from './events';
 
-// deno-lint-ignore no-control-regex
 const CSI_U_RE = /^\x1b\[(\d+)(?::[\d:]+)?(?:;(\d+(?::\d+)?))?(?:;([\d:]+))?u$/;
-// deno-lint-ignore no-control-regex
 const LEGACY_KITTY_RE = /^\x1b\[<(\d+);(\d+)u$/;
-// deno-lint-ignore no-control-regex
 const XTERM_MODIFIED_RE = /^\x1b\[27;(\d+);(\d+)~$/;
-// deno-lint-ignore no-control-regex
 const SGR_MOUSE_RE = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/;
-// deno-lint-ignore no-control-regex
 const CSI_TILDE_RE = /^\x1b\[([0-9;]*)~$/;
-// deno-lint-ignore no-control-regex
 const CSI_KEY_RE = /^\x1b\[([0-9;]*)([A-HIOP])$/;
-// deno-lint-ignore no-control-regex
 const SS3_RE = /^\x1bO([A-DFHPQRS])$/;
-// deno-lint-ignore no-control-regex
 const ALT_PREFIX_RE = /^\x1b(.+)$/;
-// deno-lint-ignore no-control-regex
 const CTRL_RE = /^[\x01-\x1a]$/;
 
 const CSI_KEY_MAP: Record<string, string> = {

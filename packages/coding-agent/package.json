@@ -1,16 +1,24 @@
 {
   "name": "mu-coding",
   "version": "0.33.0",
-  "private": true,
   "description": "Minimal terminal AI assistant for local models",
   "type": "module",
   "bin": {
     "mu": "./bin/coding-agent.ts"
   },
   "scripts": {
-    "dev": "NODE_ENV=development deno run -A --sloppy-imports bin/coding-agent.ts",
-    "dev:tui-debug": "MU_TUI_DEBUG_LOG=/tmp/mu-tui.log NODE_ENV=development deno run -A --sloppy-imports bin/coding-agent.ts",
-    "start": "deno run -A --sloppy-imports bin/coding-agent.ts"
+    "dev": "NODE_ENV=development tsx bin/coding-agent.ts",
+    "dev:tui-debug": "MU_TUI_DEBUG_LOG=/tmp/mu-tui.log NODE_ENV=development tsx bin/coding-agent.ts",
+    "start": "tsx bin/coding-agent.ts",
+    "build": "tsup"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "bin": {
+      "mu": "./dist/coding-agent.js"
+    }
   },
   "dependencies": {
     "cli-highlight": "^2.1.11",

@@ -1,35 +1,37 @@
-import { assertEquals, assertStringIncludes } from '@std/assert';
+import { expect, test } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMemoryStore, createRememberTool } from './memory';
 
-Deno.test('memory: remember writes per scope, load merges global + project', async () => {
-  const root = await Deno.makeTempDir();
+test('memory: remember writes per scope, load merges global + project', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mu-test-'));
   const cwd = join(root, 'proj');
   const dataDir = join(root, 'data');
   const store = createMemoryStore({ cwd, dataDir });
 
-  assertEquals(await store.load(), undefined);
+  expect(await store.load()).toEqual(undefined);
 
   await store.remember('user prefers tabs', 'local');
   await store.remember('always use the published mu', 'global');
 
   const loaded = (await store.load()) ?? '';
-  assertStringIncludes(loaded, 'user prefers tabs');
-  assertStringIncludes(loaded, 'always use the published mu');
+  expect(loaded).toContain('user prefers tabs');
+  expect(loaded).toContain('always use the published mu');
   // global scope is listed before project scope
-  assertEquals(loaded.indexOf('global') < loaded.indexOf('project'), true);
+  expect(loaded.indexOf('global') < loaded.indexOf('project')).toEqual(true);
 
-  await Deno.remove(root, { recursive: true });
+  await rm(root, { recursive: true, force: true });
 });
 
-Deno.test('remember tool persists the fact and defaults to local scope', async () => {
-  const root = await Deno.makeTempDir();
+test('remember tool persists the fact and defaults to local scope', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mu-test-'));
   const store = createMemoryStore({ cwd: join(root, 'p'), dataDir: join(root, 'd') });
   const tool = createRememberTool(store);
 
   const res = await tool.run({ fact: 'the deploy host is x' }, { signal: undefined });
-  assertStringIncludes((res[0] as { text: string }).text, 'Remembered (local)');
-  assertStringIncludes((await store.load()) ?? '', 'the deploy host is x');
+  expect((res[0] as { text: string }).text).toContain('Remembered (local)');
+  expect((await store.load()) ?? '').toContain('the deploy host is x');
 
-  await Deno.remove(root, { recursive: true });
+  await rm(root, { recursive: true, force: true });
 });

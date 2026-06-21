@@ -26,14 +26,9 @@ case "$arch" in
 esac
 
 asset="${BIN}-${os}-${arch}"
-version="${MU_VERSION:-latest}"
-if [ "$version" = "latest" ]; then
-  url="https://github.com/${REPO}/releases/latest/download/${asset}"
-else
-  url="https://github.com/${REPO}/releases/download/${version}/${asset}"
-fi
+url="https://github.com/${REPO}/releases/latest/download/${asset}"
 
-echo "Downloading ${asset} (${version})…"
+echo "Downloading ${asset} (latest)…"
 mkdir -p "$INSTALL_DIR"
 tmp=$(mktemp)
 if ! curl -fSL "$url" -o "$tmp"; then

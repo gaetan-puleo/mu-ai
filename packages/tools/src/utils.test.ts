@@ -1,5 +1,4 @@
-import { expect } from '@std/expect';
-import { describe, it } from '@std/testing/bdd';
+import { describe, expect, it } from 'vitest';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';

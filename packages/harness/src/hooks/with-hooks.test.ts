@@ -1,4 +1,4 @@
-import { assertEquals } from '@std/assert';
+import { expect, test } from 'vitest';
 import type { Tool } from 'mu-core';
 import type { AgentSessionHooks } from './types';
 import { withHooks } from './with-hooks';
@@ -13,33 +13,33 @@ const dynamicTool = (catalog: string[]): Tool => ({
   run: async () => [{ type: 'text', text: 'ran' }],
 });
 
-Deno.test('withHooks: without before/after hooks, returns the tool unchanged', () => {
+test('withHooks: without before/after hooks, returns the tool unchanged', () => {
   const tool = dynamicTool(['a']);
-  assertEquals(withHooks(tool, {}), tool);
+  expect(withHooks(tool, {})).toEqual(tool);
 });
 
-Deno.test('withHooks: preserves the dynamic prompt getter', () => {
+test('withHooks: preserves the dynamic prompt getter', () => {
   const catalog = ['a'];
   const hooks: AgentSessionHooks = { beforeToolCall: () => undefined };
   const wrapped = withHooks(dynamicTool(catalog), hooks);
 
-  assertEquals(wrapped.prompt, 'a');
+  expect(wrapped.prompt).toEqual('a');
   catalog.push('b');
-  assertEquals(wrapped.prompt, 'a,b');
+  expect(wrapped.prompt).toEqual('a,b');
 });
 
-Deno.test('withHooks: beforeToolCall can block before the run', async () => {
+test('withHooks: beforeToolCall can block before the run', async () => {
   const hooks: AgentSessionHooks = {
     beforeToolCall: () => [{ type: 'text', text: 'denied' }],
   };
   const wrapped = withHooks(dynamicTool(['a']), hooks);
-  assertEquals(await wrapped.run({}, {}), [{ type: 'text', text: 'denied' }]);
+  expect(await wrapped.run({}, {})).toEqual([{ type: 'text', text: 'denied' }]);
 });
 
-Deno.test('withHooks: afterToolCall can rewrite the result', async () => {
+test('withHooks: afterToolCall can rewrite the result', async () => {
   const hooks: AgentSessionHooks = {
     afterToolCall: ({ result }) => [...result, { type: 'text', text: 'extra' }],
   };
   const wrapped = withHooks(dynamicTool(['a']), hooks);
-  assertEquals(await wrapped.run({}, {}), [{ type: 'text', text: 'ran' }, { type: 'text', text: 'extra' }]);
+  expect(await wrapped.run({}, {})).toEqual([{ type: 'text', text: 'ran' }, { type: 'text', text: 'extra' }]);
 });

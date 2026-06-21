@@ -1,6 +1,4 @@
-// deno-lint-ignore no-control-regex
 const ANSI_RE = /\u001B\[[0-?]*[ -/]*[@-~]|\u001B\][^\u0007]*(?:\u0007|\u001B\\)/g;
-// deno-lint-ignore no-control-regex
 const ANSI_TOKEN_RE = /\u001B\[[0-?]*[ -/]*[@-~]|\u001B\][^\u0007]*(?:\u0007|\u001B\\)/gy;
 
 export function stripAnsi(s: string): string {
@@ -304,7 +302,6 @@ function tokenizeAnsi(s: string): Array<{ value: string; ansi: boolean }> {
 }
 
 function extractTrailingAnsi(s: string): string {
-  // deno-lint-ignore no-control-regex
   const match = s.match(/(\u001B\[[0-?]*[ -/]*[@-~])$/);
   return match ? match[1] : '';
 }

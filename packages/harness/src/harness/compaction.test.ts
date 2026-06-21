@@ -1,9 +1,9 @@
-import { assertEquals, assertStringIncludes } from '@std/assert';
+import { expect, test } from 'vitest';
 import type { Message, Provider } from 'mu-core';
 import { createAgentSession } from '../session';
 import { createCompactionHook } from './compaction';
 
-Deno.test('session.compact summarizes the middle, keeping system + last N', async () => {
+test('session.compact summarizes the middle, keeping system + last N', async () => {
   const provider: Provider = {
     async *stream() {
       yield { type: 'text', text: 'CONDENSED SUMMARY' };
@@ -22,13 +22,13 @@ Deno.test('session.compact summarizes the middle, keeping system + last N', asyn
   await session.compact!({ keepLastTurns: 2 });
 
   const out = session.messages;
-  assertEquals(out.length, 4); // system + summary + last 2
-  assertEquals(out[0].role, 'system');
-  assertStringIncludes(out[1].content.map((p) => (p.type === 'text' ? p.text : '')).join(''), 'CONDENSED SUMMARY');
-  assertEquals(out[3].content[0], { type: 'text', text: 'm3' });
+  expect(out.length).toEqual(4); // system + summary + last 2
+  expect(out[0].role).toEqual('system');
+  expect(out[1].content.map((p) => (p.type === 'text' ? p.text : '')).join('')).toContain('CONDENSED SUMMARY');
+  expect(out[3].content[0]).toEqual({ type: 'text', text: 'm3' });
 });
 
-Deno.test('compaction hook fires compact only past the threshold', async () => {
+test('compaction hook fires compact only past the threshold', async () => {
   const hook = createCompactionHook({ thresholdPct: 0.5, keepLastTurns: 2 });
   const big: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'x'.repeat(400) }] }];
   const small: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }];
@@ -46,7 +46,7 @@ Deno.test('compaction hook fires compact only past the threshold', async () => {
     });
 
   await run(small);
-  assertEquals(compacted, false); // ~1 token, under 50
+  expect(compacted).toEqual(false); // ~1 token, under 50
   await run(big);
-  assertEquals(compacted, true); // 400 chars ≈ 100 tokens, over 50
+  expect(compacted).toEqual(true); // 400 chars ≈ 100 tokens, over 50
 });

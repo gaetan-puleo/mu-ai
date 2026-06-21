@@ -1,4 +1,4 @@
-import { assertEquals } from '@std/assert';
+import { test, expect } from 'vitest';
 import { commandPalette } from './components/command-palette';
 import { editor } from './components/editor';
 import { selectList } from './components/select-list';
@@ -36,25 +36,22 @@ class FakeTerminal implements Terminal {
 
 const plainText = (raw: string): string =>
   raw
-    // deno-lint-ignore no-control-regex
     .replace(/\x1b\][0-9];[^\x07]*\x07/g, '')
-    // deno-lint-ignore no-control-regex
     .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
-    // deno-lint-ignore no-control-regex
     .replace(/\x1b[78]/g, '');
 
-Deno.test('TUI renders the root surface into the terminal', () => {
+test('TUI renders the root surface into the terminal', () => {
   const term = new FakeTerminal();
   const tui = new TUI(term, { synchronizedOutput: false });
   tui.setRoot(column([text('hello'), text('world')]));
   tui.renderNow();
 
   const out = plainText(term.output);
-  assertEquals(out.includes('hello'), true);
-  assertEquals(out.includes('world'), true);
+  expect(out.includes('hello')).toEqual(true);
+  expect(out.includes('world')).toEqual(true);
 });
 
-Deno.test('a stateful component (editor) receives input', () => {
+test('a stateful component (editor) receives input', () => {
   const term = new FakeTerminal();
   const tui = new TUI(term, { synchronizedOutput: false });
   const ed = editor({ value: 'hi' });
@@ -62,13 +59,13 @@ Deno.test('a stateful component (editor) receives input', () => {
   tui.setFocus(ed);
 
   ed.handleInput({ type: 'text', text: '!', raw: '!' });
-  assertEquals(ed.getValue(), 'hi!');
+  expect(ed.getValue()).toEqual('hi!');
 
   tui.renderNow();
-  assertEquals(plainText(term.output).includes('hi!'), true);
+  expect(plainText(term.output).includes('hi!')).toEqual(true);
 });
 
-Deno.test('showModal: real modal on top, focus capture, close', () => {
+test('showModal: real modal on top, focus capture, close', () => {
   const term = new FakeTerminal();
   term.columns = 30;
   term.rows = 10;
@@ -77,21 +74,21 @@ Deno.test('showModal: real modal on top, focus capture, close', () => {
 
   const inner = editor({ value: 'edit' });
   const handle = tui.showModal(inner, { title: 'Confirm' });
-  assertEquals(tui.getFocused(), inner);
+  expect(tui.getFocused()).toEqual(inner);
 
   tui.renderNow();
   const shown = plainText(term.output);
-  assertEquals(shown.includes('Confirm'), true);
-  assertEquals(shown.includes('edit'), true);
+  expect(shown.includes('Confirm')).toEqual(true);
+  expect(shown.includes('edit')).toEqual(true);
 
   handle.close();
-  assertEquals(tui.getFocused(), null);
+  expect(tui.getFocused()).toEqual(null);
   term.output = '';
   tui.renderNow();
-  assertEquals(plainText(term.output).includes('Confirm'), false);
+  expect(plainText(term.output).includes('Confirm')).toEqual(false);
 });
 
-Deno.test('selectList navigates by keyboard and selects', () => {
+test('selectList navigates by keyboard and selects', () => {
   let chosen = '';
   const list = selectList([
     { label: 'a', value: 'a' },
@@ -103,10 +100,10 @@ Deno.test('selectList navigates by keyboard and selects', () => {
   };
   list.handleInput(key('down'));
   list.handleInput(key('enter'));
-  assertEquals(chosen, 'b');
+  expect(chosen).toEqual('b');
 });
 
-Deno.test('commandPalette filters by typing then runs', () => {
+test('commandPalette filters by typing then runs', () => {
   let ran = '';
   const palette = commandPalette(
     [
@@ -118,10 +115,10 @@ Deno.test('commandPalette filters by typing then runs', () => {
   );
   for (const ch of 'quit') palette.handleInput({ type: 'text', text: ch, raw: ch });
   palette.handleInput(key('enter'));
-  assertEquals(ran, 'quit');
+  expect(ran).toEqual('quit');
 });
 
-Deno.test('toast: rendered top right then dismissed', () => {
+test('toast: rendered top right then dismissed', () => {
   const term = new FakeTerminal();
   term.columns = 40;
   term.rows = 8;
@@ -130,15 +127,15 @@ Deno.test('toast: rendered top right then dismissed', () => {
 
   const handle = tui.toast('Saved!', { kind: 'success', duration: 100000 });
   tui.renderNow();
-  assertEquals(plainText(term.output).includes('Saved!'), true);
+  expect(plainText(term.output).includes('Saved!')).toEqual(true);
 
   handle.dismiss();
   term.output = '';
   tui.renderNow();
-  assertEquals(plainText(term.output).includes('Saved!'), false);
+  expect(plainText(term.output).includes('Saved!')).toEqual(false);
 });
 
-Deno.test('showCommandPalette: layer takes focus, runs and closes', () => {
+test('showCommandPalette: layer takes focus, runs and closes', () => {
   const term = new FakeTerminal();
   term.columns = 40;
   term.rows = 12;
@@ -152,15 +149,15 @@ Deno.test('showCommandPalette: layer takes focus, runs and closes', () => {
   ]);
   const palette = tui.getFocused();
   tui.renderNow();
-  assertEquals(plainText(term.output).includes('Alpha'), true);
+  expect(plainText(term.output).includes('Alpha')).toEqual(true);
 
   palette?.handleInput?.(key('down'));
   palette?.handleInput?.(key('enter'));
-  assertEquals(ran, 'b');
-  assertEquals(tui.getFocused(), null);
+  expect(ran).toEqual('b');
+  expect(tui.getFocused()).toEqual(null);
 });
 
-Deno.test('the cell-diff emits a single change after a full render', () => {
+test('the cell-diff emits a single change after a full render', () => {
   const term = new FakeTerminal();
   const tui = new TUI(term, { synchronizedOutput: false });
   const label = { value: 'aaaaa' };
@@ -171,6 +168,6 @@ Deno.test('the cell-diff emits a single change after a full render', () => {
   label.value = 'aaaXa';
   tui.renderNow();
 
-  assertEquals(term.output.includes('X'), true);
-  assertEquals(term.output.includes('aaaaa'), false);
+  expect(term.output.includes('X')).toEqual(true);
+  expect(term.output.includes('aaaaa')).toEqual(false);
 });

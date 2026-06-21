@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from '@std/assert';
+import { expect, test } from 'vitest';
 import type { ContentPart, Provider } from 'mu-core';
 import type { Agent } from '../agents';
 import { createAgentRegistry } from '../agents';
@@ -20,12 +20,12 @@ const reviewer: Agent = { name: 'reviewer', description: 'reviews', prompt: 'You
 const spawnReturning = (text: string) => () =>
   createAgentSession({ provider: scripted([[{ type: 'text', text }]]), model: 'mock' });
 
-Deno.test('runSubAgent sends the task and returns the final text', async () => {
+test('runSubAgent sends the task and returns the final text', async () => {
   const result = await runSubAgent(reviewer, 'audit X', { spawn: spawnReturning('looks good') });
-  assertEquals(result, { agent: 'reviewer', text: 'looks good' });
+  expect(result).toEqual({ agent: 'reviewer', text: 'looks good' });
 });
 
-Deno.test('runSubAgent: parent abort cancels the subagent (no blocking)', async () => {
+test('runSubAgent: parent abort cancels the subagent (no blocking)', async () => {
   const blockUntilAbort: Provider = {
     async *stream({ signal }) {
       await new Promise<void>((resolve) => {
@@ -42,24 +42,21 @@ Deno.test('runSubAgent: parent abort cancels the subagent (no blocking)', async 
   });
   await new Promise((resolve) => setTimeout(resolve, 0));
   ac.abort();
-  assertEquals(await pending, { agent: 'reviewer', text: 'cancelled' });
+  expect(await pending).toEqual({ agent: 'reviewer', text: 'cancelled' });
 });
 
-Deno.test('runSubAgent: a provider error propagates (no fake empty success)', async () => {
+test('runSubAgent: a provider error propagates (no fake empty success)', async () => {
   const failing: Provider = {
-    // deno-lint-ignore require-yield
     async *stream() {
       throw new Error('provider down');
     },
   };
-  await assertRejects(
-    () => runSubAgent(reviewer, 'go', { spawn: () => createAgentSession({ provider: failing, model: 'mock' }) }),
-    Error,
-    'provider down',
-  );
+  await expect(
+    runSubAgent(reviewer, 'go', { spawn: () => createAgentSession({ provider: failing, model: 'mock' }) }),
+  ).rejects.toThrow('provider down');
 });
 
-Deno.test('the spawn receives the persona (system = prompt)', async () => {
+test('the spawn receives the persona (system = prompt)', async () => {
   let seen: string | undefined;
   await runSubAgent(reviewer, 'go', {
     spawn: (agent) => {
@@ -67,15 +64,15 @@ Deno.test('the spawn receives the persona (system = prompt)', async () => {
       return createAgentSession({ provider: scripted([[{ type: 'text', text: 'ok' }]]), model: 'mock' });
     },
   });
-  assertEquals(seen, 'You review.');
+  expect(seen).toEqual('You review.');
 });
 
-Deno.test('the tool delegates to the named persona from the registry', async () => {
+test('the tool delegates to the named persona from the registry', async () => {
   const tool = createSubAgentTool({ registry: createAgentRegistry([reviewer]), spawn: spawnReturning('done') });
-  assertEquals(await tool.run({ tasks: [{ agent: 'reviewer', task: 'audit' }] }, {}), [{ type: 'text', text: 'done' }]);
+  expect(await tool.run({ tasks: [{ agent: 'reviewer', task: 'audit' }] }, {})).toEqual([{ type: 'text', text: 'done' }]);
 });
 
-Deno.test('the tool runs multiple tasks concurrently and labels each result', async () => {
+test('the tool runs multiple tasks concurrently and labels each result', async () => {
   let active = 0;
   let peak = 0;
   const explorer: Agent = { name: 'explorer', description: 'read-only search', prompt: 'x' };
@@ -95,13 +92,12 @@ Deno.test('the tool runs multiple tasks concurrently and labels each result', as
   const tool = createSubAgentTool({ registry, spawn: spawnTracking('a') });
   const tasks = [{ agent: 'reviewer', task: '1' }, { agent: 'explorer', task: '2' }];
   const result = await tool.run({ tasks }, {});
-  assertEquals(peak, 2);
-  assertEquals(result, [{ type: 'text', text: '[reviewer]\na' }, { type: 'text', text: '[explorer]\na' }]);
+  expect(peak).toEqual(2);
+  expect(result).toEqual([{ type: 'text', text: '[reviewer]\na' }, { type: 'text', text: '[explorer]\na' }]);
 });
 
-Deno.test('one failing task does not lose the others', async () => {
+test('one failing task does not lose the others', async () => {
   const failing: Provider = {
-    // deno-lint-ignore require-yield
     async *stream() {
       throw new Error('boom');
     },
@@ -115,35 +111,35 @@ Deno.test('one failing task does not lose the others', async () => {
         ? createAgentSession({ provider: failing, model: 'mock' })
         : createAgentSession({ provider: scripted([[{ type: 'text', text: 'ok' }]]), model: 'mock' }),
   });
-  assertEquals(await tool.run({ tasks: [{ agent: 'reviewer', task: '1' }, { agent: 'explorer', task: '2' }] }, {}), [
+  expect(await tool.run({ tasks: [{ agent: 'reviewer', task: '1' }, { agent: 'explorer', task: '2' }] }, {})).toEqual([
     { type: 'text', text: '[reviewer]\nok' },
     { type: 'text', text: '[explorer]\nError: boom' },
   ]);
 });
 
-Deno.test('the tool prompt lists the available sub-agents (excluding title)', () => {
+test('the tool prompt lists the available sub-agents (excluding title)', () => {
   const explorer: Agent = { name: 'explorer', description: 'read-only search', prompt: 'x' };
   const title: Agent = { name: 'title', description: 'internal', prompt: 't' };
   const tool = createSubAgentTool({
     registry: createAgentRegistry([reviewer, explorer, title]),
     spawn: spawnReturning('x'),
   });
-  assertEquals(tool.description.includes('- reviewer: reviews'), true);
-  assertEquals(tool.description.includes('- explorer: read-only search'), true);
-  assertEquals(tool.description.includes('title'), false);
+  expect(tool.description.includes('- reviewer: reviews')).toEqual(true);
+  expect(tool.description.includes('- explorer: read-only search')).toEqual(true);
+  expect(tool.description.includes('title')).toEqual(false);
 });
 
-Deno.test('the tool handles unknown agent and missing arguments', async () => {
+test('the tool handles unknown agent and missing arguments', async () => {
   const tool = createSubAgentTool({ registry: createAgentRegistry([reviewer]), spawn: spawnReturning('x') });
-  assertEquals(await tool.run({ tasks: [{ agent: 'nope', task: 't' }] }, {}), [{
+  expect(await tool.run({ tasks: [{ agent: 'nope', task: 't' }] }, {})).toEqual([{
     type: 'text',
     text: 'Error: unknown sub-agent "nope".',
   }]);
-  assertEquals(await tool.run({ tasks: [{ agent: 'reviewer' }] }, {}), [{
+  expect(await tool.run({ tasks: [{ agent: 'reviewer' }] }, {})).toEqual([{
     type: 'text',
     text: 'Error: each task requires `agent` and `task`.',
   }]);
-  assertEquals(await tool.run({ tasks: [] }, {}), [{
+  expect(await tool.run({ tasks: [] }, {})).toEqual([{
     type: 'text',
     text: 'Error: subagent requires a non-empty `tasks` array.',
   }]);

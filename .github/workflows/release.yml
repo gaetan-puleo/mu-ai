@@ -9,17 +9,38 @@ permissions:
   contents: write
 
 jobs:
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+      - run: pnpm test
+      - name: Publish all packages to npm
+        run: pnpm -r publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
   binaries:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
         with:
-          deno-version: v2.x
-      - name: Install workspace deps (sets up node_modules)
-        run: deno install
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install ldid (ad-hoc signs the macOS binaries so Gatekeeper allows them)
+        run: sudo apt-get update && sudo apt-get install -y ldid
       - name: Cross-compile standalone binaries
-        run: deno task compile
+        run: pnpm compile
       - name: Attach binaries to the GitHub release
         uses: softprops/action-gh-release@v2
         with:

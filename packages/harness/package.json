@@ -1,7 +1,6 @@
 {
   "name": "mu-harness",
   "version": "0.33.0",
-  "private": true,
   "description": "Agent harness: createHarness wires mu-core into a host — XDG paths, model registry, plugins, disk-loaded agents & skills, sub-agents, sessions (JSONL + SQLite catalog), slash commands, permission/approval hooks, an optional scheduler, and a composable TUI chat app",
   "type": "module",
   "main": "./src/index.ts",
@@ -10,14 +9,31 @@
     ".": "./src/index.ts"
   },
   "files": [
-    "src"
+    "dist"
   ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean"
+  },
+  "publishConfig": {
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
   "dependencies": {
     "@swc/wasm-typescript": "^1.15.0",
     "cli-highlight": "^2.1.11",
     "croner": "^9.0.0",
     "mu-core": "workspace:*",
     "mu-tui": "workspace:*",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13"
   }
 }

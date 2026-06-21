@@ -1,7 +1,7 @@
-import { assertEquals, assertStringIncludes } from '@std/assert';
+import { expect, test } from 'vitest';
 import { environmentBlock } from './environment';
 
-Deno.test('environmentBlock lists the config, plugins, skills and sub-agents directories', () => {
+test('environmentBlock lists the config, plugins, skills and sub-agents directories', () => {
   const block = environmentBlock({
     os: 'linux 6.17.0 (x64)',
     configDir: '/c',
@@ -12,18 +12,18 @@ Deno.test('environmentBlock lists the config, plugins, skills and sub-agents dir
     hostSourceUrl: 'https://github.com/gaetan-puleo/arya',
   });
 
-  assertEquals(block.startsWith('<env>\n'), true);
-  assertEquals(block.endsWith('\n</env>'), true);
-  assertStringIncludes(block, 'Operating system: linux 6.17.0 (x64)');
-  assertStringIncludes(block, 'Config directory: /c');
-  assertStringIncludes(block, 'Plugins directory: /c/plugins');
-  assertStringIncludes(block, 'Skills directory: /c/skills');
-  assertStringIncludes(block, 'Sub-agents directory: /c/agents');
-  assertStringIncludes(block, 'Harness (mu) source code: https://github.com/gaetan-puleo/mu-ai');
-  assertStringIncludes(block, 'arya source code: https://github.com/gaetan-puleo/arya');
+  expect(block.startsWith('<env>\n')).toEqual(true);
+  expect(block.endsWith('\n</env>')).toEqual(true);
+  expect(block).toContain('Operating system: linux 6.17.0 (x64)');
+  expect(block).toContain('Config directory: /c');
+  expect(block).toContain('Plugins directory: /c/plugins');
+  expect(block).toContain('Skills directory: /c/skills');
+  expect(block).toContain('Sub-agents directory: /c/agents');
+  expect(block).toContain('Harness (mu) source code: https://github.com/gaetan-puleo/mu-ai');
+  expect(block).toContain('arya source code: https://github.com/gaetan-puleo/arya');
 });
 
-Deno.test('environmentBlock omits the host source line when no host URL is given', () => {
+test('environmentBlock omits the host source line when no host URL is given', () => {
   const block = environmentBlock({
     os: 'linux',
     configDir: '/c',
@@ -33,6 +33,6 @@ Deno.test('environmentBlock omits the host source line when no host URL is given
     hostName: 'mu',
   });
 
-  assertEquals(block.includes('mu source code:'), false);
-  assertStringIncludes(block, 'Harness (mu) source code:');
+  expect(block.includes('mu source code:')).toEqual(false);
+  expect(block).toContain('Harness (mu) source code:');
 });

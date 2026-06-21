@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes } from '@std/assert';
+import { expect, test } from 'vitest';
 import type { AgentSession } from '../session';
 import { createContextCommand } from './defaults';
 
@@ -16,32 +16,32 @@ const sessionWith = (over: Partial<AgentSession>): AgentSession =>
     ...over,
   }) as unknown as AgentSession;
 
-Deno.test('context splits system/context/tools + messages by role with exact tokens + heatmap', async () => {
+test('context splits system/context/tools + messages by role with exact tokens + heatmap', async () => {
   const session = sessionWith({
     countTokens: (text: string) => Promise.resolve(text ? 10 : 0),
     contextWindow: () => Promise.resolve(1000),
   });
   const out = String((await createContextCommand().run('', { session })).output);
 
-  assertStringIncludes(out, 'Context Usage'); // header
-  assertStringIncludes(out, 'System prompt');
-  assertStringIncludes(out, 'Environment'); // the <env> block is its own category
-  assertStringIncludes(out, 'Tools');
-  assertStringIncludes(out, 'You'); // user messages split out by role
-  assertStringIncludes(out, 'Compaction buffer'); // compaction reserve category
-  assertStringIncludes(out, 'Free space');
-  assertStringIncludes(out, '%'); // window fill
-  assertStringIncludes(out, '⛶'); // grid free cells (only rendered with a window)
+  expect(out).toContain('Context Usage'); // header
+  expect(out).toContain('System prompt');
+  expect(out).toContain('Environment'); // the <env> block is its own category
+  expect(out).toContain('Tools');
+  expect(out).toContain('You'); // user messages split out by role
+  expect(out).toContain('Compaction buffer'); // compaction reserve category
+  expect(out).toContain('Free space');
+  expect(out).toContain('%'); // window fill
+  expect(out).toContain('⛶'); // grid free cells (only rendered with a window)
 });
 
-Deno.test('context falls back to a chars/4 estimate (marked ~) and renders no grid without a window', async () => {
+test('context falls back to a chars/4 estimate (marked ~) and renders no grid without a window', async () => {
   const out = String((await createContextCommand().run('', { session: sessionWith({}) })).output);
-  assertStringIncludes(out, '~'); // estimate marker on the token counts
-  assertEquals(out.includes('Free space'), false); // no contextWindow → no buffer/free rows, no grid
+  expect(out).toContain('~'); // estimate marker on the token counts
+  expect(out.includes('Free space')).toEqual(false); // no contextWindow → no buffer/free rows, no grid
 });
 
-Deno.test('context is graceful with no live session', async () => {
+test('context is graceful with no live session', async () => {
   const res = await createContextCommand().run('', {});
-  assertEquals(res.ok, true);
-  assertStringIncludes(String(res.output), 'No session in memory yet');
+  expect(res.ok).toEqual(true);
+  expect(String(res.output)).toContain('No session in memory yet');
 });

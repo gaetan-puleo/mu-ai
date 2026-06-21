@@ -1,10 +1,10 @@
-import { assertEquals } from '@std/assert';
+import { expect, test } from 'vitest';
 import type { ContentPart, Message, Provider, Tool } from 'mu-core';
 import { definePlugin } from '../plugin';
 import { createAgentSession } from './agent-session';
 import type { AgentSessionEvent } from './types';
 
-Deno.test('prepareRequest filters the tools schema and rewrites the system seen by the provider', async () => {
+test('prepareRequest filters the tools schema and rewrites the system seen by the provider', async () => {
   let seenTools: string[] = [];
   let seenSystem = '';
   const provider: Provider = {
@@ -33,17 +33,17 @@ Deno.test('prepareRequest filters the tools schema and rewrites the system seen 
 
   await session.send('go');
 
-  assertEquals(seenTools, ['read']);
-  assertEquals(seenSystem, 'base [no bash]');
+  expect(seenTools).toEqual(['read']);
+  expect(seenSystem).toEqual('base [no bash]');
   const stored = session.messages.find((m: Message) => m.role === 'system');
-  assertEquals(stored?.content[0], { type: 'text', text: 'base' });
+  expect(stored?.content[0]).toEqual({ type: 'text', text: 'base' });
 
   // assembleRequest must reflect what the MODEL sees (hook-rewritten), not the stored system —
   // this is what /context and /context-export read so they tell the truth.
   const req = await session.assembleRequest!();
-  assertEquals(req.system, 'base [no bash]');
-  assertEquals(req.tools.map((t) => t.name), ['read']);
-  assertEquals(req.messages[0]?.role === 'system' && req.messages[0].content[0], { type: 'text', text: 'base [no bash]' });
+  expect(req.system).toEqual('base [no bash]');
+  expect(req.tools.map((t) => t.name)).toEqual(['read']);
+  expect(req.messages[0]?.role === 'system' && req.messages[0].content[0]).toEqual({ type: 'text', text: 'base [no bash]' });
 });
 
 const scripted = (turns: ContentPart[][]): Provider => {
@@ -55,7 +55,7 @@ const scripted = (turns: ContentPart[][]): Provider => {
   };
 };
 
-Deno.test('a plugin provides provider + tool + hook that denies, full chain', async () => {
+test('a plugin provides provider + tool + hook that denies, full chain', async () => {
   let toolRan = false;
   const lifecycle: string[] = [];
 
@@ -90,25 +90,25 @@ Deno.test('a plugin provides provider + tool + hook that denies, full chain', as
 
   await session.send('vas-y');
 
-  assertEquals(toolRan, false);
-  assertEquals(lifecycle, ['start']);
+  expect(toolRan).toEqual(false);
+  expect(lifecycle).toEqual(['start']);
 
   const types = events.map((e) => e.type);
-  assertEquals(types[0], 'turn_start');
-  assertEquals(types[types.length - 1], 'turn_end');
+  expect(types[0]).toEqual('turn_start');
+  expect(types[types.length - 1]).toEqual('turn_end');
 
   const toolResult = session.messages.find((m) => m.role === 'tool' && m.content[0]?.type === 'tool_result');
-  assertEquals(toolResult?.content[0], {
+  expect(toolResult?.content[0]).toEqual({
     type: 'tool_result',
     id: '1',
     content: [{ type: 'text', text: 'denied' }],
   });
 
   const last = session.messages[session.messages.length - 1];
-  assertEquals(last, { role: 'assistant', content: [{ type: 'text', text: 'fini' }] });
+  expect(last).toEqual({ role: 'assistant', content: [{ type: 'text', text: 'fini' }] });
 });
 
-Deno.test('send is refused while a turn is already in progress', async () => {
+test('send is refused while a turn is already in progress', async () => {
   const session = createAgentSession({
     model: 'mock',
     provider: scripted([[{ type: 'text', text: 'ok' }]]),
@@ -122,5 +122,5 @@ Deno.test('send is refused while a turn is already in progress', async () => {
     rejected = true;
   }
   await first;
-  assertEquals(rejected, true);
+  expect(rejected).toEqual(true);
 });

@@ -1,4 +1,4 @@
-import { assertEquals } from '@std/assert';
+import { expect, test } from 'vitest';
 import { parseInbound, type WsInbound } from './protocol';
 
 const ok = (raw: unknown): WsInbound => {
@@ -13,51 +13,39 @@ const err = (raw: unknown): string => {
   return result.error;
 };
 
-Deno.test('parseInbound: chat / abort', () => {
-  assertEquals(ok({ type: 'chat', text: 'hi', sessionId: 's1' }), { type: 'chat', text: 'hi', sessionId: 's1' });
-  assertEquals(ok({ type: 'abort', sessionId: 's1' }), { type: 'abort', sessionId: 's1' });
-  assertEquals(err({ type: 'abort' }).includes('abort'), true);
+test('parseInbound: chat / abort', () => {
+  expect(ok({ type: 'chat', text: 'hi', sessionId: 's1' })).toEqual({ type: 'chat', text: 'hi', sessionId: 's1' });
+  expect(ok({ type: 'abort', sessionId: 's1' })).toEqual({ type: 'abort', sessionId: 's1' });
+  expect(err({ type: 'abort' }).includes('abort')).toEqual(true);
 });
 
-Deno.test('parseInbound: models list/select', () => {
-  assertEquals(ok({ type: 'models:list' }), { type: 'models:list' });
-  assertEquals(ok({ type: 'models:select', ref: 'local/x' }), { type: 'models:select', ref: 'local/x' });
-  assertEquals(err({ type: 'models:select' }).includes('ref'), true);
+test('parseInbound: models list/select', () => {
+  expect(ok({ type: 'models:list' })).toEqual({ type: 'models:list' });
+  expect(ok({ type: 'models:select', ref: 'local/x' })).toEqual({ type: 'models:select', ref: 'local/x' });
+  expect(err({ type: 'models:select' }).includes('ref')).toEqual(true);
 });
 
-Deno.test('parseInbound: subagent:dispatch requires requestId/agent/task', () => {
-  assertEquals(
-    ok({ type: 'subagent:dispatch', requestId: 'r1', agent: 'researcher', task: 'go', parentId: 'p1' }),
-    { type: 'subagent:dispatch', requestId: 'r1', agent: 'researcher', task: 'go', parentId: 'p1' },
-  );
-  assertEquals(ok({ type: 'subagent:dispatch', requestId: 'r1', agent: 'a', task: 't' }).type, 'subagent:dispatch');
-  assertEquals(err({ type: 'subagent:dispatch', agent: 'a', task: 't' }).includes('requestId'), true);
+test('parseInbound: subagent:dispatch requires requestId/agent/task', () => {
+  expect(ok({ type: 'subagent:dispatch', requestId: 'r1', agent: 'researcher', task: 'go', parentId: 'p1' })).toEqual({ type: 'subagent:dispatch', requestId: 'r1', agent: 'researcher', task: 'go', parentId: 'p1' });
+  expect(ok({ type: 'subagent:dispatch', requestId: 'r1', agent: 'a', task: 't' }).type).toEqual('subagent:dispatch');
+  expect(err({ type: 'subagent:dispatch', agent: 'a', task: 't' }).includes('requestId')).toEqual(true);
 });
 
-Deno.test('parseInbound: sessions:fork requires requestId + int upToIndex', () => {
-  assertEquals(
-    ok({ type: 'sessions:fork', requestId: 'r1', sessionId: 's1', upToIndex: 3 }),
-    { type: 'sessions:fork', requestId: 'r1', sessionId: 's1', upToIndex: 3 },
-  );
-  assertEquals(err({ type: 'sessions:fork', sessionId: 's1', upToIndex: 3 }).includes('requestId'), true);
-  assertEquals(
-    err({ type: 'sessions:fork', requestId: 'r1', sessionId: 's1', upToIndex: -1 }).includes('upToIndex'),
-    true,
-  );
+test('parseInbound: sessions:fork requires requestId + int upToIndex', () => {
+  expect(ok({ type: 'sessions:fork', requestId: 'r1', sessionId: 's1', upToIndex: 3 })).toEqual({ type: 'sessions:fork', requestId: 'r1', sessionId: 's1', upToIndex: 3 });
+  expect(err({ type: 'sessions:fork', sessionId: 's1', upToIndex: 3 }).includes('requestId')).toEqual(true);
+  expect(err({ type: 'sessions:fork', requestId: 'r1', sessionId: 's1', upToIndex: -1 }).includes('upToIndex')).toEqual(true);
 });
 
-Deno.test('parseInbound: unknown type is an error', () => {
-  assertEquals(err({ type: 'nope' }).includes('unknown message type'), true);
-  assertEquals(err(null).includes('not an object'), true);
+test('parseInbound: unknown type is an error', () => {
+  expect(err({ type: 'nope' }).includes('unknown message type')).toEqual(true);
+  expect(err(null).includes('not an object')).toEqual(true);
 });
 
-Deno.test('parseInbound: voice check/transcribe', () => {
-  assertEquals(ok({ type: 'voice:check', requestId: 'r1' }), { type: 'voice:check', requestId: 'r1' });
-  assertEquals(err({ type: 'voice:check' }).includes('requestId'), true);
-  assertEquals(
-    ok({ type: 'voice:transcribe', requestId: 'r1', mime: 'audio/wav', data: 'AAA=' }),
-    { type: 'voice:transcribe', requestId: 'r1', mime: 'audio/wav', data: 'AAA=' },
-  );
-  assertEquals(err({ type: 'voice:transcribe', requestId: 'r1', mime: 'audio/wav' }).includes('data'), true);
-  assertEquals(err({ type: 'voice:transcribe', requestId: 'r1', data: 'AAA=' }).includes('mime'), true);
+test('parseInbound: voice check/transcribe', () => {
+  expect(ok({ type: 'voice:check', requestId: 'r1' })).toEqual({ type: 'voice:check', requestId: 'r1' });
+  expect(err({ type: 'voice:check' }).includes('requestId')).toEqual(true);
+  expect(ok({ type: 'voice:transcribe', requestId: 'r1', mime: 'audio/wav', data: 'AAA=' })).toEqual({ type: 'voice:transcribe', requestId: 'r1', mime: 'audio/wav', data: 'AAA=' });
+  expect(err({ type: 'voice:transcribe', requestId: 'r1', mime: 'audio/wav' }).includes('data')).toEqual(true);
+  expect(err({ type: 'voice:transcribe', requestId: 'r1', data: 'AAA=' }).includes('mime')).toEqual(true);
 });
