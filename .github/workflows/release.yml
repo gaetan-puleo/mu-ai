@@ -2,20 +2,23 @@ name: release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
-  npm:
+  release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
+    outputs:
+      released: ${{ steps.sr.outputs.release }}
+      tag: ${{ steps.sr.outputs.release_gitTag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -23,22 +26,21 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -r build
       - run: pnpm test
-      - name: "Pack packages (rewrites workspace: protocol to real versions)"
-        run: pnpm -r pack
-      - name: Publish to npm via OIDC trusted publishing
-        run: |
-          shopt -s nullglob
-          for tgz in mu-*.tgz; do
-            echo "Publishing $tgz"
-            npm publish "$tgz" --access public
-          done
+      - name: semantic-release
+        id: sr
+        run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   binaries:
+    needs: release
+    if: needs.release.outputs.released == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -54,4 +56,5 @@ jobs:
       - name: Attach binaries to the GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.release.outputs.tag }}
           files: dist/mu-*
