@@ -25,7 +25,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r build
       - run: pnpm test
-      - name: Pack packages (rewrites workspace: protocol to real versions)
+      - name: "Pack packages (rewrites workspace: protocol to real versions)"
         run: pnpm -r pack
       - name: Publish to npm via OIDC trusted publishing
         run: |
