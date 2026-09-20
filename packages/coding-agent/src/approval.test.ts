@@ -12,7 +12,7 @@ import {
   type PendingApproval,
   toolDecision,
   type XdgDirs,
-} from 'mu-harness';
+} from './harness';
 import { isReadOnlyBash } from './bash-safety';
 
 type AgentDecide = NonNullable<HarnessOptions['approvals']>['decide'];

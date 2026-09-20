@@ -2,17 +2,13 @@ import process from 'node:process';
 import { join } from 'node:path';
 import {
   type Agent,
-  type AgentSessionHooks,
   createApprovalManager,
   createHarness,
-  filterTools,
   grantArg,
   loadAgents,
-  type PreparedRequest,
   toolDecision,
-  toolNames,
-} from 'mu-harness';
-import { EXPLORER_BASH, isReadOnlyBash } from '../src/bash-safety';
+  variantToChatTemplateKwargs,
+} from '../src/harness';
 import { createLocalProvider, listLocalModels } from 'mu-local-provider';
 import { createMuTools } from 'mu-ai-tools';
 import { getConfigPath, loadConfig, loadState, xdgDirs } from '../src/config';
@@ -20,6 +16,7 @@ import { builtinAgents } from '../src/agents';
 import { builtinSkills } from '../src/skills';
 import { installPlugin, loadPlugins, uninstallPlugin } from '../src/plugins';
 import { BASE_SYSTEM_PROMPT } from '../src/systemPrompt';
+import { isReadOnlyBash } from '../src/bash-safety';
 import { runApp } from '../src/main';
 
 const normalizeModel = (model?: string): string | undefined => {
@@ -70,38 +67,17 @@ async function run(): Promise<void> {
 
   const plugins = await loadPlugins(config.plugins);
 
-  const diskAgents = await loadAgents(join(xdg.configHome, 'mu', 'agents'));
   const projectAgents = await loadAgents(join(projectLocal, 'agents'));
-  const loadedAgents = [...projectAgents, ...diskAgents, ...plugins.flatMap((p) => p.agents ?? [])];
-  const promptAgents = [...loadedAgents];
-  for (const agent of builtinAgents) {
-    if (!promptAgents.some((a) => a.name === agent.name)) promptAgents.push(agent);
-  }
 
-  const byName = new Map(promptAgents.map((a) => [a.name, a] as const));
-  const wanted = config.primaryAgents ?? ['build', 'plan'];
-  const resolved = wanted.map((n) => byName.get(n)).filter((a): a is Agent => a !== undefined);
-  const cycle: Agent[] = resolved.length > 0 ? resolved : builtinAgents;
-  let agentIndex = 0;
-  const currentAgent = (): Agent => cycle[agentIndex];
-  let lastAgentName: string | undefined;
-  const primaryHook: AgentSessionHooks = {
-    prepareRequest: ({ system, tools }) => {
-      const agent = currentAgent();
-      const switched = lastAgentName !== undefined && lastAgentName !== agent.name;
-      lastAgentName = agent.name;
-      const prepared: PreparedRequest = {
-        system: `${system}\n\n${agent.prompt}`,
-        tools: filterTools(tools, toolNames(agent)),
-      };
-      if (switched) {
-        prepared.messages = [{
-          role: 'user',
-          content: [{ type: 'text', text: `<system-reminder>changed to ${agent.name} agent</system-reminder>` }],
-        }];
-      }
-      return prepared;
-    },
+  // Single main agent: full tool surface, gated by approvals. No persona cycle.
+  // `medium` is the reasoning floor — never let a turn fall to the server default.
+  // Writes/edits require approval by default; only read-only tools are pre-allowed.
+  const MAIN_AGENT: Agent = {
+    name: 'mu',
+    description: 'The main coding agent.',
+    tools: { '*': 'ask', read: 'allow', list: 'allow', write: 'ask', edit: 'ask', subagent: 'allow' },
+    variant: 'medium',
+    prompt: '',
   };
 
   const approvals = createApprovalManager();
@@ -117,20 +93,13 @@ async function run(): Promise<void> {
     agents: [...projectAgents, ...builtinAgents],
     skills: builtinSkills,
     system: BASE_SYSTEM_PROMPT,
+    chatTemplateKwargs: variantToChatTemplateKwargs(MAIN_AGENT.variant),
     sourceUrl: 'https://github.com/gaetan-puleo/mu-ai/tree/main/packages/coding-agent',
-    voice: { model: config.voiceModel },
-    hooks: primaryHook,
     approvals: {
       manager: approvals,
-      activeAgent: () => currentAgent(),
-      decide: (agent, call) => {
-        const decision = toolDecision(agent, call.name, grantArg(call.name, call.input));
-        if (call.name === 'bash' && decision === 'ask') {
-          const extra = agent.name === 'explorer' ? EXPLORER_BASH : undefined;
-          if (isReadOnlyBash(call.input, extra)) return 'allow';
-        }
-        return decision;
-      },
+      activeAgent: () => MAIN_AGENT,
+      decide: (agent, call) => toolDecision(agent, call.name, grantArg(call.name, call.input)),
+      bashGuard: isReadOnlyBash,
     },
   });
 
@@ -154,15 +123,11 @@ async function run(): Promise<void> {
     providerConfig,
     state,
     capabilities: config.capabilities,
-    voice: harness.voice,
     agent: {
-      ref: () => currentAgent().name,
-      color: () => currentAgent().color,
-      cycle: () => {
-        agentIndex = (agentIndex + 1) % cycle.length;
-        return cycle[agentIndex].name;
-      },
-      primaryNames: () => cycle.map((a) => a.name),
+      ref: () => MAIN_AGENT.name,
+      color: () => MAIN_AGENT.color,
+      cycle: () => MAIN_AGENT.name,
+      primaryNames: () => [MAIN_AGENT.name],
     },
   });
 }

@@ -44,6 +44,21 @@ test('detectBackend recognizes llama-swap with priority', async () => {
   });
 });
 
+test('detectBackend falls back to a generic OpenAI-compatible endpoint', async () => {
+  const fetchImpl = (url: string): Response => {
+    if (url.endsWith('/v1/models')) return json({ data: [{ id: 'halogen-qwen', owned_by: 'halogen' }] });
+    if (url.endsWith('/health')) return json({ status: 'ok', context: 262144 });
+    return notFound();
+  };
+  await withFetch(fetchImpl, async () => {
+    const found = await detectBackend({ baseUrl: 'http://localhost:8080/v1' });
+    expect(found?.info.kind).toEqual('openai');
+    expect(found?.info.baseUrl).toEqual('http://localhost:8080');
+    expect(found?.info.models[0].id).toEqual('halogen-qwen');
+    expect(await found?.backend.contextWindow({ baseUrl: 'http://localhost:8080', model: 'halogen-qwen' })).toEqual(262144);
+  });
+});
+
 test('detectBackend returns undefined if no backend', async () => {
   await withFetch(() => notFound(), async () => {
     expect(await detectBackend({ baseUrl: 'http://localhost:8080' })).toEqual(undefined);

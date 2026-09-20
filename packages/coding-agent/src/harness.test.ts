@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Message, Provider, StreamEvent, Tool } from 'mu-core';
-import { type AgentSessionEvent, createHarness, type XdgDirs } from 'mu-harness';
+import { type AgentSessionEvent, createHarness, type XdgDirs } from './harness';
 import { createMuTools } from 'mu-ai-tools';
 
 const tempXdg = (): { xdg: XdgDirs; dir: string } => {

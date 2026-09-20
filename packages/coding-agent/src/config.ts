@@ -1,26 +1,14 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import process from 'node:process';
-import type { XdgDirs } from 'mu-harness';
+import { resolveXdg } from './harness';
+import { errMsg } from 'mu-core';
 
 const HOST = 'mu';
 
-const env = (name: string): string | undefined => {
-  const value = process.env[name];
-  return value && value.length > 0 ? value : undefined;
-};
+export const xdgDirs = resolveXdg;
 
-export function xdgDirs(): XdgDirs {
-  const home = homedir();
-  return {
-    configHome: env('XDG_CONFIG_HOME') ?? join(home, '.config'),
-    dataHome: env('XDG_DATA_HOME') ?? join(home, '.local', 'share'),
-    stateHome: env('XDG_STATE_HOME') ?? join(home, '.local', 'state'),
-  };
-}
-
-const xdg = xdgDirs();
+const xdg = resolveXdg();
 const configDir = join(xdg.configHome, HOST);
 const stateDir = join(xdg.stateHome, HOST);
 
@@ -42,11 +30,7 @@ export interface CodingAgentConfig {
   apiKey?: string;
   plugins?: string[];
   provider?: string;
-  primaryAgents?: string[];
   capabilities?: ModelCapabilities;
-  /** Speech-to-text model for `/voice`. When unset, `/voice` uses the currently
-   * selected chat model if it supports audio; otherwise it reports unavailable. */
-  voiceModel?: string;
 }
 
 export interface CodingAgentState {
@@ -62,7 +46,7 @@ const readJson = (path: string): Record<string, unknown> => {
     return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : {};
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errMsg(err);
       process.stderr.write(`[coding-agent] failed to read ${path}: ${msg}\n`);
     }
     return {};
@@ -70,8 +54,9 @@ const readJson = (path: string): Record<string, unknown> => {
 };
 
 const writeJson = (path: string, value: unknown): void => {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, 'utf-8');
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf-8', mode: 0o600 });
+  chmodSync(path, 0o600);
 };
 
 export function getConfigPath(): string {
@@ -85,12 +70,8 @@ export function loadConfig(): CodingAgentConfig {
   if (typeof obj.baseUrl === 'string') out.baseUrl = obj.baseUrl;
   if (typeof obj.apiKey === 'string') out.apiKey = obj.apiKey;
   if (typeof obj.provider === 'string') out.provider = obj.provider;
-  if (typeof obj.voiceModel === 'string') out.voiceModel = obj.voiceModel;
   if (Array.isArray(obj.plugins) && obj.plugins.every((p) => typeof p === 'string')) {
     out.plugins = obj.plugins as string[];
-  }
-  if (Array.isArray(obj.primaryAgents) && obj.primaryAgents.every((p) => typeof p === 'string')) {
-    out.primaryAgents = obj.primaryAgents as string[];
   }
   if (typeof obj.capabilities === 'object' && obj.capabilities !== null) {
     const caps = obj.capabilities as Record<string, unknown>;

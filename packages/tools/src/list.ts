@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { type ContentPart, text, type Tool } from 'mu-core';
-import { formatError, sanitizePath, validatedCwd } from './utils';
+import { formatError, num, sanitizePath, validatedCwd } from './utils';
 
 import type { ToolFactoryOptions } from './types';
 
@@ -80,7 +80,7 @@ export function createListTool(opts: ListToolOptions): Tool {
       }
       try {
         const recursive = typeof args.recursive === 'boolean' ? args.recursive : false;
-        const maxDepth = typeof args.depth === 'number' ? args.depth : 2;
+        const maxDepth = num(args.depth) ?? 2;
         const lines = listRecursive(path, '', 0, maxDepth, recursive);
         return Promise.resolve([text(lines || '(empty directory)')]);
       } catch (err) {

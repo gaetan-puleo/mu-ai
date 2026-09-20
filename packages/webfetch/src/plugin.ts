@@ -1,10 +1,11 @@
 import { BlockList, isIP, isIPv4, isIPv6 } from 'node:net';
 import { lookup } from 'node:dns/promises';
 import { type ContentPart, text, type Tool } from 'mu-core';
-import { definePlugin } from 'mu-harness';
+import { definePlugin } from 'mu-coding';
 import TurndownService from 'turndown';
+import { errMsg } from 'mu-core';
 
-const formatError = (err: unknown): string => `Error: ${err instanceof Error ? err.message : String(err)}`;
+const formatError = (err: unknown): string => `Error: ${errMsg(err)}`;
 
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -89,7 +90,7 @@ async function assertSafeUrl(target: string): Promise<UrlCheck> {
     }
     return { ok: true };
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    const message = errMsg(e);
     return { ok: false, error: formatError(`DNS lookup failed for ${parsed.hostname}: ${message}`) };
   }
 }
@@ -137,7 +138,7 @@ function convertHtmlToMarkdown(html: string): string {
   try {
     return td.turndown(html);
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    const message = errMsg(e);
     return formatError(`failed to convert HTML to markdown: ${message}`);
   }
 }
@@ -178,7 +179,7 @@ async function fetchWithCloudflareRetry(
           error: formatError(`Error fetching ${url}: request timed out after ${Math.round(timeoutMs)}ms`),
         };
       }
-      const message = e instanceof Error ? e.message : String(e);
+      const message = errMsg(e);
       return { ok: false, error: formatError(`Error fetching ${url}: ${message}`) };
     }
   };

@@ -10,10 +10,19 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 
 export function formatError(err: unknown): string {
   if (err instanceof Error) return `Error: ${err.message}`;
   return `Error: ${String(err)}`;
+}
+
+// qwen-xml wire can deliver numbers as strings ("10"); coerce so the value is
+// honored instead of silently ignored.
+export function num(v: unknown): number | undefined {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v);
+  return undefined;
 }
 
 export function sanitizePath(raw: string, cwd?: string): string {
@@ -70,6 +79,7 @@ export function readLineRange(
 ): { lines: string[]; firstLine: number; lastLine: number; totalKnown: boolean; totalLines: number } {
   const CHUNK = 64 * 1024;
   const buf = Buffer.alloc(CHUNK);
+  const decoder = new StringDecoder('utf8');
   const fd = openSync(path, 'r');
   try {
     let offset = 0;
@@ -85,7 +95,7 @@ export function readLineRange(
         return null;
       }
       offset += bytes;
-      return buf.subarray(0, bytes).toString('utf-8');
+      return decoder.write(buf.subarray(0, bytes));
     };
 
     outer: while (true) {
@@ -107,6 +117,8 @@ export function readLineRange(
       }
       pending = combined.slice(lineStart);
     }
+
+    pending += decoder.end();
 
     if (eof && pending.length > 0) {
       if (currentLine >= start && currentLine <= end) out.push(pending);

@@ -69,7 +69,7 @@ export function createEditFileTool(opts: EditFileToolOptions): Tool {
         if (count > 1) {
           return Promise.resolve([text('Error: "from" found multiple times, must be unique')]);
         }
-        writeAtomic(path, content.replace(oldString, newString));
+        writeAtomic(path, content.replace(oldString, () => newString));
         return Promise.resolve([text(`File edited: ${path}`)]);
       } catch (err) {
         return Promise.resolve([text(formatError(err))]);

@@ -1,13 +1,15 @@
 import type { LocalBackendInfo } from '../types';
 import { llamaCpp } from './llama-cpp';
 import { llamaSwap } from './llama-swap';
+import { openai } from './openai';
 import type { Backend } from './types';
 
 export * from './llama-swap';
 export * from './llama-cpp';
+export * from './openai';
 export { type Backend, type ModelModalities, toModalities } from './types';
 
-export const backends: Backend[] = [llamaSwap, llamaCpp];
+export const backends: Backend[] = [llamaSwap, llamaCpp, openai];
 
 export const detectBackend = async (
   config: { baseUrl: string; apiKey?: string },

@@ -1,4 +1,4 @@
-import type { Skill } from 'mu-harness';
+import type { Skill } from './harness';
 
 // Skill bodies use single-quoted lines (backticks stay literal) and `~~~` code
 // fences (so they do not collide with the model-facing ``` in the rendered prompt).
@@ -84,7 +84,7 @@ const UPDATE_CONFIG = lines(
   '',
   '| Surface | Path | Holds | Edit how |',
   '|---|---|---|---|',
-  '| Global config | `~/.config/mu/config.json` | provider connection (`kind`, `baseUrl`, `apiKey`), `plugins`, `primaryAgents`, `capabilities`, `voiceModel` | edit JSON — read at startup, so relaunch to apply |',
+  '| Global config | `~/.config/mu/config.json` | provider connection (`kind`, `baseUrl`, `apiKey`), `plugins`, `capabilities`, `voiceModel` | edit JSON — read at startup, so relaunch to apply |',
   '| Runtime state | `~/.local/state/mu/state.json` | `model`, `theme`, `thinkingVisible` | prefer the in-app controls; the app owns this file |',
   '| Agent permissions | `~/.config/mu/agents/<name>.md` (global) or `<cwd>/.mu/agents/<name>.md` (project) | per-tool `allow` / `ask` / `deny` in the `tools` frontmatter | edit the agent file |',
   '',
@@ -92,13 +92,13 @@ const UPDATE_CONFIG = lines(
   '',
   '## CRITICAL: read before write, merge — do not replace',
   '',
-  'Always `read` the target file first and merge changes in. For array fields (`plugins`, `primaryAgents`) and the `tools` map, ADD to what is already there — never overwrite the whole array or file.',
+  'Always `read` the target file first and merge changes in. For array fields (`plugins`) and the `tools` map, ADD to what is already there — never overwrite the whole array or file.',
   '',
   '## Prefer the built-in path over hand-editing',
   '',
   '- **Model / theme / thinking visibility** — change these from inside the app (model selector, theme picker, thinking toggle). They live in `state.json`, which the app writes; hand-editing it is a last resort.',
   '- **Plugins** — use the CLI: `mu install <npm:spec | jsr:spec | ./path.ts>` and `mu uninstall <spec>`. Both merge the `plugins` array in `config.json` for you.',
-  '- **Edit `config.json` directly** for: provider connection (`kind` / `baseUrl` / `apiKey`), `primaryAgents`, `capabilities`, and `voiceModel` (the speech-to-text model `/voice` sends recorded audio to on the same provider; when unset, `/voice` uses the selected chat model if it supports audio, otherwise reports unavailable — set it to an audio-capable model like `gemma-4-12b-qat`).',
+  '- **Edit `config.json` directly** for: provider connection (`kind` / `baseUrl` / `apiKey`), `capabilities`, and `voiceModel` (the speech-to-text model `/voice` sends recorded audio to on the same provider; when unset, `/voice` uses the selected chat model if it supports audio, otherwise reports unavailable — set it to an audio-capable model like `gemma-4-12b-qat`).',
   '- **Edit an agent file** to change what a tool may do without prompting (the permissions analog — there is no allow/deny array).',
   '',
   '## Clarify ambiguity first',
@@ -132,7 +132,7 @@ const UPDATE_CONFIG = lines(
   '',
   '**Add a plugin** — prefer `mu install npm:some-plugin`. By hand: `read` `config.json`, append the spec to `plugins`, `edit`.',
   '',
-  '**Let the build agent run a command without prompting** — this is a permission, so edit the agent, not `config.json`. Set a scoped grant in the agent `tools` map:',
+  '**Let an agent run a command without prompting** — this is a permission, so edit the agent, not `config.json`. Set a scoped grant in the agent `tools` map:',
   '~~~yaml',
   'tools:',
   '  bash:',
@@ -141,8 +141,6 @@ const UPDATE_CONFIG = lines(
   '~~~',
   '',
   '**Point at a different provider** — `read` `config.json`, set `kind` / `baseUrl` / `apiKey`, `edit`, then tell the user to relaunch. Pick the actual model from the in-app selector.',
-  '',
-  '**Change which agents cycle** — set `primaryAgents` in `config.json`, e.g. `["build", "plan", "explorer"]` (defaults to `["build", "plan"]`).',
   '',
   '## Common mistakes',
   '',

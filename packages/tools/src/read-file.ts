@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { type ContentPart, text, type Tool } from 'mu-core';
-import { formatError, looksBinary, readLineRange, sanitizePath, validatedCwd } from './utils';
+import { formatError, looksBinary, num, readLineRange, sanitizePath, validatedCwd } from './utils';
 
 import type { ToolFactoryOptions } from './types';
 
@@ -86,8 +86,8 @@ export function createReadFileTool(opts: ReadFileToolOptions): Tool {
         if (paths.length === 0) {
           return Promise.resolve([text('Error: read requires `path` (string or array of strings)')]);
         }
-        const start = typeof args.start === 'number' ? args.start : undefined;
-        const end = typeof args.end === 'number' ? args.end : undefined;
+        const start = num(args.start);
+        const end = num(args.end);
         const cwd = getCwd();
 
         const result = paths

@@ -63,4 +63,38 @@ describe('isReadOnlyBash', () => {
     expect(isReadOnlyBash({})).toBe(false);
     expect(isReadOnlyBash(null)).toBe(false);
   });
+
+  it('rejects newline-chained mutations', () => {
+    expect(ok('ls\nrm -rf /tmp/x')).toBe(false);
+    expect(ok('ls\r\nrm x')).toBe(false);
+    expect(ok('ls\n')).toBe(true);
+    expect(ok('ls\npwd')).toBe(true);
+  });
+
+  it('rejects git read-only subcommands weaponized via flags', () => {
+    expect(ok('git diff --output=/tmp/pwn.txt')).toBe(false);
+    expect(ok('git log --output=/tmp/pwn.txt')).toBe(false);
+    expect(ok('git grep -Otouch\\(/tmp/pwn\\) foo')).toBe(false);
+    expect(ok('git grep --open-files-in-pager=evil foo')).toBe(false);
+    expect(ok('git ls-remote --upload-pack=evil host')).toBe(false);
+    expect(ok('git ls-remote -u evil host')).toBe(false);
+    expect(ok('git diff --ext-diff')).toBe(false);
+    expect(ok('git log --textconv')).toBe(false);
+    expect(ok('git -c core.pager=evil log')).toBe(false);
+    expect(ok('git --exec-path=/evil status')).toBe(false);
+  });
+
+  it('rejects dangerous env prefixes on read-only commands', () => {
+    expect(ok('GIT_SSH_COMMAND=evil git ls-remote')).toBe(false);
+    expect(ok('GIT_EXTERNAL_DIFF=evil git diff')).toBe(false);
+    expect(ok('PAGER=evil cat file')).toBe(false);
+    expect(ok('GIT_CONFIG_GLOBAL=/evil git status')).toBe(false);
+    expect(ok('FOO=bar ls')).toBe(true);
+  });
+
+  it('keeps legitimate read-only git flags allowed', () => {
+    expect(ok('git diff -u')).toBe(true);
+    expect(ok('git grep -c foo')).toBe(true);
+    expect(ok('git --no-pager log')).toBe(true);
+  });
 });

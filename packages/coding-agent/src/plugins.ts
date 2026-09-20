@@ -1,6 +1,7 @@
 import process from 'node:process';
-import { importModule, type Plugin } from 'mu-harness';
+import { importModule, type Plugin } from './harness';
 import { loadConfig, saveConfig } from './config';
+import { errMsg } from 'mu-core';
 
 const isPlugin = (value: unknown): value is Plugin =>
   typeof value === 'object' && value !== null && typeof (value as { name?: unknown }).name === 'string';
@@ -17,7 +18,7 @@ export async function loadPlugins(specs: string[] = []): Promise<Plugin[]> {
         process.stderr.write(`[mu] plugin "${spec}" has no valid default export (expected { name, ... })\n`);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errMsg(err);
       process.stderr.write(`[mu] failed to load plugin "${spec}": ${msg}\n`);
     }
   }

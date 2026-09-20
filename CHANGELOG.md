@@ -2,6 +2,20 @@
 
 All notable changes to mu packages. Versions are unified across all packages in this repo.
 
+## 0.36.0
+
+### Changed
+
+- **Single product package.** The `mu-harness` package is folded into `mu-coding` under `src/harness/` — agents, commands, config, permissions, plugins, scheduler, sessions, skills, sub-agents and the chat TUI now live in one installable package. The standalone `mu-harness` package is removed.
+
+### Added
+
+- **Generic, host-driven side panel.** The chat TUI sidebar is now a generic `PanelSection`/`PanelItem` model rendered from host-supplied sections (`ChatHost.subscribePanel`), so a remote host can drive the sidebar declaratively.
+- **Start screen.** A fresh session shows the logo (or host banner) above a centered, width-limited input with the status bar pinned at the bottom.
+- **Gradient banner + `mu` mark.** The banner renders with a vertical color gradient; a Braille `mu` mark is available for the in-process logo.
+- **Context in the status bar.** Token usage (`used/total (pct%)`) now shows on the right of the status bar even in minimal mode.
+- **Generic `openai` backend in `mu-local-provider`.** Any OpenAI-compatible endpoint (e.g. halogen) is now detected as a last fallback after llama-swap/llama-cpp: recognized via a non-empty `/v1/models` list, streamed through the OpenAI SDK, context window read from `/health.context` when present. Modalities and exact tokenization are unavailable (reported as `undefined`).
+
 ## 0.33.0
 
 ### Added

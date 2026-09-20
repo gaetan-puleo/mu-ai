@@ -1,4 +1,5 @@
 import type { ContentPart, Message, Provider, Tool, Usage } from './types';
+import { errMsg } from './errors';
 
 type ToolCallPart = Extract<ContentPart, { type: 'tool_call' }>;
 
@@ -34,7 +35,7 @@ const execute = async (tools: Map<string, Tool>, call: ToolCallPart, signal?: Ab
   try {
     return await tool.run(call.input, { signal });
   } catch (err) {
-    return [{ type: 'text', text: err instanceof Error ? err.message : String(err) }];
+    return [{ type: 'text', text: errMsg(err) }];
   }
 };
 
@@ -44,22 +45,33 @@ export interface RunOptions {
   messages: Message[];
   tools?: Tool[];
   signal?: AbortSignal;
+  maxTurns?: number;
+  chatTemplateKwargs?: Record<string, unknown>;
 }
+
+const DEFAULT_MAX_TURNS = 100;
 
 export async function* run(opts: RunOptions): AsyncIterable<LoopEvent> {
   const { provider, model, signal } = opts;
+  const maxTurns = opts.maxTurns ?? DEFAULT_MAX_TURNS;
   const tools = opts.tools ?? [];
   const registry = new Map(tools.map((t) => [t.name, t]));
   const messages = [...opts.messages];
 
-  while (true) {
+  for (let turn = 0; turn < maxTurns; turn++) {
     if (signal?.aborted) break;
 
     const content: ContentPart[] = [];
     const calls: ToolCallPart[] = [];
 
     try {
-      for await (const event of provider.stream({ model, messages, tools, signal })) {
+      for await (const event of provider.stream({
+        model,
+        messages,
+        tools,
+        signal,
+        chatTemplateKwargs: opts.chatTemplateKwargs,
+      })) {
         if (event.type === 'usage' || event.type === 'reasoning') {
           yield event;
           continue;
@@ -89,6 +101,13 @@ export async function* run(opts: RunOptions): AsyncIterable<LoopEvent> {
     const toolMessage: Message = { role: 'tool', content: results };
     messages.push(toolMessage);
     yield { type: 'message', message: toolMessage };
+
+    if (turn === maxTurns - 1) {
+      yield {
+        type: 'error',
+        error: new Error(`Agent loop stopped: reached max turns (${maxTurns})`),
+      };
+    }
   }
 
   yield { type: 'done', messages };
