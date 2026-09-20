@@ -2,6 +2,11 @@
   "name": "mu-tui",
   "version": "0.36.0",
   "description": "Terminal UI engine for mu hosts: input parser, capability detector, layout/render core, components",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gaetan-puleo/mu-ai.git",
+    "directory": "packages/tui"
+  },
   "type": "module",
   "main": "./src/index.ts",
   "exports": {

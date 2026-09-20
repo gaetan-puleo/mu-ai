@@ -2,6 +2,11 @@
   "name": "mu-webfetch",
   "version": "0.36.0",
   "description": "Webfetch tool for mu — fetches a URL and returns it as markdown by default.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gaetan-puleo/mu-ai.git",
+    "directory": "packages/webfetch"
+  },
   "type": "module",
   "main": "./src/plugin.ts",
   "types": "./src/plugin.ts",

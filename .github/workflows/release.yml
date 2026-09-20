@@ -11,6 +11,9 @@ permissions:
 jobs:
   npm:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -22,10 +25,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r build
       - run: pnpm test
-      - name: Publish all packages to npm
-        run: pnpm -r publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Pack packages (rewrites workspace: protocol to real versions)
+        run: pnpm -r pack
+      - name: Publish to npm via OIDC trusted publishing
+        run: |
+          shopt -s nullglob
+          for tgz in mu-*.tgz; do
+            echo "Publishing $tgz"
+            npm publish "$tgz" --access public
+          done
 
   binaries:
     runs-on: ubuntu-latest

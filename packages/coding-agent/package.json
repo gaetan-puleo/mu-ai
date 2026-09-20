@@ -2,6 +2,11 @@
   "name": "mu-coding",
   "version": "0.36.0",
   "description": "The mu product: in-process agent SDK (harness) + terminal CLI. arya imports the SDK; the terminal runs the `mu` bin.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gaetan-puleo/mu-ai.git",
+    "directory": "packages/coding-agent"
+  },
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
