@@ -1459,11 +1459,7 @@ export class ChatApp {
     const error = this.errorView();
     if (error) children.push(error);
 
-    const palette = this.paletteItems();
-    if (palette.length > 0) {
-      const rows = palette.map((c) => ({ left: `/${c.name}`, right: c.description }));
-      children.push(listView(rows, this.paletteCursor, this.theme()));
-    } else if (this.pickerVisible()) {
+    if (this.pickerVisible()) {
       const rows = this.pickerRanked.map((c) => ({ left: c.label, right: c.kind === 'file' ? '' : c.kind }));
       children.push(listView(rows, this.pickerCursor, this.theme()));
     }
@@ -1718,6 +1714,33 @@ export class ChatApp {
             width: PANEL_WIDTH,
             height: s.height,
           });
+        }
+        // The slash-command palette floats above the input instead of taking
+        // layout rows: opening it never shifts the banner or the transcript.
+        if (!focused) {
+          const palette = this.paletteItems();
+          if (palette.length > 0) {
+            const rows = palette.map((c) => ({ left: `/${c.name}`, right: c.description }));
+            const list = listView(rows, this.paletteCursor, theme);
+            const listH = Math.min(rows.length, MAX_LIST_ROWS);
+            const statusH = s.measure(this.statusBar(), chatW);
+            const groupW = showStart ? Math.min(SPLASH_INPUT_WIDTH, chatW) : chatW;
+            const inputH = s.measure(this.inputPanel(), groupW);
+            let inputY: number;
+            if (showStart) {
+              const bannerCmp = this.banner !== undefined ? this.bannerBlock() : this.logoBlock();
+              const bannerH = s.measure(bannerCmp, chatW);
+              const rem = Math.max(0, s.height - bannerH - 2 - inputH - statusH);
+              inputY = Math.floor(rem / 2) + bannerH + 2;
+            } else {
+              // dock = [inputGroup, statusBar, trailing blank row] pinned at the
+              // bottom — the input's top sits one row above the status bar.
+              inputY = s.height - 1 - statusH - inputH;
+            }
+            const y = Math.max(0, inputY - listH);
+            const x = showStart ? 1 + Math.floor((chatW - groupW) / 2) : 1;
+            s.child(list, { x, y, width: groupW, height: listH });
+          }
         }
       },
     };
