@@ -1,3 +1,10 @@
+# [0.38.0](https://github.com/gaetan-puleo/mu-ai/compare/v0.37.0...v0.38.0) (2026-09-23)
+
+
+### Features
+
+* **coding-agent:** hide the side panel on the start screen ([41a92c8](https://github.com/gaetan-puleo/mu-ai/commit/41a92c81051c9b1d0a95c3f8d870be8e289edc3a))
+
 # [0.37.0](https://github.com/gaetan-puleo/mu-ai/compare/v0.36.0...v0.37.0) (2026-09-23)
 
 

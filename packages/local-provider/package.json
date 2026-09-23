@@ -1,6 +1,6 @@
 {
   "name": "mu-local-provider",
-  "version": "0.37.0",
+  "version": "0.38.0",
   "description": "llama-swap provider for the mu runtime",
   "repository": {
     "type": "git",
