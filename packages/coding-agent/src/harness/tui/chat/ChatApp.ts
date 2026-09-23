@@ -1704,7 +1704,9 @@ export class ChatApp {
           inner.render(s);
           return;
         }
-        const showPanel = this.panelVisible(s.width);
+        // The side panel stays hidden on the start screen: the banner owns the
+        // full width until the first message turns the transcript on.
+        const showPanel = !showStart && this.panelVisible(s.width);
         const chatW = showPanel ? s.width - 2 - PANEL_WIDTH : s.width - 2;
         s.child(inner, { x: 1, y: 0, width: chatW, height: s.height });
         if (showPanel) {
