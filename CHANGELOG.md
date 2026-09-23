@@ -1,3 +1,10 @@
+## [0.38.2](https://github.com/gaetan-puleo/mu-ai/compare/v0.38.1...v0.38.2) (2026-09-23)
+
+
+### Bug Fixes
+
+* ship built dist in npm tarballs ([e653e6d](https://github.com/gaetan-puleo/mu-ai/commit/e653e6de94dee515f1bf37e9b913ef62df90085f))
+
 ## [0.38.1](https://github.com/gaetan-puleo/mu-ai/compare/v0.38.0...v0.38.1) (2026-09-23)
 
 
