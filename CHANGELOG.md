@@ -1,3 +1,10 @@
+# [0.37.0](https://github.com/gaetan-puleo/mu-ai/compare/v0.36.0...v0.37.0) (2026-09-23)
+
+
+### Features
+
+* **coding-agent:** float the slash-command palette above the input ([6ceb514](https://github.com/gaetan-puleo/mu-ai/commit/6ceb514a47156a90ad7af47ff14cc486e0f0c6dd))
+
 # Changelog
 
 All notable changes to mu packages. Versions are unified across all packages in this repo.
