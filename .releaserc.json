@@ -30,7 +30,7 @@
     [
       "@semantic-release/exec",
       {
-        "publishCmd": "pnpm --filter mu-core --filter mu-tui --filter mu-local-provider --filter mu-ai-tools --filter mu-coding --filter mu-webfetch pack && shopt -s nullglob && for tgz in mu-*.tgz; do npm publish \"$tgz\" --access public; done"
+        "publishCmd": "pnpm --filter mu-core --filter mu-tui --filter mu-local-provider --filter mu-ai-tools --filter mu-coding --filter mu-webfetch pack && for tgz in mu-*.tgz; do [ -f \"$tgz\" ] && npm publish \"$tgz\" --access public; done"
       }
     ],
     "@semantic-release/github"
