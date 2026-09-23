@@ -1,6 +1,6 @@
 {
   "name": "mu-core",
-  "version": "0.38.0",
+  "version": "0.38.1",
   "description": "Standalone multimodal agentic loop: content, messages, tools, provider interface, createAgent",
   "repository": {
     "type": "git",

@@ -1,6 +1,6 @@
 {
   "name": "mu-ai-tools",
-  "version": "0.38.0",
+  "version": "0.38.1",
   "description": "Shared filesystem + shell tools (read, write, edit, bash, list) for mu hosts",
   "repository": {
     "type": "git",

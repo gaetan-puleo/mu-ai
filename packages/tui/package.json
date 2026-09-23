@@ -1,6 +1,6 @@
 {
   "name": "mu-tui",
-  "version": "0.38.0",
+  "version": "0.38.1",
   "description": "Terminal UI engine for mu hosts: input parser, capability detector, layout/render core, components",
   "repository": {
     "type": "git",

@@ -1,6 +1,6 @@
 {
   "name": "mu-coding",
-  "version": "0.38.0",
+  "version": "0.38.1",
   "description": "The mu product: in-process agent SDK (harness) + terminal CLI. arya imports the SDK; the terminal runs the `mu` bin.",
   "repository": {
     "type": "git",
